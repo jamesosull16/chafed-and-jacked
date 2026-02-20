@@ -5,31 +5,37 @@
  * Structure: 4-week build + 1-week deload, repeating.
  * Final 3 weeks before race = progressive taper.
  *
- * Race: July 17, 2026
- * Program start: Feb 23, 2026 (first Monday after app creation)
+ * All date-dependent functions accept raceDate/programStart as parameters
+ * so the engine works with any user-configured race.
  */
 
-const RACE_DATE = new Date('2026-07-17')
-const PROGRAM_START = new Date('2026-02-23') // First training Monday
+// Memoization cache for built schedules (keyed by "raceDate-programStart")
+const scheduleCache = new Map()
 
 /**
- * Full mesocycle calendar. Each entry = one week.
- * Type: 'build' | 'deload' | 'taper' | 'race'
+ * Get (or build and cache) the mesocycle schedule for a given race.
  */
-export const SCHEDULE = buildSchedule()
+export function getSchedule(raceDate, programStart) {
+  if (!raceDate || !programStart) return []
+  const key = `${raceDate.getTime()}-${programStart.getTime()}`
+  if (scheduleCache.has(key)) return scheduleCache.get(key)
+  const schedule = buildSchedule(raceDate, programStart)
+  scheduleCache.set(key, schedule)
+  return schedule
+}
 
-function buildSchedule() {
+function buildSchedule(raceDate, programStart) {
   const weeks = []
-  let current = new Date(PROGRAM_START)
+  let current = new Date(programStart)
   let weekNum = 1
 
-  // Taper starts 3 weeks before race (June 26, 2026)
-  const taperStart = new Date(RACE_DATE)
+  // Taper starts 3 weeks before race
+  const taperStart = new Date(raceDate)
   taperStart.setDate(taperStart.getDate() - 21)
 
   // Race week starts Monday before race
-  const raceWeekStart = new Date(RACE_DATE)
-  raceWeekStart.setDate(raceWeekStart.getDate() - (RACE_DATE.getDay() === 0 ? 6 : RACE_DATE.getDay() - 1))
+  const raceWeekStart = new Date(raceDate)
+  raceWeekStart.setDate(raceWeekStart.getDate() - (raceDate.getDay() === 0 ? 6 : raceDate.getDay() - 1))
 
   while (current < raceWeekStart) {
     const weekEnd = new Date(current)
@@ -38,14 +44,12 @@ function buildSchedule() {
     let type, mesocycle, weekInMeso
 
     if (current >= taperStart) {
-      // Taper weeks
       const taperWeekNum = Math.floor((current - taperStart) / (7 * 86400000)) + 1
       type = 'taper'
       mesocycle = null
       weekInMeso = taperWeekNum
     } else {
-      // Build/deload cycles (5-week mesocycles: 4 build + 1 deload)
-      const weeksFromStart = Math.floor((current - PROGRAM_START) / (7 * 86400000))
+      const weeksFromStart = Math.floor((current - programStart) / (7 * 86400000))
       mesocycle = Math.floor(weeksFromStart / 5) + 1
       weekInMeso = (weeksFromStart % 5) + 1
       type = weekInMeso === 5 ? 'deload' : 'build'
@@ -68,7 +72,7 @@ function buildSchedule() {
   weeks.push({
     weekNumber: weekNum,
     startDate: new Date(raceWeekStart),
-    endDate: new Date(RACE_DATE),
+    endDate: new Date(raceDate),
     type: 'race',
     mesocycle: null,
     weekInMesocycle: null,
@@ -77,29 +81,65 @@ function buildSchedule() {
   return weeks
 }
 
-/** Get the current week's schedule info based on today's date */
-export function getCurrentWeek(date = new Date()) {
-  for (const week of SCHEDULE) {
+/**
+ * Get the current week's schedule info.
+ * If no race is configured, returns a perpetual build/deload cycle.
+ */
+export function getCurrentWeek(raceDate, programStart, date = new Date()) {
+  if (!raceDate || !programStart) {
+    return getPerpetualWeek(date)
+  }
+
+  const schedule = getSchedule(raceDate, programStart)
+
+  for (const week of schedule) {
     if (date >= week.startDate && date <= week.endDate) {
       return week
     }
   }
+
   // Before program start
-  if (date < PROGRAM_START) {
-    return { ...SCHEDULE[0], isFuture: true }
+  if (date < programStart) {
+    return { ...schedule[0], isFuture: true }
   }
   // After race
-  return { ...SCHEDULE[SCHEDULE.length - 1], isPast: true }
+  return { ...schedule[schedule.length - 1], isPast: true }
+}
+
+/**
+ * Perpetual build/deload cycle when no race is configured.
+ * 4-week build + 1-week deload, repeating from a fixed epoch.
+ */
+function getPerpetualWeek(date) {
+  // Use a fixed Monday as epoch for consistent cycling
+  const epoch = new Date('2026-01-05') // A Monday
+  const msPerWeek = 7 * 86400000
+  const weeksFromEpoch = Math.floor((date - epoch) / msPerWeek)
+  const weekInCycle = (((weeksFromEpoch % 5) + 5) % 5) + 1
+  const mesocycle = Math.floor(weeksFromEpoch / 5) + 1
+
+  const weekStart = new Date(epoch)
+  weekStart.setDate(weekStart.getDate() + weeksFromEpoch * 7)
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekEnd.getDate() + 6)
+
+  return {
+    weekNumber: weeksFromEpoch + 1,
+    startDate: weekStart,
+    endDate: weekEnd,
+    type: weekInCycle === 5 ? 'deload' : 'build',
+    mesocycle,
+    weekInMesocycle: weekInCycle,
+  }
 }
 
 /** Get deload modifications for sets and load */
 export function getDeloadModifiers() {
-  return { setReduction: 1, loadMultiplier: 0.875 } // Drop 1 set, reduce load ~12.5%
+  return { setReduction: 1, loadMultiplier: 0.875 }
 }
 
 /**
  * Get taper modifications based on taper week number (1, 2, or 3).
- * Progressive reduction in both volume and intensity.
  */
 export function getTaperModifiers(taperWeek) {
   const modifiers = {
@@ -112,7 +152,6 @@ export function getTaperModifiers(taperWeek) {
 
 /**
  * Calculate the effective sets and load multiplier for the current week.
- * Accounts for build (full), deload, and taper phases.
  */
 export function getWeekModifiers(weekInfo) {
   if (!weekInfo) return { setReduction: 0, loadMultiplier: 1.0, label: 'Build Phase — Full Load' }
@@ -128,30 +167,59 @@ export function getWeekModifiers(weekInfo) {
       return {
         setReduction: 0,
         loadMultiplier: 1.0,
-        label: `Build Phase — Mesocycle ${weekInfo.mesocycle}, Week ${weekInfo.weekInMesocycle}`,
+        label: weekInfo.mesocycle
+          ? `Build Phase — Mesocycle ${weekInfo.mesocycle}, Week ${weekInfo.weekInMesocycle}`
+          : 'Build Phase — Full Load',
       }
   }
 }
 
 /** Days until race from a given date */
-export function daysUntilRace(date = new Date()) {
-  const diff = RACE_DATE - date
+export function daysUntilRace(raceDate, date = new Date()) {
+  if (!raceDate) return 0
+  const diff = raceDate - date
   return Math.max(0, Math.ceil(diff / 86400000))
 }
 
-/** Get the race date */
-export function getRaceDate() {
-  return new Date(RACE_DATE)
-}
-
 /** Get total weeks in program */
-export function getTotalWeeks() {
-  return SCHEDULE.length
+export function getTotalWeeks(raceDate, programStart) {
+  if (!raceDate || !programStart) return 0
+  return getSchedule(raceDate, programStart).length
 }
 
 /**
- * Determine which day type (A/B/C) should be trained on a given date,
- * based on the user's training schedule preference.
+ * Calculate program start date from a race date.
+ * Snaps to Monday approximately 21 weeks before race.
+ */
+export function calculateProgramStart(raceDate) {
+  const start = new Date(raceDate)
+  start.setDate(start.getDate() - 21 * 7)
+  // Snap to Monday
+  const day = start.getDay()
+  if (day === 0) start.setDate(start.getDate() + 1)
+  else if (day !== 1) start.setDate(start.getDate() + (8 - day))
+  start.setHours(0, 0, 0, 0)
+  return start
+}
+
+/**
+ * Find the active race from a user's race array.
+ * Prefers nearest future A-race; falls back to nearest future race.
+ */
+export function getActiveRace(races) {
+  if (!races || races.length === 0) return null
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const futureRaces = races
+    .filter((r) => new Date(r.date) >= now)
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+
+  const aRace = futureRaces.find((r) => r.isARace)
+  return aRace || futureRaces[0] || null
+}
+
+/**
+ * Determine which day type (A/B/C) should be trained on a given date.
  */
 export function getDayTypeForDate(date, trainingDays = 'mon-wed-fri') {
   const { days } = trainingDays === 'tue-thu-sat'
@@ -161,7 +229,7 @@ export function getDayTypeForDate(date, trainingDays = 'mon-wed-fri') {
   const dayOfWeek = date.getDay()
   const dayIndex = days.indexOf(dayOfWeek)
 
-  if (dayIndex === -1) return null // Not a training day
+  if (dayIndex === -1) return null
   return ['A', 'B', 'C'][dayIndex]
 }
 

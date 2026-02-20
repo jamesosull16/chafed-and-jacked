@@ -93,17 +93,21 @@ export function AuthProvider({ children }) {
   async function completeOnboarding(data) {
     if (!user) return
     const userRef = doc(db, 'users', user.uid)
+    const { profile, races, goals, ...onboardingData } = data
     const updated = {
       ...userProfile,
-      onboarding: { completed: true, ...data },
+      onboarding: { completed: true, ...onboardingData },
+      ...(profile && { profile }),
+      ...(races && { races }),
+      ...(goals && { goals }),
     }
     await setDoc(userRef, updated, { merge: true })
     setUserProfile(updated)
 
     // Save initial body metrics as the first bodyMetrics entry
-    if (data.initialWeight) {
-      const bodyFatPct = data.initialBodyFat || 0
-      const weight = data.initialWeight
+    if (onboardingData.initialWeight) {
+      const bodyFatPct = onboardingData.initialBodyFat || 0
+      const weight = onboardingData.initialWeight
       const fatMass = bodyFatPct > 0 ? Math.round(weight * (bodyFatPct / 100) * 10) / 10 : 0
       const leanMass = bodyFatPct > 0 ? Math.round((weight - fatMass) * 10) / 10 : 0
       const metricsRef = collection(db, 'users', user.uid, 'bodyMetrics')
@@ -111,11 +115,20 @@ export function AuthProvider({ children }) {
         date: new Date().toISOString(),
         weight,
         bodyFatPct,
-        bmi: data.initialBMI || 0,
+        bmi: onboardingData.initialBMI || 0,
         fatMass,
         leanMass,
       })
     }
+  }
+
+  // Update profile fields (for Settings page edits)
+  async function updateUserProfile(data) {
+    if (!user) return
+    const userRef = doc(db, 'users', user.uid)
+    const updated = { ...userProfile, ...data }
+    await setDoc(userRef, updated, { merge: true })
+    setUserProfile(updated)
   }
 
   // Refresh profile from Firestore
@@ -134,6 +147,7 @@ export function AuthProvider({ children }) {
     signUpWithEmail,
     logout,
     completeOnboarding,
+    updateUserProfile,
     refreshProfile,
   }
 

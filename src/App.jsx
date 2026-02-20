@@ -9,6 +9,7 @@ import Workout from './pages/Workout'
 import Metrics from './pages/Metrics'
 import Progress from './pages/Progress'
 import History from './pages/History'
+import Settings from './pages/Settings'
 
 export default function App() {
   return (
@@ -54,6 +55,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Layout><History /></Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <Layout><Settings /></Layout>
               </ProtectedRoute>
             }
           />

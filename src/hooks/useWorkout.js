@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useFirestore, getWeekId, getWeekStart } from './useFirestore'
 import { getExercisesForDay } from '../lib/program'
-import { getCurrentWeek, getWeekModifiers, getDayTypeForDate, getNextSession } from '../lib/periodization'
-import { getScalingTier, calculateAdjustedWeight, calculateEffectiveSets } from '../lib/loadScaling'
+import { getCurrentWeek, getWeekModifiers, getNextSession, getActiveRace, daysUntilRace, calculateProgramStart } from '../lib/periodization'
+import { getScalingTier, calculateEffectiveSets } from '../lib/loadScaling'
 import { getRecommendedWeight, checkForPR } from '../lib/progression'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -18,9 +18,18 @@ export function useWorkout() {
   const [exerciseHistory, setExerciseHistory] = useState({})
 
   const trainingDays = userProfile?.onboarding?.trainingDays || 'mon-wed-fri'
-  const weekInfo = getCurrentWeek()
+
+  // Derive active race and periodization dates from user profile
+  const activeRace = getActiveRace(userProfile?.races)
+  const raceDate = activeRace ? new Date(activeRace.date) : null
+  const programStart = activeRace
+    ? new Date(activeRace.programStart || calculateProgramStart(raceDate))
+    : null
+
+  const weekInfo = getCurrentWeek(raceDate, programStart)
   const weekModifiers = getWeekModifiers(weekInfo)
   const weekId = getWeekId()
+  const raceDaysLeft = daysUntilRace(raceDate)
 
   // Load current week's mileage and exercise history on mount
   useEffect(() => {
@@ -66,7 +75,6 @@ export function useWorkout() {
 
   /**
    * Get the fully-prepared workout for a given day type.
-   * Returns exercises with recommended weights, adjusted sets, and explanations.
    */
   const getWorkoutForDay = useCallback(
     (dayType) => {
@@ -123,23 +131,20 @@ export function useWorkout() {
 
   /**
    * Save a completed workout session to Firestore.
-   * Updates both the session log and per-exercise progress tracking.
    */
   async function saveSession(dayType, exerciseResults, duration) {
     if (!user) return
 
-    // Calculate total volume
     const totalVolume = exerciseResults.reduce((total, ex) => {
       return total + ex.sets.reduce((setTotal, set) => setTotal + set.reps * set.weight, 0)
     }, 0)
 
-    // Save the workout session
     const sessionData = {
       date: new Date().toISOString(),
       dayType,
-      week: weekInfo.weekNumber,
-      mesocycle: weekInfo.mesocycle,
-      weekType: weekInfo.type,
+      week: weekInfo?.weekNumber || 0,
+      mesocycle: weekInfo?.mesocycle || null,
+      weekType: weekInfo?.type || 'build',
       exercises: exerciseResults.map((ex) => ({
         id: ex.id,
         sets: ex.sets,
@@ -156,8 +161,6 @@ export function useWorkout() {
       const reps = ex.sets.map((s) => s.reps)
       const weight = ex.sets[0]?.weight || 0
       const history = exerciseHistory[ex.id]?.history || []
-
-      // Check for PR
       const pr = checkForPR(ex.id, weight, reps, history)
 
       await setDocument(`exerciseProgress/${ex.id}`, {
@@ -171,7 +174,6 @@ export function useWorkout() {
       })
     }
 
-    // Reload data
     await loadWeekData()
   }
 
@@ -188,6 +190,9 @@ export function useWorkout() {
 
   return {
     loading,
+    activeRace,
+    raceDate,
+    raceDaysLeft,
     weekInfo,
     weekModifiers,
     scalingTier,

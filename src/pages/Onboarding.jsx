@@ -1,6 +1,16 @@
 import { useState } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { calculateProgramStart } from '../lib/periodization'
+
+const RACE_DISTANCES = [
+  { value: '26.2', label: 'Marathon (26.2 mi)' },
+  { value: '31', label: '50K (31 mi)' },
+  { value: '50', label: '50 Mile' },
+  { value: '62', label: '100K (62 mi)' },
+  { value: '100', label: '100 Mile' },
+  { value: 'custom', label: 'Custom Distance' },
+]
 
 export default function Onboarding() {
   const { user, userProfile, completeOnboarding, loading } = useAuth()
@@ -8,9 +18,19 @@ export default function Onboarding() {
   const [step, setStep] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [data, setData] = useState({
+    // Personal info
+    age: '',
+    biologicalSex: '',
+    // Body metrics
     initialWeight: '',
     initialBodyFat: '',
     initialBMI: '',
+    // Race
+    raceName: '',
+    raceDistance: '',
+    raceDistanceCustom: '',
+    raceDate: '',
+    // Running baseline
     baselineMileage: '',
     trainingDays: 'mon-wed-fri',
   })
@@ -25,15 +45,39 @@ export default function Onboarding() {
 
   async function handleComplete() {
     setSubmitting(true)
+
+    const distance = parseFloat(data.raceDistance === 'custom' ? data.raceDistanceCustom : data.raceDistance) || 0
+    const raceDate = data.raceDate ? new Date(data.raceDate + 'T00:00:00') : null
+    const programStart = raceDate ? calculateProgramStart(raceDate) : null
+
+    const race = raceDate ? {
+      id: crypto.randomUUID(),
+      name: data.raceName || 'A Race',
+      distance,
+      distanceUnit: 'miles',
+      date: data.raceDate,
+      isARace: true,
+      programStart: programStart.toISOString().slice(0, 10),
+    } : null
+
     await completeOnboarding({
       initialWeight: parseFloat(data.initialWeight) || 0,
       initialBodyFat: parseFloat(data.initialBodyFat) || 0,
       initialBMI: parseFloat(data.initialBMI) || 0,
       baselineMileage: parseFloat(data.baselineMileage) || 0,
       trainingDays: data.trainingDays,
+      profile: {
+        age: parseInt(data.age) || 0,
+        biologicalSex: data.biologicalSex || '',
+      },
+      races: race ? [race] : [],
     })
     navigate('/')
   }
+
+  const inputClass = 'w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-brand'
+  const backBtnClass = 'flex-1 border border-gray-700 text-gray-400 py-3 rounded-lg hover:bg-gray-900 transition-colors'
+  const nextBtnClass = 'flex-1 bg-brand hover:bg-brand-light text-white py-3 rounded-lg transition-colors disabled:opacity-50'
 
   const steps = [
     // Step 0: Welcome
@@ -52,7 +96,57 @@ export default function Onboarding() {
       </button>
     </div>,
 
-    // Step 1: Body metrics
+    // Step 1: Personal Info (NEW)
+    <div key="personal" className="space-y-4">
+      <h2 className="text-xl font-bold">About You</h2>
+      <p className="text-gray-400 text-sm">Used for body composition recommendations and safe rate-of-change calculations.</p>
+      <div className="space-y-3">
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Age</label>
+          <input
+            type="number"
+            value={data.age}
+            onChange={(e) => update('age', e.target.value)}
+            placeholder="35"
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-2">Biological Sex</label>
+          <p className="text-xs text-gray-600 mb-2">Affects body fat range recommendations only.</p>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              ['male', 'Male'],
+              ['female', 'Female'],
+            ].map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => update('biologicalSex', val)}
+                className={`py-3 rounded-lg border text-sm font-medium transition-colors ${
+                  data.biologicalSex === val
+                    ? 'border-brand bg-brand/10 text-brand'
+                    : 'border-gray-700 text-gray-400 hover:bg-gray-900'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="flex gap-3">
+        <button onClick={() => setStep(0)} className={backBtnClass}>Back</button>
+        <button
+          onClick={() => setStep(2)}
+          disabled={!data.age || !data.biologicalSex}
+          className={nextBtnClass}
+        >
+          Next
+        </button>
+      </div>
+    </div>,
+
+    // Step 2: Body metrics
     <div key="body" className="space-y-4">
       <h2 className="text-xl font-bold">Body Metrics</h2>
       <p className="text-gray-400 text-sm">From your Garmin Index scale, or best estimate.</p>
@@ -65,7 +159,7 @@ export default function Onboarding() {
             value={data.initialWeight}
             onChange={(e) => update('initialWeight', e.target.value)}
             placeholder="175"
-            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-brand"
+            className={inputClass}
           />
         </div>
         <div>
@@ -76,7 +170,7 @@ export default function Onboarding() {
             value={data.initialBodyFat}
             onChange={(e) => update('initialBodyFat', e.target.value)}
             placeholder="18.5"
-            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-brand"
+            className={inputClass}
           />
         </div>
         <div>
@@ -87,23 +181,88 @@ export default function Onboarding() {
             value={data.initialBMI}
             onChange={(e) => update('initialBMI', e.target.value)}
             placeholder="24.1"
-            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-brand"
+            className={inputClass}
           />
         </div>
       </div>
       <div className="flex gap-3">
-        <button onClick={() => setStep(0)} className="flex-1 border border-gray-700 text-gray-400 py-3 rounded-lg hover:bg-gray-900 transition-colors">Back</button>
+        <button onClick={() => setStep(1)} className={backBtnClass}>Back</button>
         <button
-          onClick={() => setStep(2)}
+          onClick={() => setStep(3)}
           disabled={!data.initialWeight}
-          className="flex-1 bg-brand hover:bg-brand-light text-white py-3 rounded-lg transition-colors disabled:opacity-50"
+          className={nextBtnClass}
         >
           Next
         </button>
       </div>
     </div>,
 
-    // Step 2: Running baseline
+    // Step 3: A-Race (NEW)
+    <div key="race" className="space-y-4">
+      <h2 className="text-xl font-bold">Your A Race</h2>
+      <p className="text-gray-400 text-sm">This drives your taper timing, periodization, and body comp goals. You can add more races later.</p>
+      <div className="space-y-3">
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Race Name</label>
+          <input
+            type="text"
+            value={data.raceName}
+            onChange={(e) => update('raceName', e.target.value)}
+            placeholder="e.g. Leadville 100"
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Distance</label>
+          <div className="grid grid-cols-2 gap-2">
+            {RACE_DISTANCES.map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => update('raceDistance', value)}
+                className={`py-2.5 rounded-lg border text-xs font-medium transition-colors ${
+                  data.raceDistance === value
+                    ? 'border-brand bg-brand/10 text-brand'
+                    : 'border-gray-700 text-gray-400 hover:bg-gray-900'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {data.raceDistance === 'custom' && (
+            <input
+              type="number"
+              step="0.1"
+              value={data.raceDistanceCustom}
+              onChange={(e) => update('raceDistanceCustom', e.target.value)}
+              placeholder="Distance in miles"
+              className={`${inputClass} mt-2`}
+            />
+          )}
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Race Date</label>
+          <input
+            type="date"
+            value={data.raceDate}
+            onChange={(e) => update('raceDate', e.target.value)}
+            className={inputClass}
+          />
+        </div>
+      </div>
+      <p className="text-xs text-gray-600">You can skip this and add races later in Settings.</p>
+      <div className="flex gap-3">
+        <button onClick={() => setStep(2)} className={backBtnClass}>Back</button>
+        <button
+          onClick={() => setStep(4)}
+          className={nextBtnClass}
+        >
+          {data.raceDate ? 'Next' : 'Skip for Now'}
+        </button>
+      </div>
+    </div>,
+
+    // Step 4: Running baseline + training days
     <div key="running" className="space-y-4">
       <h2 className="text-xl font-bold">Running Baseline</h2>
       <p className="text-gray-400 text-sm">What's your current weekly mileage?</p>
@@ -115,7 +274,7 @@ export default function Onboarding() {
           value={data.baselineMileage}
           onChange={(e) => update('baselineMileage', e.target.value)}
           placeholder="40"
-          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-brand"
+          className={inputClass}
         />
       </div>
 
@@ -142,11 +301,11 @@ export default function Onboarding() {
       </div>
 
       <div className="flex gap-3">
-        <button onClick={() => setStep(1)} className="flex-1 border border-gray-700 text-gray-400 py-3 rounded-lg hover:bg-gray-900 transition-colors">Back</button>
+        <button onClick={() => setStep(3)} className={backBtnClass}>Back</button>
         <button
           onClick={handleComplete}
           disabled={submitting || !data.baselineMileage}
-          className="flex-1 bg-brand hover:bg-brand-light text-white py-3 rounded-lg transition-colors disabled:opacity-50"
+          className={nextBtnClass}
         >
           {submitting ? 'Saving...' : 'Start Training'}
         </button>
@@ -156,7 +315,20 @@ export default function Onboarding() {
 
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center px-6">
-      <div className="w-full max-w-sm">{steps[step]}</div>
+      <div className="w-full max-w-sm">
+        {/* Step indicator */}
+        <div className="flex items-center justify-center gap-1.5 mb-6">
+          {steps.map((_, i) => (
+            <div
+              key={i}
+              className={`h-1 rounded-full transition-all ${
+                i === step ? 'w-6 bg-brand' : i < step ? 'w-3 bg-brand/50' : 'w-3 bg-gray-700'
+              }`}
+            />
+          ))}
+        </div>
+        {steps[step]}
+      </div>
     </div>
   )
 }

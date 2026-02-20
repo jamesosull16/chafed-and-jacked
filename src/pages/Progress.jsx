@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts'
 import { useFirestore } from '../hooks/useFirestore'
+import { useAuth } from '../contexts/AuthContext'
 import { EXERCISES } from '../lib/program'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 
@@ -90,7 +91,7 @@ function ExerciseProgressChart({ exerciseId, history }) {
   )
 }
 
-function BodyCompChart({ entries }) {
+function BodyCompChart({ entries, goals }) {
   if (!entries || entries.length < 2) return null
 
   const data = [...entries].reverse().map((entry) => ({
@@ -109,6 +110,13 @@ function BodyCompChart({ entries }) {
           <XAxis dataKey="date" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
           <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} width={35} />
           <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={{ color: '#9CA3AF' }} />
+          {/* Goal reference lines */}
+          {goals?.targetWeight && (
+            <ReferenceLine y={goals.targetWeight} stroke="#C2410C" strokeDasharray="6 3" label={{ value: 'Goal', fill: '#C2410C', fontSize: 10, position: 'right' }} />
+          )}
+          {goals?.milestones?.map((m) => (
+            <ReferenceLine key={m.pctComplete} y={m.targetWeight} stroke="#4B5563" strokeDasharray="4 4" />
+          ))}
           <Line type="monotone" dataKey="weight" stroke="#9CA3AF" strokeWidth={1.5} dot={false} name="Weight" />
           <Line type="monotone" dataKey="leanMass" stroke="#22C55E" strokeWidth={2} dot={false} name="Lean Mass" />
           <Line type="monotone" dataKey="fatMass" stroke="#EF4444" strokeWidth={2} dot={false} name="Fat Mass" />
@@ -124,6 +132,11 @@ function BodyCompChart({ entries }) {
         <span className="flex items-center gap-1 text-xs text-danger">
           <span className="w-3 h-0.5 bg-danger inline-block" /> Fat
         </span>
+        {goals?.targetWeight && (
+          <span className="flex items-center gap-1 text-xs text-brand">
+            <span className="w-3 h-0.5 bg-brand inline-block border-dashed" /> Goal
+          </span>
+        )}
       </div>
     </div>
   )
@@ -244,6 +257,7 @@ function PRList({ exerciseHistory }) {
 
 export default function Progress() {
   const { getCollection } = useFirestore()
+  const { userProfile } = useAuth()
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('strength')
   const [timeRange, setTimeRange] = useState('3m')
@@ -366,7 +380,7 @@ export default function Progress() {
       {tab === 'body' && (
         <div className="space-y-3">
           {filteredMetrics.length >= 2 ? (
-            <BodyCompChart entries={filteredMetrics} />
+            <BodyCompChart entries={filteredMetrics} goals={userProfile?.goals} />
           ) : (
             <EmptyState message="Log at least 2 body metric entries to see trends." />
           )}

@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useFirestore } from '../hooks/useFirestore'
+import { useAuth } from '../contexts/AuthContext'
 import { calculateComposition, analyzeMetricsChange, calculateDeltas, formatDelta } from '../lib/bodyMetrics'
+import { assessREDSRisk, getRecommendedBodyFatRange } from '../lib/bodyCompGoals'
+import { getActiveRace } from '../lib/periodization'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 
 export default function Metrics() {
   const { getCollection, addDocument } = useFirestore()
+  const { userProfile } = useAuth()
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -56,6 +60,21 @@ export default function Metrics() {
   const previous = entries[1] || null
   const deltas = calculateDeltas(latest, previous)
   const alerts = latest && previous ? analyzeMetricsChange(latest, previous) : []
+
+  // Goal progress
+  const goals = userProfile?.goals || null
+  const activeRace = getActiveRace(userProfile?.races)
+  const sex = userProfile?.profile?.biologicalSex || 'male'
+  const raceDistance = activeRace?.distance || 50
+
+  // RED-S risk assessment from latest weekly change
+  const weeklyWeightLoss = deltas && deltas.weight < 0 ? Math.abs(deltas.weight) : 0
+  const redsAssessment = latest
+    ? assessREDSRisk(weeklyWeightLoss, latest.weight, latest.bodyFatPct || 0, sex, userProfile?.onboarding?.baselineMileage || 30)
+    : null
+
+  // Recommended BF% range
+  const bfRange = getRecommendedBodyFatRange(sex, raceDistance)
 
   return (
     <div className="space-y-4 pb-6">
@@ -170,6 +189,37 @@ export default function Metrics() {
         </div>
       ))}
 
+      {/* Goal Progress */}
+      {goals?.targetWeight && latest && (
+        <GoalProgressCard
+          currentWeight={latest.weight}
+          targetWeight={goals.targetWeight}
+          currentBodyFat={latest.bodyFatPct}
+          targetBodyFat={goals.targetBodyFatPct}
+          milestones={goals.milestones}
+          bfRange={bfRange}
+        />
+      )}
+
+      {/* RED-S Warnings */}
+      {redsAssessment && redsAssessment.riskLevel !== 'low' && redsAssessment.warnings.map((warning, i) => (
+        <div
+          key={`reds-${i}`}
+          className={`rounded-xl p-3 border ${
+            redsAssessment.riskLevel === 'high'
+              ? 'bg-red-900/20 border-red-800'
+              : 'bg-yellow-900/20 border-yellow-800'
+          }`}
+        >
+          <p className={`text-xs font-semibold ${
+            redsAssessment.riskLevel === 'high' ? 'text-danger' : 'text-warning'
+          }`}>
+            RED-S Risk: {redsAssessment.riskLevel.charAt(0).toUpperCase() + redsAssessment.riskLevel.slice(1)}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">{warning}</p>
+        </div>
+      ))}
+
       {/* History Table */}
       {entries.length > 0 && (
         <div className="bg-surface rounded-xl border border-gray-800 overflow-hidden">
@@ -221,6 +271,65 @@ function StatBox({ label, value, delta }) {
       <p className="text-xs text-gray-500">{label}</p>
       <p className="text-lg font-semibold text-gray-100">{value}</p>
       {delta && <p className={`text-xs ${delta.color}`}>{delta.text}</p>}
+    </div>
+  )
+}
+
+function GoalProgressCard({ currentWeight, targetWeight, currentBodyFat, targetBodyFat, milestones, bfRange }) {
+  const totalLoss = currentWeight - targetWeight
+  const remaining = currentWeight - targetWeight
+  const startWeight = milestones?.length > 0
+    ? targetWeight + (milestones[milestones.length - 1]?.targetWeight - targetWeight) + remaining
+    : currentWeight
+  // Progress as percentage of original goal
+  const lost = startWeight - currentWeight
+  const totalGoal = startWeight - targetWeight
+  const progressPct = totalGoal > 0 ? Math.min(100, Math.max(0, (lost / totalGoal) * 100)) : 0
+
+  // Find next milestone
+  const nextMilestone = milestones?.find((m) => currentWeight > m.targetWeight)
+
+  return (
+    <div className="bg-surface rounded-xl p-4 border border-gray-800">
+      <h3 className="text-sm font-semibold text-gray-300 mb-3">Goal Progress</h3>
+      <div className="space-y-3">
+        <div className="flex justify-between text-xs text-gray-400">
+          <span>Current: {currentWeight} lbs</span>
+          <span>Goal: {targetWeight} lbs</span>
+        </div>
+        {/* Progress bar */}
+        <div className="w-full bg-gray-800 rounded-full h-2">
+          <div
+            className="bg-brand h-2 rounded-full transition-all"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+        <p className="text-xs text-gray-500 text-center">
+          {remaining > 0 ? `${remaining.toFixed(1)} lbs to go` : 'Goal reached!'}
+        </p>
+
+        {/* Body fat row */}
+        {targetBodyFat > 0 && (
+          <div className="flex justify-between text-xs">
+            <span className="text-gray-400">
+              Body Fat: {currentBodyFat > 0 ? `${currentBodyFat}%` : '--'}
+            </span>
+            <span className="text-gray-500">
+              Target: {targetBodyFat}% (range: {bfRange.optimal.min}-{bfRange.optimal.max}%)
+            </span>
+          </div>
+        )}
+
+        {/* Next milestone */}
+        {nextMilestone && (
+          <div className="bg-gray-900 rounded-lg p-2.5">
+            <p className="text-xs text-gray-500">Next Milestone ({nextMilestone.pctComplete}%)</p>
+            <p className="text-sm text-gray-200 mt-0.5">
+              {nextMilestone.targetWeight} lbs by {nextMilestone.targetDate}
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
