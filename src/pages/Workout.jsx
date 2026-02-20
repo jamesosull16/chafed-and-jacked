@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useWorkout } from '../hooks/useWorkout'
 import { useAuth } from '../contexts/AuthContext'
 import { DAY_LABELS, EXERCISES } from '../lib/program'
@@ -148,6 +148,7 @@ function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onTogg
           </div>
           <p className="text-xs text-gray-500 mt-0.5">
             {totalSets} sets x {exercise.isTimeBased ? `${exercise.repRange[0]}-${exercise.repRange[1]}s` : `${exercise.repRange[0]}-${exercise.repRange[1]} reps`}
+            <span className="ml-2 text-gray-600">· {exercise.restSeconds}s rest</span>
             {exercise.recommendedWeight > 0 && (
               <span className={`ml-2 ${directionColor[exercise.progressionDirection]}`}>
                 {directionIcon[exercise.progressionDirection]} {exercise.recommendedWeight} lbs
@@ -230,8 +231,10 @@ function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onTogg
 
 export default function Workout() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const requestedDay = searchParams.get('day') // 'A', 'B', or 'C' from URL
   const { userProfile } = useAuth()
-  const { loading, getTodaysWorkout, saveSession, weekInfo, exerciseHistory, currentMileage } = useWorkout()
+  const { loading, getTodaysWorkout, getWorkoutForDay, saveSession, weekInfo, weekModifiers, scalingTier, exerciseHistory, currentMileage } = useWorkout()
   const [workout, setWorkout] = useState(null)
   const [sessionData, setSessionData] = useState({})
   const [expandedExercise, setExpandedExercise] = useState(null)
@@ -245,13 +248,27 @@ export default function Workout() {
 
   useEffect(() => {
     if (!loading) {
-      const w = getTodaysWorkout()
+      let w
+      if (requestedDay && ['A', 'B', 'C'].includes(requestedDay)) {
+        // User clicked a specific day from the dashboard
+        w = {
+          dayType: requestedDay,
+          exercises: getWorkoutForDay(requestedDay),
+          weekInfo,
+          weekModifiers,
+          scalingTier,
+          isToday: false,
+        }
+      } else {
+        // Default: show today's or next upcoming session
+        w = getTodaysWorkout()
+      }
       setWorkout(w)
       if (w?.exercises?.length > 0) {
         setExpandedExercise(w.exercises[0].id)
       }
     }
-  }, [loading])
+  }, [loading, requestedDay])
 
   // Auto-advance: when all sets for current exercise are done, expand the next one
   useEffect(() => {

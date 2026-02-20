@@ -24,7 +24,10 @@ export function useWorkout() {
 
   // Load current week's mileage and exercise history on mount
   useEffect(() => {
-    if (!user) return
+    if (!user) {
+      setLoading(false)
+      return
+    }
     loadWeekData()
   }, [user, weekId])
 

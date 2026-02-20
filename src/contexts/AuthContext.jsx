@@ -26,18 +26,23 @@ export function AuthProvider({ children }) {
   // Listen to auth state changes and load profile
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser)
-      if (firebaseUser) {
-        const profileDoc = await getDoc(doc(db, 'users', firebaseUser.uid))
-        if (profileDoc.exists()) {
-          setUserProfile(profileDoc.data())
+      try {
+        setUser(firebaseUser)
+        if (firebaseUser) {
+          const profileDoc = await getDoc(doc(db, 'users', firebaseUser.uid))
+          if (profileDoc.exists()) {
+            setUserProfile(profileDoc.data())
+          } else {
+            setUserProfile(null)
+          }
         } else {
           setUserProfile(null)
         }
-      } else {
-        setUserProfile(null)
+      } catch (err) {
+        console.error('Failed to load user profile:', err)
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     })
     return unsubscribe
   }, [])
