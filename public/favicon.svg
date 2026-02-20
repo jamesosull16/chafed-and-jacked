@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Flexing arm silhouette -->
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#EA580C"/>
+      <stop offset="100%" style="stop-color:#C2410C"/>
+    </linearGradient>
+  </defs>
+  <!-- Mountain/trail background -->
+  <path d="M0 52 L16 28 L24 38 L36 18 L52 42 L64 32 L64 64 L0 64Z" fill="#1F2937" opacity="0.6"/>
+  <!-- Flexing arm -->
+  <path d="M20 48 C20 44 22 40 26 36 C28 34 30 30 32 26 C34 22 38 20 40 22 C42 24 42 28 40 32 C44 30 46 28 46 32 C46 36 44 38 40 38 C38 38 36 40 34 42 C32 44 30 48 28 48Z" fill="url(#g)"/>
+  <!-- Band-aid / chafe mark -->
+  <rect x="30" y="24" width="8" height="4" rx="1" fill="#FCD34D" transform="rotate(-20 34 26)"/>
+  <line x1="32" y1="24.5" x2="32" y2="27.5" stroke="#D97706" stroke-width="0.5" transform="rotate(-20 34 26)"/>
+  <line x1="34" y1="24.5" x2="34" y2="27.5" stroke="#D97706" stroke-width="0.5" transform="rotate(-20 34 26)"/>
+  <line x1="36" y1="24.5" x2="36" y2="27.5" stroke="#D97706" stroke-width="0.5" transform="rotate(-20 34 26)"/>
+</svg>

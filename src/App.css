@@ -1,0 +1,9 @@
+/* Safe area padding for bottom nav on notched devices */
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* Tabular numbers for timers and stats */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

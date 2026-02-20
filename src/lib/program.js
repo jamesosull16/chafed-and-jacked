@@ -1,0 +1,298 @@
+/**
+ * PROGRAM DEFINITION — Chafed & Jacked
+ *
+ * 3x/week strength program for intermediate ultramarathon runners.
+ * Priorities: muscular endurance > fat loss/definition > injury prevention > strength maintenance.
+ * NOT a hypertrophy program. Higher rep ranges, short rest, compound + unilateral emphasis.
+ *
+ * Based on ACSM muscular endurance guidelines (>=12 reps, <70% 1RM, short rest)
+ * and NSCA recommendations for endurance athletes (posterior chain, single-leg, anti-rotation core).
+ */
+
+export const EXERCISES = {
+  // --- Day A: Posterior Chain & Hip Stability ---
+  rdl: {
+    id: 'rdl',
+    name: 'Romanian Deadlift',
+    shortName: 'RDL',
+    day: 'A',
+    order: 1,
+    sets: 3,
+    repRange: [15, 20],
+    restSeconds: 60,
+    isUnilateral: false,
+    muscleGroup: 'posterior chain',
+    equipment: 'Dumbbells or barbell',
+    notes: 'Hip hinge pattern — critical for uphill running economy. Keep slight knee bend, hinge from hips.',
+    weightIncrement: 5,
+  },
+  bulgarianSplitSquat: {
+    id: 'bulgarianSplitSquat',
+    name: 'Bulgarian Split Squat',
+    shortName: 'BSS',
+    day: 'A',
+    order: 2,
+    sets: 3,
+    repRange: [12, 16],
+    restSeconds: 60,
+    isUnilateral: true,
+    muscleGroup: 'quads / glutes',
+    equipment: 'Dumbbells, bench',
+    notes: 'Mimics single-leg stance of running. Rear foot elevated on bench. Addresses bilateral imbalances.',
+    weightIncrement: 5,
+  },
+  singleLegHipThrust: {
+    id: 'singleLegHipThrust',
+    name: 'Single-Leg Hip Thrust',
+    shortName: 'SL Hip Thrust',
+    day: 'A',
+    order: 3,
+    sets: 3,
+    repRange: [15, 20],
+    restSeconds: 60,
+    isUnilateral: true,
+    muscleGroup: 'glutes',
+    equipment: 'Bench, optional dumbbell',
+    notes: 'Glute activation in hip extension — directly supports uphill power and stride drive.',
+    weightIncrement: 5,
+  },
+  lateralBandWalk: {
+    id: 'lateralBandWalk',
+    name: 'Lateral Band Walk',
+    shortName: 'Band Walk',
+    day: 'A',
+    order: 4,
+    sets: 2,
+    repRange: [20, 20],
+    restSeconds: 45,
+    isUnilateral: false,
+    muscleGroup: 'hip abductors',
+    equipment: 'Resistance band',
+    notes: 'IT band injury prevention. Keep tension in band throughout. Quarter squat position.',
+    weightIncrement: 0, // band-based
+  },
+  copenhagenPlank: {
+    id: 'copenhagenPlank',
+    name: 'Copenhagen Plank',
+    shortName: 'Cph Plank',
+    day: 'A',
+    order: 5,
+    sets: 2,
+    repRange: [20, 30], // seconds
+    restSeconds: 45,
+    isUnilateral: true,
+    muscleGroup: 'adductors',
+    equipment: 'Bench',
+    notes: 'Adductor strength for groin injury prevention on trails. Hold for time (seconds).',
+    weightIncrement: 0, // timed
+    isTimeBased: true,
+  },
+
+  // --- Day B: Upper Body Pull & Core ---
+  pullUp: {
+    id: 'pullUp',
+    name: 'Pull-Up / Lat Pulldown',
+    shortName: 'Pull-Up',
+    day: 'B',
+    order: 1,
+    sets: 3,
+    repRange: [12, 16],
+    restSeconds: 60,
+    isUnilateral: false,
+    muscleGroup: 'lats / upper back',
+    equipment: 'Pull-up bar or cable machine',
+    notes: 'Upper back endurance — posture maintenance during late-race fatigue. Use pulldown if needed.',
+    weightIncrement: 2.5,
+  },
+  singleArmRow: {
+    id: 'singleArmRow',
+    name: 'Single-Arm Dumbbell Row',
+    shortName: 'SA Row',
+    day: 'B',
+    order: 2,
+    sets: 3,
+    repRange: [15, 20],
+    restSeconds: 60,
+    isUnilateral: true,
+    muscleGroup: 'upper back / lats',
+    equipment: 'Dumbbell, bench',
+    notes: 'Anti-rotation demand plus pulling endurance. Pack-carrying durability for ultras.',
+    weightIncrement: 5,
+  },
+  facePull: {
+    id: 'facePull',
+    name: 'Face Pull',
+    shortName: 'Face Pull',
+    day: 'B',
+    order: 3,
+    sets: 3,
+    repRange: [18, 25],
+    restSeconds: 45,
+    isUnilateral: false,
+    muscleGroup: 'rear delts / rotator cuff',
+    equipment: 'Cable or band',
+    notes: 'Rotator cuff health. Counters the forward-lean posture from hours of running.',
+    weightIncrement: 2.5,
+  },
+  pushUp: {
+    id: 'pushUp',
+    name: 'Push-Up',
+    shortName: 'Push-Up',
+    day: 'B',
+    order: 4,
+    sets: 3,
+    repRange: [15, 20],
+    restSeconds: 60,
+    isUnilateral: false,
+    muscleGroup: 'chest / triceps',
+    equipment: 'Bodyweight (add vest/plate to progress)',
+    notes: 'Pressing balance with minimal fatigue cost. Use DB floor press as alternative.',
+    weightIncrement: 0, // bodyweight — progress via reps or added weight
+  },
+  pallofPress: {
+    id: 'pallofPress',
+    name: 'Pallof Press',
+    shortName: 'Pallof',
+    day: 'B',
+    order: 5,
+    sets: 3,
+    repRange: [12, 15],
+    restSeconds: 45,
+    isUnilateral: true,
+    muscleGroup: 'core (anti-rotation)',
+    equipment: 'Cable or band',
+    notes: 'Core anti-rotation — trunk stability on technical, uneven terrain.',
+    weightIncrement: 2.5,
+  },
+  deadBug: {
+    id: 'deadBug',
+    name: 'Dead Bug',
+    shortName: 'Dead Bug',
+    day: 'B',
+    order: 6,
+    sets: 2,
+    repRange: [12, 15],
+    restSeconds: 45,
+    isUnilateral: true,
+    muscleGroup: 'deep core',
+    equipment: 'Bodyweight',
+    notes: 'Deep core activation for pelvic stability during running gait.',
+    weightIncrement: 0,
+  },
+
+  // --- Day C: Single-Leg & Full Body ---
+  stepUp: {
+    id: 'stepUp',
+    name: 'Weighted Step-Up',
+    shortName: 'Step-Up',
+    day: 'C',
+    order: 1,
+    sets: 3,
+    repRange: [12, 16],
+    restSeconds: 60,
+    isUnilateral: true,
+    muscleGroup: 'quads / glutes',
+    equipment: 'Dumbbells, 12-16" box',
+    notes: 'Single-leg concentric power — directly transfers to uphill hiking and running.',
+    weightIncrement: 5,
+  },
+  singleLegRDL: {
+    id: 'singleLegRDL',
+    name: 'Single-Leg Romanian Deadlift',
+    shortName: 'SL RDL',
+    day: 'C',
+    order: 2,
+    sets: 3,
+    repRange: [12, 15],
+    restSeconds: 60,
+    isUnilateral: true,
+    muscleGroup: 'posterior chain / balance',
+    equipment: 'Dumbbell or kettlebell',
+    notes: 'Balance + posterior chain in single-leg stance. Ankle and proprioception work.',
+    weightIncrement: 5,
+  },
+  gobletSquat: {
+    id: 'gobletSquat',
+    name: 'Goblet Squat',
+    shortName: 'Goblet Squat',
+    day: 'C',
+    order: 3,
+    sets: 3,
+    repRange: [15, 20],
+    restSeconds: 60,
+    isUnilateral: false,
+    muscleGroup: 'quads / glutes',
+    equipment: 'Dumbbell or kettlebell',
+    notes: 'Bilateral squat at moderate load. Mobility maintenance without heavy axial loading.',
+    weightIncrement: 5,
+  },
+  farmersCarry: {
+    id: 'farmersCarry',
+    name: "Farmer's Carry",
+    shortName: 'Carry',
+    day: 'C',
+    order: 4,
+    sets: 3,
+    repRange: [40, 60], // seconds
+    restSeconds: 60,
+    isUnilateral: false,
+    muscleGroup: 'full body / grip',
+    equipment: 'Heavy dumbbells or kettlebells',
+    notes: 'Grip, trunk stability, loaded walking endurance. Total body integration.',
+    weightIncrement: 5,
+    isTimeBased: true,
+  },
+  sidePlankHipDip: {
+    id: 'sidePlankHipDip',
+    name: 'Side Plank w/ Hip Dip',
+    shortName: 'Side Plank',
+    day: 'C',
+    order: 5,
+    sets: 2,
+    repRange: [12, 15],
+    restSeconds: 45,
+    isUnilateral: true,
+    muscleGroup: 'obliques / hip stabilizers',
+    equipment: 'Bodyweight',
+    notes: 'Lateral core and hip stabilizer endurance for trail camber and uneven terrain.',
+    weightIncrement: 0,
+  },
+  singleLegCalfRaise: {
+    id: 'singleLegCalfRaise',
+    name: 'Single-Leg Calf Raise',
+    shortName: 'SL Calf Raise',
+    day: 'C',
+    order: 6,
+    sets: 2,
+    repRange: [20, 25],
+    restSeconds: 45,
+    isUnilateral: true,
+    muscleGroup: 'calves / achilles',
+    equipment: 'Step or plate, optional dumbbell',
+    notes: 'Achilles and calf resilience — critical for downhill durability in ultras.',
+    weightIncrement: 5,
+  },
+}
+
+/** Get exercises for a given day type ('A', 'B', or 'C'), sorted by order */
+export function getExercisesForDay(dayType) {
+  return Object.values(EXERCISES)
+    .filter((e) => e.day === dayType)
+    .sort((a, b) => a.order - b.order)
+}
+
+/** Day labels for display */
+export const DAY_LABELS = {
+  A: 'Posterior Chain & Hip Stability',
+  B: 'Upper Body Pull & Core',
+  C: 'Single-Leg & Full Body',
+}
+
+/** Map training day preferences to actual day-of-week indices (0=Sun, 1=Mon, ...) */
+export const TRAINING_SCHEDULES = {
+  'mon-wed-fri': { days: [1, 3, 5], labels: ['Monday', 'Wednesday', 'Friday'] },
+  'tue-thu-sat': { days: [2, 4, 6], labels: ['Tuesday', 'Thursday', 'Saturday'] },
+}
+
+/** Map day index within week (0, 1, 2) to day type */
+export const DAY_TYPE_ORDER = ['A', 'B', 'C']
