@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { calculateProgramStart } from '../lib/periodization'
+import { calculateBMI } from '../lib/bodyMetrics'
 
 const RACE_DISTANCES = [
   { value: '26.2', label: 'Marathon (26.2 mi)' },
@@ -21,10 +22,11 @@ export default function Onboarding() {
     // Personal info
     age: '',
     biologicalSex: '',
+    heightFeet: '',
+    heightInches: '',
     // Body metrics
     initialWeight: '',
     initialBodyFat: '',
-    initialBMI: '',
     // Race
     raceName: '',
     raceDistance: '',
@@ -60,15 +62,20 @@ export default function Onboarding() {
       programStart: programStart.toISOString().slice(0, 10),
     } : null
 
+    const heightTotalInches = ((parseInt(data.heightFeet) || 0) * 12) + (parseInt(data.heightInches) || 0)
+    const weight = parseFloat(data.initialWeight) || 0
+    const bmi = calculateBMI(weight, heightTotalInches)
+
     await completeOnboarding({
-      initialWeight: parseFloat(data.initialWeight) || 0,
+      initialWeight: weight,
       initialBodyFat: parseFloat(data.initialBodyFat) || 0,
-      initialBMI: parseFloat(data.initialBMI) || 0,
+      initialBMI: bmi,
       baselineMileage: parseFloat(data.baselineMileage) || 0,
       trainingDays: data.trainingDays,
       profile: {
         age: parseInt(data.age) || 0,
         biologicalSex: data.biologicalSex || '',
+        heightInches: heightTotalInches || 0,
       },
       races: race ? [race] : [],
     })
@@ -112,6 +119,31 @@ export default function Onboarding() {
           />
         </div>
         <div>
+          <label className="block text-sm text-gray-400 mb-1">Height</label>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <input
+                type="number"
+                value={data.heightFeet}
+                onChange={(e) => update('heightFeet', e.target.value)}
+                placeholder="5"
+                className={inputClass}
+              />
+              <span className="text-xs text-gray-600 mt-0.5 block">ft</span>
+            </div>
+            <div className="flex-1">
+              <input
+                type="number"
+                value={data.heightInches}
+                onChange={(e) => update('heightInches', e.target.value)}
+                placeholder="10"
+                className={inputClass}
+              />
+              <span className="text-xs text-gray-600 mt-0.5 block">in</span>
+            </div>
+          </div>
+        </div>
+        <div>
           <label className="block text-sm text-gray-400 mb-2">Biological Sex</label>
           <p className="text-xs text-gray-600 mb-2">Affects body fat range recommendations only.</p>
           <div className="grid grid-cols-2 gap-2">
@@ -138,7 +170,7 @@ export default function Onboarding() {
         <button onClick={() => setStep(0)} className={backBtnClass}>Back</button>
         <button
           onClick={() => setStep(2)}
-          disabled={!data.age || !data.biologicalSex}
+          disabled={!data.age || !data.biologicalSex || !data.heightFeet}
           className={nextBtnClass}
         >
           Next
@@ -170,17 +202,6 @@ export default function Onboarding() {
             value={data.initialBodyFat}
             onChange={(e) => update('initialBodyFat', e.target.value)}
             placeholder="18.5"
-            className={inputClass}
-          />
-        </div>
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">BMI</label>
-          <input
-            type="number"
-            step="0.1"
-            value={data.initialBMI}
-            onChange={(e) => update('initialBMI', e.target.value)}
-            placeholder="24.1"
             className={inputClass}
           />
         </div>

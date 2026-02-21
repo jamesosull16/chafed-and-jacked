@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useFirestore } from '../hooks/useFirestore'
 import { useAuth } from '../contexts/AuthContext'
-import { calculateComposition, analyzeMetricsChange, calculateDeltas, formatDelta } from '../lib/bodyMetrics'
+import { calculateComposition, analyzeMetricsChange, calculateDeltas, formatDelta, calculateBMI } from '../lib/bodyMetrics'
 import { assessREDSRisk, getRecommendedBodyFatRange } from '../lib/bodyCompGoals'
 import { getActiveRace } from '../lib/periodization'
 import LoadingSpinner from '../components/common/LoadingSpinner'
@@ -13,7 +13,7 @@ export default function Metrics() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ weight: '', bodyFatPct: '', bmi: '' })
+  const [form, setForm] = useState({ weight: '', bodyFatPct: '' })
 
   useEffect(() => {
     loadEntries()
@@ -36,7 +36,8 @@ export default function Metrics() {
 
     const weight = parseFloat(form.weight)
     const bodyFatPct = parseFloat(form.bodyFatPct) || 0
-    const bmi = parseFloat(form.bmi) || 0
+    const heightInches = userProfile?.profile?.heightInches || 0
+    const bmi = calculateBMI(weight, heightInches)
     const { fatMass, leanMass } = calculateComposition(weight, bodyFatPct)
 
     await addDocument('bodyMetrics', {
@@ -48,7 +49,7 @@ export default function Metrics() {
       leanMass,
     })
 
-    setForm({ weight: '', bodyFatPct: '', bmi: '' })
+    setForm({ weight: '', bodyFatPct: '' })
     setShowForm(false)
     setSaving(false)
     await loadEntries()
@@ -112,17 +113,6 @@ export default function Metrics() {
               value={form.bodyFatPct}
               onChange={(e) => setForm({ ...form, bodyFatPct: e.target.value })}
               placeholder="18.5"
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-brand"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">BMI</label>
-            <input
-              type="number"
-              step="0.1"
-              value={form.bmi}
-              onChange={(e) => setForm({ ...form, bmi: e.target.value })}
-              placeholder="24.1"
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-brand"
             />
           </div>

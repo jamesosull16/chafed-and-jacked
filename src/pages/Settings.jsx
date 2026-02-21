@@ -38,6 +38,9 @@ export default function Settings() {
   // Profile fields
   const [age, setAge] = useState(userProfile?.profile?.age || '')
   const [sex, setSex] = useState(userProfile?.profile?.biologicalSex || '')
+  const heightTotal = userProfile?.profile?.heightInches || 0
+  const [heightFeet, setHeightFeet] = useState(heightTotal ? Math.floor(heightTotal / 12) : '')
+  const [heightInches, setHeightInches] = useState(heightTotal ? heightTotal % 12 : '')
   const [profileSaving, setProfileSaving] = useState(false)
 
   // Race fields
@@ -62,6 +65,9 @@ export default function Settings() {
     if (userProfile) {
       setAge(userProfile.profile?.age || '')
       setSex(userProfile.profile?.biologicalSex || '')
+      const ht = userProfile.profile?.heightInches || 0
+      setHeightFeet(ht ? Math.floor(ht / 12) : '')
+      setHeightInches(ht ? ht % 12 : '')
       setRaces(userProfile.races || [])
       setTrainingDays(userProfile.onboarding?.trainingDays || 'mon-wed-fri')
       setTargetBF(userProfile.goals?.targetBodyFatPct || '')
@@ -71,8 +77,9 @@ export default function Settings() {
   // --- Profile handlers ---
   async function saveProfile() {
     setProfileSaving(true)
+    const totalInches = ((parseInt(heightFeet) || 0) * 12) + (parseInt(heightInches) || 0)
     await updateUserProfile({
-      profile: { age: parseInt(age) || 0, biologicalSex: sex },
+      profile: { age: parseInt(age) || 0, biologicalSex: sex, heightInches: totalInches },
     })
     setProfileSaving(false)
   }
@@ -199,6 +206,31 @@ export default function Settings() {
             placeholder="35"
             className={inputClass}
           />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Height</label>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <input
+                type="number"
+                value={heightFeet}
+                onChange={(e) => setHeightFeet(e.target.value)}
+                placeholder="5"
+                className={inputClass}
+              />
+              <span className="text-xs text-gray-600 mt-0.5 block">ft</span>
+            </div>
+            <div className="flex-1">
+              <input
+                type="number"
+                value={heightInches}
+                onChange={(e) => setHeightInches(e.target.value)}
+                placeholder="10"
+                className={inputClass}
+              />
+              <span className="text-xs text-gray-600 mt-0.5 block">in</span>
+            </div>
+          </div>
         </div>
         <div>
           <label className="block text-xs text-gray-500 mb-1">Biological Sex</label>

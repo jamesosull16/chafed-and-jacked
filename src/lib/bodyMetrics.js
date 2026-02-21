@@ -115,6 +115,15 @@ export function formatDelta(value, unit = 'lbs', lowerIsBetter = true) {
   return { text: `${arrow} ${sign}${value.toFixed(1)} ${unit}`, color }
 }
 
+/**
+ * Calculate BMI from weight (lbs) and height (inches).
+ * Formula: (weight / height²) × 703
+ */
+export function calculateBMI(weightLbs, heightInches) {
+  if (!weightLbs || !heightInches) return 0
+  return round((weightLbs / (heightInches * heightInches)) * 703, 1)
+}
+
 function round(value, decimals) {
   return Math.round(value * 10 ** decimals) / 10 ** decimals
 }
