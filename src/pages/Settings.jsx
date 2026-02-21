@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useFirestore } from '../hooks/useFirestore'
 import { calculateProgramStart } from '../lib/periodization'
 import { getRecommendedBodyFatRange, calculateTimeGatedGoal, getSafeWeightLossRate } from '../lib/bodyCompGoals'
+import { calculateAge } from '../lib/bodyMetrics'
 
 const RACE_DISTANCES = [
   { value: '26.2', label: 'Marathon' },
@@ -205,6 +206,9 @@ export default function Settings() {
             onChange={(e) => setBirthday(e.target.value)}
             className={inputClass}
           />
+          {birthday && (
+            <p className="text-xs text-gray-500 mt-1">Age: {calculateAge(birthday)}</p>
+          )}
         </div>
         <div>
           <label className="block text-xs text-gray-500 mb-1">Height</label>

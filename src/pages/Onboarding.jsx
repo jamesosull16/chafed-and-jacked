@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { calculateProgramStart } from '../lib/periodization'
-import { calculateBMI } from '../lib/bodyMetrics'
+import { calculateBMI, calculateAge } from '../lib/bodyMetrics'
 
 const RACE_DISTANCES = [
   { value: '26.2', label: 'Marathon (26.2 mi)' },
@@ -116,6 +116,9 @@ export default function Onboarding() {
             onChange={(e) => update('birthday', e.target.value)}
             className={inputClass}
           />
+          {data.birthday && (
+            <p className="text-sm text-gray-400 mt-1">Age: {calculateAge(data.birthday)}</p>
+          )}
         </div>
         <div>
           <label className="block text-sm text-gray-400 mb-1">Height</label>
