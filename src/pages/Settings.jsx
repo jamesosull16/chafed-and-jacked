@@ -36,7 +36,7 @@ export default function Settings() {
   const navigate = useNavigate()
 
   // Profile fields
-  const [age, setAge] = useState(userProfile?.profile?.age || '')
+  const [birthday, setBirthday] = useState(userProfile?.profile?.birthday || '')
   const [sex, setSex] = useState(userProfile?.profile?.biologicalSex || '')
   const heightTotal = userProfile?.profile?.heightInches || 0
   const [heightFeet, setHeightFeet] = useState(heightTotal ? Math.floor(heightTotal / 12) : '')
@@ -63,7 +63,7 @@ export default function Settings() {
   // Sync state when userProfile changes
   useEffect(() => {
     if (userProfile) {
-      setAge(userProfile.profile?.age || '')
+      setBirthday(userProfile.profile?.birthday || '')
       setSex(userProfile.profile?.biologicalSex || '')
       const ht = userProfile.profile?.heightInches || 0
       setHeightFeet(ht ? Math.floor(ht / 12) : '')
@@ -79,7 +79,7 @@ export default function Settings() {
     setProfileSaving(true)
     const totalInches = ((parseInt(heightFeet) || 0) * 12) + (parseInt(heightInches) || 0)
     await updateUserProfile({
-      profile: { age: parseInt(age) || 0, biologicalSex: sex, heightInches: totalInches },
+      profile: { birthday, biologicalSex: sex, heightInches: totalInches },
     })
     setProfileSaving(false)
   }
@@ -196,14 +196,13 @@ export default function Settings() {
       </div>
 
       {/* Profile */}
-      <Section title="Profile" defaultOpen={!userProfile?.profile?.age}>
+      <Section title="Profile" defaultOpen={!userProfile?.profile?.birthday}>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Age</label>
+          <label className="block text-xs text-gray-500 mb-1">Birthday</label>
           <input
-            type="number"
-            value={age}
-            onChange={(e) => setAge(e.target.value)}
-            placeholder="35"
+            type="date"
+            value={birthday}
+            onChange={(e) => setBirthday(e.target.value)}
             className={inputClass}
           />
         </div>

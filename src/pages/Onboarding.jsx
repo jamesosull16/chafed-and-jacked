@@ -20,7 +20,7 @@ export default function Onboarding() {
   const [submitting, setSubmitting] = useState(false)
   const [data, setData] = useState({
     // Personal info
-    age: '',
+    birthday: '',
     biologicalSex: '',
     heightFeet: '',
     heightInches: '',
@@ -73,7 +73,7 @@ export default function Onboarding() {
       baselineMileage: parseFloat(data.baselineMileage) || 0,
       trainingDays: data.trainingDays,
       profile: {
-        age: parseInt(data.age) || 0,
+        birthday: data.birthday || '',
         biologicalSex: data.biologicalSex || '',
         heightInches: heightTotalInches || 0,
       },
@@ -109,12 +109,11 @@ export default function Onboarding() {
       <p className="text-gray-400 text-sm">Used for body composition recommendations and safe rate-of-change calculations.</p>
       <div className="space-y-3">
         <div>
-          <label className="block text-sm text-gray-400 mb-1">Age</label>
+          <label className="block text-sm text-gray-400 mb-1">Birthday</label>
           <input
-            type="number"
-            value={data.age}
-            onChange={(e) => update('age', e.target.value)}
-            placeholder="35"
+            type="date"
+            value={data.birthday}
+            onChange={(e) => update('birthday', e.target.value)}
             className={inputClass}
           />
         </div>
@@ -170,7 +169,7 @@ export default function Onboarding() {
         <button onClick={() => setStep(0)} className={backBtnClass}>Back</button>
         <button
           onClick={() => setStep(2)}
-          disabled={!data.age || !data.biologicalSex || !data.heightFeet}
+          disabled={!data.birthday || !data.biologicalSex || !data.heightFeet}
           className={nextBtnClass}
         >
           Next
