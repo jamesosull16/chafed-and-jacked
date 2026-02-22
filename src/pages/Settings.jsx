@@ -152,7 +152,8 @@ export default function Settings() {
       return
     }
 
-    const result = calculateTimeGatedGoal(currentWeight, currentBF, parseFloat(targetBF), activeRace.date, mileage)
+    const profileHeightInches = userProfile?.profile?.heightInches || 0
+    const result = calculateTimeGatedGoal(currentWeight, currentBF, parseFloat(targetBF), activeRace.date, mileage, profileHeightInches, sex)
 
     const goals = {
       targetBodyFatPct: parseFloat(targetBF),
@@ -162,6 +163,12 @@ export default function Settings() {
       weeklyRate: result.weeklyRate,
       milestones: result.milestones,
       isFullyAchievable: result.isFullyAchievable,
+      ffmi: result.ffmi,
+      ffmiLabel: result.ffmiLabel,
+      projectedLeanMass: result.projectedLeanMass,
+      projectedBFPct: result.projectedBFPct,
+      floorApplied: result.floorApplied,
+      minWeight: result.minWeight,
       calculatedAt: new Date().toISOString(),
     }
 
@@ -413,6 +420,32 @@ export default function Settings() {
                   <p className="text-gray-500">Total Loss</p>
                   <p className="text-gray-200 font-medium">{Math.min(goalResult.totalLossNeeded, goalResult.maxAchievableLoss)} lbs</p>
                 </div>
+                <div className="bg-gray-800/50 rounded-lg px-3 py-2">
+                  <p className="text-gray-500">Projected Body Fat</p>
+                  <p className="text-gray-200 font-medium">{goalResult.projectedBFPct}%</p>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg px-3 py-2">
+                  <p className="text-gray-500">Projected Lean Mass</p>
+                  <p className="text-gray-200 font-medium">{goalResult.projectedLeanMass} lbs</p>
+                </div>
+              </div>
+            )}
+
+            {/* FFMI assessment */}
+            {goalResult.ffmi > 0 && !goalResult.isAlreadyAtGoal && (
+              <div className="bg-gray-800/50 rounded-lg px-3 py-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-500">FFMI at Target</span>
+                  <span className="text-gray-200 font-medium">{goalResult.ffmi}</span>
+                </div>
+                <p className="text-gray-500 mt-0.5">{goalResult.ffmiLabel}</p>
+              </div>
+            )}
+
+            {/* Floor warning */}
+            {goalResult.floorApplied && (
+              <div className="text-xs px-3 py-2 rounded-lg bg-yellow-900/20 text-yellow-400">
+                Height-based minimum weight ({goalResult.minWeight} lbs) applied. Target BF% was adjusted to {goalResult.projectedBFPct}% to stay above the safe weight floor.
               </div>
             )}
 
