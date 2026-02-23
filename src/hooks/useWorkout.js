@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useFirestore, getWeekId, getWeekStart } from './useFirestore'
 import { getExercisesForDay } from '../lib/program'
-import { getCurrentWeek, getWeekModifiers, getNextSession, getActiveRace, daysUntilRace, calculateProgramStart } from '../lib/periodization'
+import { getCurrentWeek, getWeekModifiers, getNextSession, getDayTypeForDate, getActiveRace, daysUntilRace, calculateProgramStart } from '../lib/periodization'
 import { getScalingTier, calculateEffectiveSets } from '../lib/loadScaling'
 import { getRecommendedWeight, checkForPR } from '../lib/progression'
 import { useAuth } from '../contexts/AuthContext'
@@ -15,6 +15,8 @@ export function useWorkout() {
   const { getDocument, getCollection, setDocument, addDocument } = useFirestore()
   const [loading, setLoading] = useState(true)
   const [currentMileage, setCurrentMileage] = useState(null)
+  const [todayMiles, setTodayMiles] = useState(null)
+  const [weekDailyMiles, setWeekDailyMiles] = useState([])
   const [exerciseHistory, setExerciseHistory] = useState({})
 
   const trainingDays = userProfile?.onboarding?.trainingDays || 'mon-wed-fri'
@@ -55,6 +57,22 @@ export function useWorkout() {
           setCurrentMileage(projected)
         }
       }
+
+      // Load today's daily mileage
+      const today = new Date().toISOString().slice(0, 10)
+      const todayDoc = await getDocument(`dailyMileage/${today}`)
+      setTodayMiles(todayDoc?.miles ?? null)
+
+      // Load daily entries for the current week
+      const ws = getWeekStart()
+      const allDaily = await getCollection('dailyMileage', 'date', 'asc', 7)
+      const weekEnd = new Date(ws)
+      weekEnd.setDate(weekEnd.getDate() + 6)
+      weekEnd.setHours(23, 59, 59, 999)
+      setWeekDailyMiles(allDaily.filter((d) => {
+        const dDate = new Date(d.date + 'T00:00:00')
+        return dDate >= ws && dDate <= weekEnd
+      }))
 
       // Load exercise progress data
       const progressDocs = await getCollection('exerciseProgress')
@@ -188,6 +206,25 @@ export function useWorkout() {
     setCurrentMileage(miles)
   }
 
+  /** Save daily mileage */
+  async function saveDailyMileage(miles, dateStr = null) {
+    if (!user) return
+    const date = dateStr || new Date().toISOString().slice(0, 10)
+    await setDocument(`dailyMileage/${date}`, {
+      date,
+      miles,
+      enteredAt: new Date().toISOString(),
+    })
+    if (!dateStr || dateStr === new Date().toISOString().slice(0, 10)) {
+      setTodayMiles(miles)
+    }
+    await loadWeekData()
+  }
+
+  // Derived values
+  const isStrengthDay = getDayTypeForDate(new Date(), trainingDays) !== null
+  const weekDailySum = weekDailyMiles.reduce((sum, d) => sum + (d.miles || 0), 0)
+
   return {
     loading,
     activeRace,
@@ -197,12 +234,17 @@ export function useWorkout() {
     weekModifiers,
     scalingTier,
     currentMileage,
+    todayMiles,
+    weekDailyMiles,
+    weekDailySum,
+    isStrengthDay,
     exerciseHistory,
     trainingDays,
     getTodaysWorkout,
     getWorkoutForDay,
     saveSession,
     saveMileage,
+    saveDailyMileage,
     refreshData: loadWeekData,
   }
 }

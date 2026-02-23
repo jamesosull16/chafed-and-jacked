@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useWorkout } from '../hooks/useWorkout'
 import { useFirestore, getWeekStart } from '../hooks/useFirestore'
+import { calculateAge } from '../lib/bodyMetrics'
 import RaceCountdown from '../components/dashboard/RaceCountdown'
 import WeekOverview from '../components/dashboard/WeekOverview'
 import MileageBadge from '../components/dashboard/MileageBadge'
 import MetricsSummary from '../components/dashboard/MetricsSummary'
-import SnarkStat from '../components/dashboard/SnarkStat'
+import NutritionPanel from '../components/dashboard/NutritionPanel'
 import VolumeChart from '../components/dashboard/VolumeChart'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 import NotificationPrompt from '../components/common/NotificationPrompt'
@@ -33,26 +34,36 @@ export default function Dashboard() {
     weekModifiers,
     scalingTier,
     currentMileage,
+    todayMiles,
+    weekDailySum,
+    isStrengthDay,
     trainingDays,
     saveMileage,
+    saveDailyMileage,
   } = useWorkout()
   const { getCollection } = useFirestore()
   const [metricsLoggedThisWeek, setMetricsLoggedThisWeek] = useState(true)
+  const [latestWeight, setLatestWeight] = useState(null)
+  const [latestBodyFatPct, setLatestBodyFatPct] = useState(null)
 
   useEffect(() => {
     if (!user) return
-    checkMetricsLogged()
+    loadLatestMetrics()
   }, [user])
 
-  async function checkMetricsLogged() {
+  async function loadLatestMetrics() {
     try {
       const metrics = await getCollection('bodyMetrics', 'date', 'desc', 1)
       if (metrics.length > 0) {
         const lastDate = new Date(metrics[0].date)
         const weekStart = getWeekStart()
         setMetricsLoggedThisWeek(lastDate >= weekStart)
+        setLatestWeight(metrics[0].weight)
+        setLatestBodyFatPct(metrics[0].bodyFatPct)
       } else {
         setMetricsLoggedThisWeek(false)
+        setLatestWeight(userProfile?.onboarding?.initialWeight || null)
+        setLatestBodyFatPct(userProfile?.onboarding?.initialBodyFat || null)
       }
     } catch {
       // Silently fail
@@ -63,7 +74,14 @@ export default function Dashboard() {
 
   const firstName = (user?.displayName || 'Runner').split(' ')[0]
   const mileageNotEntered = currentMileage == null
-  const hasProfile = !!userProfile?.profile?.age
+  const hasProfile = !!userProfile?.profile?.birthday
+
+  // Nutrition panel inputs
+  const ageYears = calculateAge(userProfile?.profile?.birthday)
+  const sex = userProfile?.profile?.biologicalSex || 'male'
+  const heightInches = userProfile?.profile?.heightInches || 0
+  const targetBF = userProfile?.goals?.targetBodyFatPct
+  const isCutting = !!(targetBF && latestBodyFatPct && latestBodyFatPct > targetBF)
 
   return (
     <div className="space-y-4 pb-6">
@@ -85,11 +103,11 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      {/* Prompt to complete profile if missing race/age data */}
+      {/* Prompt to complete profile if missing data */}
       {!hasProfile && (
         <WeeklyReminder
           to="/settings"
-          message="Complete your profile — add your age, race details, and body comp goals in Settings →"
+          message="Complete your profile — add your birthday, race details, and body comp goals in Settings →"
         />
       )}
 
@@ -110,11 +128,14 @@ export default function Dashboard() {
       {/* Race countdown */}
       <RaceCountdown race={activeRace} />
 
-      {/* Mileage badge with scaling tier */}
+      {/* Mileage badge with scaling tier + daily entry */}
       <MileageBadge
         currentMileage={currentMileage}
         scalingTier={scalingTier}
         onSaveMileage={saveMileage}
+        todayMiles={todayMiles}
+        onSaveDailyMileage={saveDailyMileage}
+        weekDailySum={weekDailySum}
       />
 
       {/* Week overview - training schedule */}
@@ -130,11 +151,19 @@ export default function Dashboard() {
       {/* Weekly volume chart */}
       <VolumeChart />
 
-      {/* Snarky stat */}
-      <SnarkStat
-        weeklyMileage={currentMileage}
-        daysUntilRace={raceDaysLeft}
-        isDeload={weekInfo?.type === 'deload'}
+      {/* Nutrition advice */}
+      <NutritionPanel
+        weightLbs={latestWeight}
+        heightInches={heightInches}
+        ageYears={ageYears}
+        sex={sex}
+        dailyMiles={todayMiles || 0}
+        weeklyMiles={currentMileage}
+        isStrengthDay={isStrengthDay}
+        trainingPhase={weekInfo?.type || 'build'}
+        isCutting={isCutting}
+        currentBodyFatPct={latestBodyFatPct}
+        targetBodyFatPct={targetBF}
       />
 
       {/* Push notification permission prompt */}
