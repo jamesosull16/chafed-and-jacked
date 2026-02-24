@@ -128,6 +128,7 @@ export function useWorkout() {
           progressionDirection: recommendation.direction,
           lastWeight: lastSession?.weight || 0,
           lastReps: lastSession?.reps || [],
+          lastIsBodyweight: history?.isBodyweight || false,
         }
       })
     },
@@ -178,16 +179,18 @@ export function useWorkout() {
     for (const ex of exerciseResults) {
       const reps = ex.sets.map((s) => s.reps)
       const weight = ex.sets[0]?.weight || 0
+      const isBW = ex.sets[0]?.isBodyweight || false
       const history = exerciseHistory[ex.id]?.history || []
       const pr = checkForPR(ex.id, weight, reps, history)
 
       await setDocument(`exerciseProgress/${ex.id}`, {
         currentWeight: weight,
         lastReps: reps,
+        isBodyweight: isBW,
         lastSessionDate: new Date().toISOString(),
         history: [
           ...history,
-          { date: new Date().toISOString(), weight, reps, pr: pr.isPR ? pr.type : null },
+          { date: new Date().toISOString(), weight, reps, isBodyweight: isBW, pr: pr.isPR ? pr.type : null },
         ],
       })
     }

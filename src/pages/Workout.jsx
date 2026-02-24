@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useWorkout } from '../hooks/useWorkout'
+import { useFirestore } from '../hooks/useFirestore'
 import { useAuth } from '../contexts/AuthContext'
 import { DAY_LABELS, EXERCISES } from '../lib/program'
 import { getScalingExplanation } from '../lib/loadScaling'
@@ -48,8 +49,10 @@ function RestTimer({ seconds, onComplete }) {
   )
 }
 
-function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, onUpdate, isActive, isCompleted }) {
-  const [localWeight, setLocalWeight] = useState(weight || '')
+function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweight, onUpdate, isActive, isCompleted, userBodyweight }) {
+  const [localWeight, setLocalWeight] = useState(
+    isBodyweight && isCompleted ? 'BW' : (weight || '')
+  )
   const [localReps, setLocalReps] = useState(reps || '')
   const [localRpe, setLocalRpe] = useState(rpe || '')
 
@@ -58,10 +61,13 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, onUpdate, 
   }, [weight])
 
   function handleComplete() {
+    const isBW = String(localWeight).toUpperCase().trim() === 'BW'
+    const resolvedWeight = isBW ? (userBodyweight || 0) : (parseFloat(localWeight) || 0)
     onUpdate({
-      weight: parseFloat(localWeight) || 0,
+      weight: resolvedWeight,
       reps: parseInt(localReps) || 0,
       rpe: localRpe ? parseInt(localRpe) : null,
+      isBodyweight: isBW,
       completed: true,
     })
   }
@@ -74,7 +80,8 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, onUpdate, 
         {isCompleted ? '✓' : setIndex + 1}
       </span>
       <input
-        type="number"
+        type="text"
+        inputMode="decimal"
         value={localWeight}
         onChange={(e) => setLocalWeight(e.target.value)}
         placeholder="lbs"
@@ -114,7 +121,7 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, onUpdate, 
   )
 }
 
-function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onToggle, scalingTier, weekType }) {
+function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onToggle, scalingTier, weekType, userBodyweight }) {
   const completedSets = sessionData?.sets?.filter((s) => s?.completed) || []
   const totalSets = exercise.effectiveSets
   const allDone = completedSets.length >= totalSets
@@ -188,7 +195,7 @@ function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onTogg
           {/* Last session */}
           {exercise.lastWeight > 0 && (
             <p className="text-xs text-gray-600">
-              Last: {exercise.lastWeight} lbs x {exercise.lastReps.join('/')} reps
+              Last: {exercise.lastIsBodyweight ? 'BW' : `${exercise.lastWeight} lbs`} x {exercise.lastReps.join('/')} reps
             </p>
           )}
 
@@ -216,9 +223,11 @@ function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onTogg
                     : exercise.recommendedWeight || sessionData?.sets?.[i - 1]?.weight || exercise.lastWeight || ''}
                   reps={setData?.completed ? setData.reps : ''}
                   rpe={setData?.completed ? setData.rpe : ''}
+                  isBodyweight={setData?.isBodyweight || false}
                   onUpdate={(data) => onSetComplete(exercise.id, i, data)}
                   isActive={i === completedSets.length}
                   isCompleted={!!setData?.completed}
+                  userBodyweight={userBodyweight}
                 />
               )
             })}
@@ -235,6 +244,7 @@ export default function Workout() {
   const requestedDay = searchParams.get('day') // 'A', 'B', or 'C' from URL
   const { userProfile } = useAuth()
   const { loading, getTodaysWorkout, getWorkoutForDay, saveSession, weekInfo, weekModifiers, scalingTier, exerciseHistory, currentMileage } = useWorkout()
+  const { getCollection } = useFirestore()
   const [workout, setWorkout] = useState(null)
   const [sessionData, setSessionData] = useState({})
   const [expandedExercise, setExpandedExercise] = useState(null)
@@ -245,6 +255,20 @@ export default function Workout() {
   const [saved, setSaved] = useState(false)
   const [sessionPRs, setSessionPRs] = useState([])
   const [viewMode, setViewMode] = useState(userProfile?.preferences?.viewMode || 'list')
+  const [userBodyweight, setUserBodyweight] = useState(userProfile?.onboarding?.initialWeight || 0)
+
+  // Load latest bodyweight for BW resolution
+  useEffect(() => {
+    async function loadBodyweight() {
+      try {
+        const metrics = await getCollection('bodyMetrics', 'date', 'desc', 1)
+        if (metrics.length > 0 && metrics[0].weight) {
+          setUserBodyweight(metrics[0].weight)
+        }
+      } catch { /* use onboarding value */ }
+    }
+    loadBodyweight()
+  }, [])
 
   useEffect(() => {
     if (!loading) {
@@ -519,6 +543,7 @@ export default function Workout() {
             }}
             scalingTier={workout.scalingTier}
             weekType={weekInfo?.type}
+            userBodyweight={userBodyweight}
           />
         ))}
       </div>
