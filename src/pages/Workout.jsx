@@ -49,12 +49,13 @@ function RestTimer({ seconds, onComplete }) {
   )
 }
 
-function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweight, onUpdate, isActive, isCompleted, userBodyweight }) {
+function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweight, onUpdate, isActive, isCompleted, userBodyweight, reviewMode }) {
   const [localWeight, setLocalWeight] = useState(
     isBodyweight && isCompleted ? 'BW' : (weight || '')
   )
   const [localReps, setLocalReps] = useState(reps || '')
   const [localRpe, setLocalRpe] = useState(rpe || '')
+  const [editing, setEditing] = useState(false)
 
   useEffect(() => {
     if (weight !== undefined && weight !== null && !isCompleted) setLocalWeight(weight)
@@ -70,14 +71,17 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweig
       isBodyweight: isBW,
       completed: true,
     })
+    setEditing(false)
   }
+
+  const inputsDisabled = isCompleted && !editing
 
   return (
     <div className={`flex items-center gap-2 py-2 px-3 rounded-lg ${
-      isCompleted ? 'bg-green-900/10' : isActive ? 'bg-gray-800/50' : ''
+      isCompleted && !editing ? 'bg-green-900/10' : editing ? 'bg-yellow-900/10' : isActive ? 'bg-gray-800/50' : ''
     }`}>
-      <span className={`text-xs w-6 text-center font-mono ${isCompleted ? 'text-success' : 'text-gray-600'}`}>
-        {isCompleted ? '✓' : setIndex + 1}
+      <span className={`text-xs w-6 text-center font-mono ${isCompleted && !editing ? 'text-success' : 'text-gray-600'}`}>
+        {isCompleted && !editing ? '✓' : setIndex + 1}
       </span>
       <input
         type="text"
@@ -85,7 +89,7 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweig
         value={localWeight}
         onChange={(e) => setLocalWeight(e.target.value)}
         placeholder="lbs"
-        disabled={isCompleted}
+        disabled={inputsDisabled}
         className="w-16 bg-gray-900 border border-gray-700 rounded-lg px-2 py-2 text-center text-sm text-gray-100 focus:outline-none focus:border-brand disabled:opacity-50"
       />
       <span className="text-gray-600 text-xs">x</span>
@@ -94,10 +98,9 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweig
         value={localReps}
         onChange={(e) => setLocalReps(e.target.value)}
         placeholder={isTimeBased ? 'sec' : `${repRange[0]}-${repRange[1]}`}
-        disabled={isCompleted}
+        disabled={inputsDisabled}
         className="w-16 bg-gray-900 border border-gray-700 rounded-lg px-2 py-2 text-center text-sm text-gray-100 focus:outline-none focus:border-brand disabled:opacity-50"
       />
-      {/* RPE toggle — optional effort rating */}
       <input
         type="number"
         value={localRpe}
@@ -105,10 +108,27 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweig
         placeholder="RPE"
         min="1"
         max="10"
-        disabled={isCompleted}
+        disabled={inputsDisabled}
         className="w-14 bg-gray-900 border border-gray-700 rounded-lg px-1 py-2 text-center text-xs text-gray-400 focus:outline-none focus:border-brand disabled:opacity-50"
       />
-      {!isCompleted && (
+      {isCompleted && !editing && reviewMode && (
+        <button
+          onClick={() => setEditing(true)}
+          className="ml-auto text-gray-500 hover:text-gray-300 px-2 py-1.5 text-xs transition-colors"
+        >
+          Edit
+        </button>
+      )}
+      {editing && (
+        <button
+          onClick={handleComplete}
+          disabled={!localReps}
+          className="ml-auto bg-yellow-600/20 text-yellow-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-yellow-600/30 disabled:opacity-30 transition-colors"
+        >
+          Save
+        </button>
+      )}
+      {!isCompleted && !editing && (
         <button
           onClick={handleComplete}
           disabled={!localReps}
@@ -121,7 +141,7 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweig
   )
 }
 
-function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onToggle, scalingTier, weekType, userBodyweight }) {
+function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onToggle, scalingTier, weekType, userBodyweight, reviewMode }) {
   const completedSets = sessionData?.sets?.filter((s) => s?.completed) || []
   const totalSets = exercise.effectiveSets
   const allDone = completedSets.length >= totalSets
@@ -228,6 +248,7 @@ function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onTogg
                   isActive={i === completedSets.length}
                   isCompleted={!!setData?.completed}
                   userBodyweight={userBodyweight}
+                  reviewMode={reviewMode}
                 />
               )
             })}
@@ -242,9 +263,10 @@ export default function Workout() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const requestedDay = searchParams.get('day') // 'A', 'B', or 'C' from URL
+  const isReview = searchParams.get('review') === '1'
   const { userProfile } = useAuth()
   const { loading, getTodaysWorkout, getWorkoutForDay, saveSession, weekInfo, weekModifiers, scalingTier, exerciseHistory, currentMileage } = useWorkout()
-  const { getCollection } = useFirestore()
+  const { getCollection, setDocument } = useFirestore()
   const [workout, setWorkout] = useState(null)
   const [sessionData, setSessionData] = useState({})
   const [expandedExercise, setExpandedExercise] = useState(null)
@@ -256,6 +278,7 @@ export default function Workout() {
   const [sessionPRs, setSessionPRs] = useState([])
   const [viewMode, setViewMode] = useState(userProfile?.preferences?.viewMode || 'list')
   const [userBodyweight, setUserBodyweight] = useState(userProfile?.onboarding?.initialWeight || 0)
+  const [reviewSession, setReviewSession] = useState(null) // completed session data for review mode
 
   // Load latest bodyweight for BW resolution
   useEffect(() => {
@@ -274,7 +297,6 @@ export default function Workout() {
     if (!loading) {
       let w
       if (requestedDay && ['A', 'B', 'C'].includes(requestedDay)) {
-        // User clicked a specific day from the dashboard
         w = {
           dayType: requestedDay,
           exercises: getWorkoutForDay(requestedDay),
@@ -284,15 +306,50 @@ export default function Workout() {
           isToday: false,
         }
       } else {
-        // Default: show today's or next upcoming session
         w = getTodaysWorkout()
       }
-      setWorkout(w)
-      if (w?.exercises?.length > 0) {
-        setExpandedExercise(w.exercises[0].id)
+
+      if (isReview && requestedDay) {
+        // Review mode: fetch session BEFORE rendering so SetRow initializes with actual data
+        loadCompletedSession(requestedDay, w)
+      } else {
+        setWorkout(w)
+        if (w?.exercises?.length > 0) {
+          setExpandedExercise(w.exercises[0].id)
+        }
       }
     }
-  }, [loading, requestedDay])
+  }, [loading, requestedDay, isReview])
+
+  async function loadCompletedSession(dayType, w) {
+    try {
+      const sessions = await getCollection('workoutSessions', 'date', 'desc', 10)
+      const weekStart = new Date()
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay() + (weekStart.getDay() === 0 ? -6 : 1))
+      weekStart.setHours(0, 0, 0, 0)
+      const match = sessions.find(
+        (s) => s.dayType === dayType && new Date(s.date) >= weekStart
+      )
+      if (match) {
+        setReviewSession(match)
+        const populated = {}
+        for (const ex of match.exercises) {
+          populated[ex.id] = {
+            sets: ex.sets.map((s) => ({ ...s, completed: true })),
+          }
+        }
+        // Set sessionData BEFORE workout so SetRow mounts with actual logged values
+        setSessionData(populated)
+      }
+    } catch (err) {
+      console.error('Failed to load completed session:', err)
+    }
+    // Always set workout after session data is ready
+    setWorkout(w)
+    if (w?.exercises?.length > 0) {
+      setExpandedExercise(w.exercises[0].id)
+    }
+  }
 
   // Auto-advance: when all sets for current exercise are done, expand the next one
   useEffect(() => {
@@ -424,6 +481,56 @@ export default function Workout() {
     )
   }
 
+  const inReviewMode = isReview && !!reviewSession
+
+  async function handleUpdateSession() {
+    if (!reviewSession || saving) return
+    setSaving(true)
+
+    const exerciseResults = workout.exercises
+      .filter((ex) => sessionData[ex.id]?.sets?.some((s) => s?.completed))
+      .map((ex) => ({
+        id: ex.id,
+        sets: (sessionData[ex.id]?.sets || []).filter((s) => s?.completed),
+      }))
+
+    const totalVolume = exerciseResults.reduce((total, ex) => {
+      return total + ex.sets.reduce((setTotal, set) => setTotal + set.reps * set.weight, 0)
+    }, 0)
+
+    // Update the existing session document
+    await setDocument(`workoutSessions/${reviewSession.id}`, {
+      ...reviewSession,
+      exercises: exerciseResults.map((ex) => ({ id: ex.id, sets: ex.sets })),
+      totalVolume,
+    })
+
+    // Update per-exercise progress
+    for (const ex of exerciseResults) {
+      const reps = ex.sets.map((s) => s.reps)
+      const weight = ex.sets[0]?.weight || 0
+      const isBW = ex.sets[0]?.isBodyweight || false
+      const history = exerciseHistory[ex.id]?.history || []
+      // Update the most recent history entry instead of appending
+      const updatedHistory = [...history]
+      if (updatedHistory.length > 0) {
+        const last = updatedHistory[updatedHistory.length - 1]
+        if (last.date === reviewSession.date) {
+          updatedHistory[updatedHistory.length - 1] = { ...last, weight, reps, isBodyweight: isBW }
+        }
+      }
+      await setDocument(`exerciseProgress/${ex.id}`, {
+        currentWeight: weight,
+        lastReps: reps,
+        isBodyweight: isBW,
+        lastSessionDate: reviewSession.date,
+        history: updatedHistory,
+      })
+    }
+
+    navigate('/')
+  }
+
   if (!workout) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center text-center space-y-4 px-4">
@@ -458,23 +565,37 @@ export default function Workout() {
     <div className="space-y-4 pb-6">
       {/* Header */}
       <div className="pt-2">
+        {inReviewMode && (
+          <button
+            onClick={() => navigate('/')}
+            className="text-xs text-gray-500 hover:text-gray-300 mb-2"
+          >
+            ← Dashboard
+          </button>
+        )}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-gray-100">Day {workout.dayType}</h1>
             <p className="text-xs text-gray-500">{DAY_LABELS[workout.dayType]}</p>
           </div>
-          <div className="text-right">
-            <p className="text-xs text-gray-600">{workout.weekModifiers.label}</p>
-            {workout.scalingTier.id !== 'full' && (
-              <p className={`text-xs ${workout.scalingTier.color}`}>
-                {getScalingExplanation(currentMileage, weekInfo?.type)}
-              </p>
-            )}
-          </div>
+          {inReviewMode ? (
+            <span className="text-xs bg-green-900/30 text-success px-2.5 py-1 rounded-full font-medium border border-green-800/40">
+              Completed — tap Edit to update
+            </span>
+          ) : (
+            <div className="text-right">
+              <p className="text-xs text-gray-600">{workout.weekModifiers.label}</p>
+              {workout.scalingTier.id !== 'full' && (
+                <p className={`text-xs ${workout.scalingTier.color}`}>
+                  {getScalingExplanation(currentMileage, weekInfo?.type)}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Progress bar + view toggle */}
-        <div className="mt-3 flex items-center gap-2">
+        {/* Progress bar + view toggle (hidden in review mode) */}
+        {!inReviewMode && <div className="mt-3 flex items-center gap-2">
           <div className="flex-1 bg-gray-800 rounded-full h-2">
             <div
               className="bg-brand h-2 rounded-full transition-all duration-300"
@@ -490,16 +611,16 @@ export default function Workout() {
           >
             {viewMode === 'list' ? '⊡' : '☰'}
           </button>
-        </div>
+        </div>}
       </div>
 
       {/* Rest Timer */}
-      {showRestTimer && (
+      {!inReviewMode && showRestTimer && (
         <RestTimer seconds={restSeconds} onComplete={handleRestComplete} />
       )}
 
       {/* Single-view navigation */}
-      {viewMode === 'single' && (
+      {!inReviewMode && viewMode === 'single' && (
         <div className="flex items-center justify-between">
           <button
             onClick={() => {
@@ -544,12 +665,29 @@ export default function Workout() {
             scalingTier={workout.scalingTier}
             weekType={weekInfo?.type}
             userBodyweight={userBodyweight}
+            reviewMode={inReviewMode}
           />
         ))}
       </div>
 
-      {/* Finish button */}
-      {completedCount > 0 && (
+      {/* Action buttons */}
+      {inReviewMode ? (
+        <div className="flex gap-3">
+          <button
+            onClick={() => navigate('/')}
+            className="flex-1 bg-surface border border-gray-700 text-gray-300 font-medium py-3 rounded-xl hover:bg-gray-800 transition-colors"
+          >
+            Back
+          </button>
+          <button
+            onClick={handleUpdateSession}
+            disabled={saving}
+            className="flex-1 bg-brand hover:bg-brand-light text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Update Session'}
+          </button>
+        </div>
+      ) : completedCount > 0 && (
         <button
           onClick={handleFinish}
           disabled={saving}
