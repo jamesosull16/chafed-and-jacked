@@ -50,19 +50,19 @@ function RestTimer({ seconds, onComplete }) {
 }
 
 function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweight, onUpdate, isActive, isCompleted, userBodyweight, reviewMode }) {
+  const [isBW, setIsBW] = useState(isBodyweight || false)
   const [localWeight, setLocalWeight] = useState(
-    isBodyweight && isCompleted ? 'BW' : (weight || '')
+    isBodyweight ? '' : (weight || '')
   )
   const [localReps, setLocalReps] = useState(reps || '')
   const [localRpe, setLocalRpe] = useState(rpe || '')
   const [editing, setEditing] = useState(false)
 
   useEffect(() => {
-    if (weight !== undefined && weight !== null && !isCompleted) setLocalWeight(weight)
+    if (weight !== undefined && weight !== null && !isCompleted && !isBW) setLocalWeight(weight)
   }, [weight])
 
   function handleComplete() {
-    const isBW = String(localWeight).toUpperCase().trim() === 'BW'
     const resolvedWeight = isBW ? (userBodyweight || 0) : (parseFloat(localWeight) || 0)
     onUpdate({
       weight: resolvedWeight,
@@ -74,6 +74,11 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweig
     setEditing(false)
   }
 
+  function toggleBW() {
+    setIsBW((prev) => !prev)
+    if (!isBW) setLocalWeight('')
+  }
+
   const inputsDisabled = isCompleted && !editing
 
   return (
@@ -83,15 +88,35 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweig
       <span className={`text-xs w-6 text-center font-mono ${isCompleted && !editing ? 'text-success' : 'text-gray-600'}`}>
         {isCompleted && !editing ? '✓' : setIndex + 1}
       </span>
-      <input
-        type="text"
-        inputMode="decimal"
-        value={localWeight}
-        onChange={(e) => setLocalWeight(e.target.value)}
-        placeholder="lbs"
-        disabled={inputsDisabled}
-        className="w-16 bg-gray-900 border border-gray-700 rounded-lg px-2 py-2 text-center text-sm text-gray-100 focus:outline-none focus:border-brand disabled:opacity-50"
-      />
+      {isBW ? (
+        <button
+          onClick={!inputsDisabled ? toggleBW : undefined}
+          disabled={inputsDisabled}
+          className="w-16 bg-brand/20 border border-brand/40 rounded-lg px-2 py-2 text-center text-sm text-brand font-semibold disabled:opacity-50"
+        >
+          BW
+        </button>
+      ) : (
+        <div className="flex items-center gap-0.5">
+          <input
+            type="number"
+            inputMode="decimal"
+            value={localWeight}
+            onChange={(e) => setLocalWeight(e.target.value)}
+            placeholder="lbs"
+            disabled={inputsDisabled}
+            className="w-14 bg-gray-900 border border-gray-700 rounded-l-lg px-1 py-2 text-center text-sm text-gray-100 focus:outline-none focus:border-brand disabled:opacity-50"
+          />
+          <button
+            onClick={!inputsDisabled ? toggleBW : undefined}
+            disabled={inputsDisabled}
+            className="bg-gray-800 border border-gray-700 border-l-0 rounded-r-lg px-1.5 py-2 text-xs text-gray-500 hover:text-brand hover:bg-gray-700 disabled:opacity-50 transition-colors"
+            title="Bodyweight"
+          >
+            BW
+          </button>
+        </div>
+      )}
       <span className="text-gray-600 text-xs">x</span>
       <input
         type="number"
@@ -272,13 +297,32 @@ export default function Workout() {
   const [expandedExercise, setExpandedExercise] = useState(null)
   const [showRestTimer, setShowRestTimer] = useState(false)
   const [restSeconds, setRestSeconds] = useState(60)
-  const [startTime] = useState(Date.now())
+  const [startTime, setStartTime] = useState(Date.now())
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [sessionPRs, setSessionPRs] = useState([])
   const [viewMode, setViewMode] = useState(userProfile?.preferences?.viewMode || 'list')
   const [userBodyweight, setUserBodyweight] = useState(userProfile?.onboarding?.initialWeight || 0)
   const [reviewSession, setReviewSession] = useState(null) // completed session data for review mode
+  const [restored, setRestored] = useState(false) // whether we restored from localStorage
+
+  const DRAFT_KEY = 'cj_active_session'
+
+  // Persist session data to localStorage on every change (skip review mode)
+  useEffect(() => {
+    if (!workout || isReview || saved) return
+    const hasAnyData = Object.values(sessionData).some(
+      (ex) => ex?.sets?.some((s) => s?.completed)
+    )
+    if (hasAnyData) {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        dayType: workout.dayType,
+        sessionData,
+        startTime,
+        savedAt: Date.now(),
+      }))
+    }
+  }, [sessionData, workout, isReview, saved])
 
   // Load latest bodyweight for BW resolution
   useEffect(() => {
@@ -313,6 +357,13 @@ export default function Workout() {
         // Review mode: fetch session BEFORE rendering so SetRow initializes with actual data
         loadCompletedSession(requestedDay, w)
       } else {
+        // Check for a saved in-progress session
+        const draft = tryRestoreDraft(w?.dayType)
+        if (draft) {
+          setSessionData(draft.sessionData)
+          setStartTime(draft.startTime)
+          setRestored(true)
+        }
         setWorkout(w)
         if (w?.exercises?.length > 0) {
           setExpandedExercise(w.exercises[0].id)
@@ -349,6 +400,25 @@ export default function Workout() {
     if (w?.exercises?.length > 0) {
       setExpandedExercise(w.exercises[0].id)
     }
+  }
+
+  function tryRestoreDraft(dayType) {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY)
+      if (!raw) return null
+      const draft = JSON.parse(raw)
+      // Only restore if same day type and less than 4 hours old
+      if (draft.dayType === dayType && Date.now() - draft.savedAt < 4 * 60 * 60 * 1000) {
+        return draft
+      }
+      // Stale or wrong day — clear it
+      localStorage.removeItem(DRAFT_KEY)
+    } catch { /* ignore corrupt data */ }
+    return null
+  }
+
+  function clearDraft() {
+    localStorage.removeItem(DRAFT_KEY)
   }
 
   // Auto-advance: when all sets for current exercise are done, expand the next one
@@ -424,6 +494,7 @@ export default function Workout() {
 
     const duration = Math.round((Date.now() - startTime) / 60000)
     await saveSession(workout.dayType, exerciseResults, duration)
+    clearDraft()
     setSaved(true)
   }
 
@@ -593,6 +664,11 @@ export default function Workout() {
             </div>
           )}
         </div>
+
+        {/* Restored session notice */}
+        {restored && !inReviewMode && (
+          <p className="text-xs text-brand mt-1">Session restored — pick up where you left off.</p>
+        )}
 
         {/* Progress bar + view toggle (hidden in review mode) */}
         {!inReviewMode && <div className="mt-3 flex items-center gap-2">
