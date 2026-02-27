@@ -96,7 +96,7 @@ export function useWorkout() {
    */
   const getWorkoutForDay = useCallback(
     (dayType) => {
-      const exercises = getExercisesForDay(dayType)
+      const exercises = getExercisesForDay(dayType, weekInfo?.mesocycle)
       const mileageMultiplier = scalingTier.loadMultiplier
       const periodMultiplier = weekModifiers.loadMultiplier
 
@@ -132,7 +132,7 @@ export function useWorkout() {
         }
       })
     },
-    [exerciseHistory, scalingTier, weekModifiers, currentMileage]
+    [exerciseHistory, scalingTier, weekModifiers, currentMileage, weekInfo]
   )
 
   /** Get today's workout (or next upcoming) */

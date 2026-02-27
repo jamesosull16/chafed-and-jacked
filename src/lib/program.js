@@ -28,6 +28,21 @@ export const EXERCISES = {
     weightLabel: '/hand',
     weightMultiplier: 2,
   },
+  trapBarDeadlift: {
+    id: 'trapBarDeadlift',
+    name: 'Trap Bar Deadlift',
+    shortName: 'Trap Bar DL',
+    day: 'A',
+    order: 1,
+    sets: 3,
+    repRange: [12, 16],
+    restSeconds: 90,
+    isUnilateral: false,
+    muscleGroup: 'posterior chain',
+    equipment: 'Trap bar',
+    notes: 'Full hip-hinge with quad involvement. Neutral grip is easier on lower back than conventional.',
+    weightIncrement: 5,
+  },
   bulgarianSplitSquat: {
     id: 'bulgarianSplitSquat',
     name: 'Bulgarian Split Squat',
@@ -41,6 +56,23 @@ export const EXERCISES = {
     muscleGroup: 'quads / glutes',
     equipment: 'Dumbbells, bench',
     notes: 'Mimics single-leg stance of running. Rear foot elevated on bench. Addresses bilateral imbalances.',
+    weightIncrement: 5,
+    weightLabel: '/hand',
+    weightMultiplier: 2,
+  },
+  walkingLunge: {
+    id: 'walkingLunge',
+    name: 'Walking Lunge',
+    shortName: 'Walk Lunge',
+    day: 'A',
+    order: 2,
+    sets: 3,
+    repRange: [12, 16],
+    restSeconds: 60,
+    isUnilateral: true,
+    muscleGroup: 'quads / glutes',
+    equipment: 'Dumbbells',
+    notes: 'Dynamic single-leg pattern — more stability demand than BSS. Count reps per leg.',
     weightIncrement: 5,
     weightLabel: '/hand',
     weightMultiplier: 2,
@@ -59,6 +91,21 @@ export const EXERCISES = {
     equipment: 'Bench, optional dumbbell',
     notes: 'Glute activation in hip extension — directly supports uphill power and stride drive.',
     weightIncrement: 5,
+  },
+  barbellHipThrust: {
+    id: 'barbellHipThrust',
+    name: 'Barbell Hip Thrust',
+    shortName: 'BB Hip Thrust',
+    day: 'A',
+    order: 3,
+    sets: 3,
+    repRange: [15, 20],
+    restSeconds: 60,
+    isUnilateral: false,
+    muscleGroup: 'glutes',
+    equipment: 'Barbell, bench, pad',
+    notes: 'Bilateral glute driver — heavier loading than single-leg variant. Full hip extension at top.',
+    weightIncrement: 10,
   },
   lateralBandWalk: {
     id: 'lateralBandWalk',
@@ -108,6 +155,21 @@ export const EXERCISES = {
     notes: 'Upper back endurance — posture maintenance during late-race fatigue. Use pulldown if needed.',
     weightIncrement: 2.5,
   },
+  chinUp: {
+    id: 'chinUp',
+    name: 'Chin-Up',
+    shortName: 'Chin-Up',
+    day: 'B',
+    order: 1,
+    sets: 3,
+    repRange: [10, 15],
+    restSeconds: 60,
+    isUnilateral: false,
+    muscleGroup: 'lats / biceps',
+    equipment: 'Pull-up bar',
+    notes: 'Supinated grip — more bicep involvement than pull-ups. Use band assist if needed.',
+    weightIncrement: 2.5,
+  },
   singleArmRow: {
     id: 'singleArmRow',
     name: 'Single-Arm Dumbbell Row',
@@ -122,6 +184,23 @@ export const EXERCISES = {
     equipment: 'Dumbbell, bench',
     notes: 'Anti-rotation demand plus pulling endurance. Pack-carrying durability for ultras.',
     weightIncrement: 5,
+  },
+  chestSupportedRow: {
+    id: 'chestSupportedRow',
+    name: 'Chest-Supported DB Row',
+    shortName: 'CS Row',
+    day: 'B',
+    order: 2,
+    sets: 3,
+    repRange: [15, 20],
+    restSeconds: 60,
+    isUnilateral: false,
+    muscleGroup: 'upper back / lats',
+    equipment: 'Dumbbells, incline bench',
+    notes: 'Removes lower back demand — isolates upper back. Good swap when running volume is high.',
+    weightIncrement: 5,
+    weightLabel: '/hand',
+    weightMultiplier: 2,
   },
   facePull: {
     id: 'facePull',
@@ -138,6 +217,21 @@ export const EXERCISES = {
     notes: 'Rotator cuff health. Counters the forward-lean posture from hours of running.',
     weightIncrement: 2.5,
   },
+  bandPullApart: {
+    id: 'bandPullApart',
+    name: 'Band Pull-Apart',
+    shortName: 'Pull-Apart',
+    day: 'B',
+    order: 3,
+    sets: 3,
+    repRange: [20, 30],
+    restSeconds: 45,
+    isUnilateral: false,
+    muscleGroup: 'rear delts / rotator cuff',
+    equipment: 'Resistance band',
+    notes: 'Same shoulder health goal as face pulls — no cable machine needed. Squeeze at full extension.',
+    weightIncrement: 0,
+  },
   pushUp: {
     id: 'pushUp',
     name: 'Push-Up',
@@ -152,6 +246,23 @@ export const EXERCISES = {
     equipment: 'Bodyweight (add vest/plate to progress)',
     notes: 'Pressing balance with minimal fatigue cost. Use DB floor press as alternative.',
     weightIncrement: 0, // bodyweight — progress via reps or added weight
+  },
+  dbFloorPress: {
+    id: 'dbFloorPress',
+    name: 'DB Floor Press',
+    shortName: 'Floor Press',
+    day: 'B',
+    order: 4,
+    sets: 3,
+    repRange: [12, 16],
+    restSeconds: 60,
+    isUnilateral: false,
+    muscleGroup: 'chest / triceps',
+    equipment: 'Dumbbells',
+    notes: 'Loaded pressing alternative to push-ups. Floor limits ROM to protect shoulders.',
+    weightIncrement: 5,
+    weightLabel: '/hand',
+    weightMultiplier: 2,
   },
   pallofPress: {
     id: 'pallofPress',
@@ -202,6 +313,23 @@ export const EXERCISES = {
     weightLabel: '/hand',
     weightMultiplier: 2,
   },
+  reverseLunge: {
+    id: 'reverseLunge',
+    name: 'Reverse Lunge',
+    shortName: 'Rev Lunge',
+    day: 'C',
+    order: 1,
+    sets: 3,
+    repRange: [12, 16],
+    restSeconds: 60,
+    isUnilateral: true,
+    muscleGroup: 'quads / glutes',
+    equipment: 'Dumbbells',
+    notes: 'Stepping backward reduces knee shear vs. forward lunge. Count reps per leg.',
+    weightIncrement: 5,
+    weightLabel: '/hand',
+    weightMultiplier: 2,
+  },
   singleLegRDL: {
     id: 'singleLegRDL',
     name: 'Single-Leg Romanian Deadlift',
@@ -217,6 +345,21 @@ export const EXERCISES = {
     notes: 'Balance + posterior chain in single-leg stance. Ankle and proprioception work.',
     weightIncrement: 5,
   },
+  staggeredStanceRDL: {
+    id: 'staggeredStanceRDL',
+    name: 'Staggered Stance RDL',
+    shortName: 'Stagger RDL',
+    day: 'C',
+    order: 2,
+    sets: 3,
+    repRange: [12, 15],
+    restSeconds: 60,
+    isUnilateral: true,
+    muscleGroup: 'posterior chain / balance',
+    equipment: 'Dumbbells or kettlebell',
+    notes: 'More stable than true single-leg RDL — heavier loading option while still training single-leg pattern.',
+    weightIncrement: 5,
+  },
   gobletSquat: {
     id: 'gobletSquat',
     name: 'Goblet Squat',
@@ -230,6 +373,21 @@ export const EXERCISES = {
     muscleGroup: 'quads / glutes',
     equipment: 'Dumbbell or kettlebell',
     notes: 'Bilateral squat at moderate load. Mobility maintenance without heavy axial loading.',
+    weightIncrement: 5,
+  },
+  frontSquat: {
+    id: 'frontSquat',
+    name: 'Front Squat',
+    shortName: 'Front Squat',
+    day: 'C',
+    order: 3,
+    sets: 3,
+    repRange: [12, 16],
+    restSeconds: 60,
+    isUnilateral: false,
+    muscleGroup: 'quads / glutes',
+    equipment: 'Barbell or kettlebells',
+    notes: 'Anterior-loaded squat — more quad emphasis and core demand than goblet squat.',
     weightIncrement: 5,
   },
   farmersCarry: {
@@ -249,6 +407,22 @@ export const EXERCISES = {
     isTimeBased: true,
     weightLabel: '/hand',
     weightMultiplier: 2,
+  },
+  suitcaseCarry: {
+    id: 'suitcaseCarry',
+    name: 'Suitcase Carry',
+    shortName: 'Suitcase',
+    day: 'C',
+    order: 4,
+    sets: 3,
+    repRange: [30, 45],
+    restSeconds: 60,
+    isUnilateral: true,
+    muscleGroup: 'core / grip',
+    equipment: 'Heavy dumbbell or kettlebell',
+    notes: 'Anti-lateral flexion carry — one arm at a time. Targets obliques and lateral hip stability.',
+    weightIncrement: 5,
+    isTimeBased: true,
   },
   sidePlankHipDip: {
     id: 'sidePlankHipDip',
@@ -282,11 +456,52 @@ export const EXERCISES = {
   },
 }
 
+/**
+ * EXERCISE ROTATION TABLE
+ * Each entry defines a pair of exercises that alternate by mesocycle.
+ * Odd mesocycles (1, 3, 5...): primary is used.
+ * Even mesocycles (2, 4, 6...): alternate is used.
+ * Exercises not listed here are always included regardless of mesocycle.
+ */
+export const ROTATION_PAIRS = [
+  // Day A
+  { primary: 'rdl', alternate: 'trapBarDeadlift' },
+  { primary: 'bulgarianSplitSquat', alternate: 'walkingLunge' },
+  { primary: 'singleLegHipThrust', alternate: 'barbellHipThrust' },
+  // Day B
+  { primary: 'pullUp', alternate: 'chinUp' },
+  { primary: 'singleArmRow', alternate: 'chestSupportedRow' },
+  { primary: 'facePull', alternate: 'bandPullApart' },
+  { primary: 'pushUp', alternate: 'dbFloorPress' },
+  // Day C
+  { primary: 'stepUp', alternate: 'reverseLunge' },
+  { primary: 'singleLegRDL', alternate: 'staggeredStanceRDL' },
+  { primary: 'gobletSquat', alternate: 'frontSquat' },
+  { primary: 'farmersCarry', alternate: 'suitcaseCarry' },
+]
+
+const ALTERNATE_IDS = new Set(ROTATION_PAIRS.map((p) => p.alternate))
+
+/** Resolve which exercise ID to use for a given slot and mesocycle */
+export function resolveExerciseForMesocycle(exerciseId, mesocycle) {
+  if (!mesocycle) return exerciseId
+  const pair = ROTATION_PAIRS.find((p) => p.primary === exerciseId)
+  if (!pair) return exerciseId
+  return (mesocycle - 1) % 2 === 0 ? pair.primary : pair.alternate
+}
+
 /** Get exercises for a given day type ('A', 'B', or 'C'), sorted by order */
-export function getExercisesForDay(dayType) {
-  return Object.values(EXERCISES)
-    .filter((e) => e.day === dayType)
+export function getExercisesForDay(dayType, mesocycle = null) {
+  const baseExercises = Object.values(EXERCISES)
+    .filter((e) => e.day === dayType && !ALTERNATE_IDS.has(e.id))
     .sort((a, b) => a.order - b.order)
+
+  if (!mesocycle) return baseExercises
+
+  return baseExercises.map((e) => {
+    const resolvedId = resolveExerciseForMesocycle(e.id, mesocycle)
+    return resolvedId === e.id ? e : EXERCISES[resolvedId]
+  })
 }
 
 /** Day labels for display */
