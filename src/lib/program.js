@@ -25,6 +25,8 @@ export const EXERCISES = {
     equipment: 'Dumbbells or barbell',
     notes: 'Hip hinge pattern — critical for uphill running economy. Keep slight knee bend, hinge from hips.',
     weightIncrement: 5,
+    weightLabel: '/hand',
+    weightMultiplier: 2,
   },
   bulgarianSplitSquat: {
     id: 'bulgarianSplitSquat',
@@ -40,6 +42,8 @@ export const EXERCISES = {
     equipment: 'Dumbbells, bench',
     notes: 'Mimics single-leg stance of running. Rear foot elevated on bench. Addresses bilateral imbalances.',
     weightIncrement: 5,
+    weightLabel: '/hand',
+    weightMultiplier: 2,
   },
   singleLegHipThrust: {
     id: 'singleLegHipThrust',
@@ -195,6 +199,8 @@ export const EXERCISES = {
     equipment: 'Dumbbells, 12-16" box',
     notes: 'Single-leg concentric power — directly transfers to uphill hiking and running.',
     weightIncrement: 5,
+    weightLabel: '/hand',
+    weightMultiplier: 2,
   },
   singleLegRDL: {
     id: 'singleLegRDL',
@@ -241,6 +247,8 @@ export const EXERCISES = {
     notes: 'Grip, trunk stability, loaded walking endurance. Total body integration.',
     weightIncrement: 5,
     isTimeBased: true,
+    weightLabel: '/hand',
+    weightMultiplier: 2,
   },
   sidePlankHipDip: {
     id: 'sidePlankHipDip',

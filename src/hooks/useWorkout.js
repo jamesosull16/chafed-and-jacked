@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useFirestore, getWeekId, getWeekStart } from './useFirestore'
-import { getExercisesForDay } from '../lib/program'
+import { getExercisesForDay, EXERCISES } from '../lib/program'
 import { getCurrentWeek, getWeekModifiers, getNextSession, getDayTypeForDate, getActiveRace, daysUntilRace, calculateProgramStart } from '../lib/periodization'
 import { getScalingTier, calculateEffectiveSets } from '../lib/loadScaling'
 import { getRecommendedWeight, checkForPR } from '../lib/progression'
@@ -155,7 +155,8 @@ export function useWorkout() {
     if (!user) return
 
     const totalVolume = exerciseResults.reduce((total, ex) => {
-      return total + ex.sets.reduce((setTotal, set) => setTotal + set.reps * set.weight, 0)
+      const multiplier = EXERCISES[ex.id]?.weightMultiplier || 1
+      return total + ex.sets.reduce((setTotal, set) => setTotal + set.reps * set.weight * multiplier, 0)
     }, 0)
 
     const sessionData = {

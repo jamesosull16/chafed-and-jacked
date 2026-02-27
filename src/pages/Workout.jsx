@@ -49,7 +49,7 @@ function RestTimer({ seconds, onComplete }) {
   )
 }
 
-function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweight, onUpdate, isActive, isCompleted, userBodyweight, reviewMode }) {
+function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweight, onUpdate, isActive, isCompleted, userBodyweight, reviewMode, weightLabel }) {
   const [isBW, setIsBW] = useState(isBodyweight || false)
   const [localWeight, setLocalWeight] = useState(
     isBodyweight ? '' : (weight || '')
@@ -103,7 +103,7 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweig
             inputMode="decimal"
             value={localWeight}
             onChange={(e) => setLocalWeight(e.target.value)}
-            placeholder="lbs"
+            placeholder={weightLabel ? `lbs ${weightLabel}` : 'lbs'}
             disabled={inputsDisabled}
             className="w-14 bg-gray-900 border border-gray-700 rounded-l-lg px-1 py-2 text-center text-sm text-gray-100 focus:outline-none focus:border-brand disabled:opacity-50"
           />
@@ -203,7 +203,7 @@ function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onTogg
             <span className="ml-2 text-gray-600">· {exercise.restSeconds}s rest</span>
             {exercise.recommendedWeight > 0 && (
               <span className={`ml-2 ${directionColor[exercise.progressionDirection]}`}>
-                {directionIcon[exercise.progressionDirection]} {exercise.recommendedWeight} lbs
+                {directionIcon[exercise.progressionDirection]} {exercise.recommendedWeight} lbs{exercise.weightLabel ? ` ${exercise.weightLabel}` : ''}
               </span>
             )}
           </p>
@@ -240,14 +240,14 @@ function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onTogg
           {/* Last session */}
           {exercise.lastWeight > 0 && (
             <p className="text-xs text-gray-600">
-              Last: {exercise.lastIsBodyweight ? 'BW' : `${exercise.lastWeight} lbs`} x {exercise.lastReps.join('/')} reps
+              Last: {exercise.lastIsBodyweight ? 'BW' : `${exercise.lastWeight} lbs${exercise.weightLabel ? ` ${exercise.weightLabel}` : ''}`} x {exercise.lastReps.join('/')} reps
             </p>
           )}
 
           {/* Set rows header */}
           <div className="flex items-center gap-2 px-3 text-xs text-gray-600">
             <span className="w-6" />
-            <span className="w-16 text-center">Weight</span>
+            <span className="w-16 text-center">{exercise.weightLabel ? `Wt ${exercise.weightLabel}` : 'Weight'}</span>
             <span className="w-4" />
             <span className="w-16 text-center">Reps</span>
             <span className="w-14 text-center">RPE</span>
@@ -274,6 +274,7 @@ function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onTogg
                   isCompleted={!!setData?.completed}
                   userBodyweight={userBodyweight}
                   reviewMode={reviewMode}
+                  weightLabel={exercise.weightLabel}
                 />
               )
             })}
@@ -504,7 +505,8 @@ export default function Workout() {
   if (saved) {
     const totalVolume = workout.exercises.reduce((total, ex) => {
       const sets = sessionData[ex.id]?.sets || []
-      return total + sets.filter((s) => s?.completed).reduce((t, s) => t + s.reps * s.weight, 0)
+      const multiplier = EXERCISES[ex.id]?.weightMultiplier || 1
+      return total + sets.filter((s) => s?.completed).reduce((t, s) => t + s.reps * s.weight * multiplier, 0)
     }, 0)
     const duration = Math.round((Date.now() - startTime) / 60000)
 
@@ -566,7 +568,8 @@ export default function Workout() {
       }))
 
     const totalVolume = exerciseResults.reduce((total, ex) => {
-      return total + ex.sets.reduce((setTotal, set) => setTotal + set.reps * set.weight, 0)
+      const multiplier = EXERCISES[ex.id]?.weightMultiplier || 1
+      return total + ex.sets.reduce((setTotal, set) => setTotal + set.reps * set.weight * multiplier, 0)
     }, 0)
 
     // Update the existing session document
