@@ -98,7 +98,7 @@ export function useWorkout() {
    */
   const getWorkoutForDay = useCallback(
     (dayType) => {
-      const exercises = getExercisesForDay(dayType, weekInfo?.mesocycle)
+      const exercises = getExercisesForDay(dayType, weekInfo?.weekNumber)
       const mileageMultiplier = scalingTier.loadMultiplier
       const periodMultiplier = weekModifiers.loadMultiplier
 

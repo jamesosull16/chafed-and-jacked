@@ -115,7 +115,7 @@ export default function WeekOverview({ weekInfo, weekModifiers, trainingDays, ra
                     {dayName}
                   </p>
                   <p className="text-xs text-gray-500">
-                    {getExercisesForDay(dayType, targetWeek?.mesocycle).map((e) => e.name).join(' · ')}
+                    {getExercisesForDay(dayType, targetWeek?.weekNumber).map((e) => e.name).join(' · ')}
                   </p>
                 </div>
               </div>

@@ -482,24 +482,27 @@ export const ROTATION_PAIRS = [
 
 const ALTERNATE_IDS = new Set(ROTATION_PAIRS.map((p) => p.alternate))
 
-/** Resolve which exercise ID to use for a given slot and mesocycle */
-export function resolveExerciseForMesocycle(exerciseId, mesocycle) {
-  if (!mesocycle) return exerciseId
+/** Resolve which exercise ID to use for a given week (alternates weekly) */
+export function resolveExerciseForWeek(exerciseId, weekNumber) {
+  if (!weekNumber) return exerciseId
   const pair = ROTATION_PAIRS.find((p) => p.primary === exerciseId)
   if (!pair) return exerciseId
-  return (mesocycle - 1) % 2 === 0 ? pair.primary : pair.alternate
+  return (weekNumber - 1) % 2 === 0 ? pair.primary : pair.alternate
 }
 
+/** @deprecated Use resolveExerciseForWeek instead */
+export const resolveExerciseForMesocycle = resolveExerciseForWeek
+
 /** Get exercises for a given day type ('A', 'B', or 'C'), sorted by order */
-export function getExercisesForDay(dayType, mesocycle = null) {
+export function getExercisesForDay(dayType, weekNumber = null) {
   const baseExercises = Object.values(EXERCISES)
     .filter((e) => e.day === dayType && !ALTERNATE_IDS.has(e.id))
     .sort((a, b) => a.order - b.order)
 
-  if (!mesocycle) return baseExercises
+  if (!weekNumber) return baseExercises
 
   return baseExercises.map((e) => {
-    const resolvedId = resolveExerciseForMesocycle(e.id, mesocycle)
+    const resolvedId = resolveExerciseForWeek(e.id, weekNumber)
     return resolvedId === e.id ? e : EXERCISES[resolvedId]
   })
 }
