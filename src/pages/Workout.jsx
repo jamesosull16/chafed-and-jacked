@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { DAY_LABELS, EXERCISES } from '../lib/program'
 import { getScalingExplanation } from '../lib/loadScaling'
 import { checkForPR } from '../lib/progression'
+import { getWeekModifiers } from '../lib/periodization'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 
 function RestTimer({ seconds, onComplete }) {
@@ -291,6 +292,8 @@ export default function Workout() {
   const requestedDay = searchParams.get('day') // 'A', 'B', or 'C' from URL
   const isReview = searchParams.get('review') === '1'
   const overrideMeso = searchParams.get('meso') ? parseInt(searchParams.get('meso'), 10) : null
+  const overrideWeekType = searchParams.get('weekType')
+  const overrideWeekInMeso = searchParams.get('weekInMeso') ? parseInt(searchParams.get('weekInMeso'), 10) : null
   const { userProfile } = useAuth()
   const { loading, getTodaysWorkout, getWorkoutForDay, saveSession, weekInfo, weekModifiers, scalingTier, exerciseHistory, currentMileage } = useWorkout()
   const { getCollection, setDocument } = useFirestore()
@@ -343,11 +346,14 @@ export default function Workout() {
     if (!loading) {
       let w
       if (requestedDay && ['A', 'B', 'C'].includes(requestedDay)) {
+        const effectiveModifiers = overrideWeekType
+          ? getWeekModifiers({ type: overrideWeekType, mesocycle: overrideMeso, weekInMesocycle: overrideWeekInMeso })
+          : weekModifiers
         w = {
           dayType: requestedDay,
           exercises: getWorkoutForDay(requestedDay, overrideMeso),
           weekInfo,
-          weekModifiers,
+          weekModifiers: effectiveModifiers,
           scalingTier,
           isToday: false,
         }
