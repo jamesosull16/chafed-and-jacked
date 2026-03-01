@@ -96,17 +96,12 @@ export default function WeekOverview({ weekInfo, weekModifiers, trainingDays, ra
           const isCompleted = completedDays.includes(dayType)
           const isToday = isCurrentWeek && dayOfWeek === today
 
-          const Wrapper = isCurrentWeek ? Link : 'div'
-          const wrapperProps = isCurrentWeek
-            ? { to: `/workout?day=${dayType}${isCompleted ? '&review=1' : ''}` }
-            : {}
-
           return (
-            <Wrapper
+            <Link
               key={dayType}
-              {...wrapperProps}
+              to={`/workout?day=${dayType}${isCompleted ? '&review=1' : ''}`}
               className={`flex items-center justify-between py-2 px-3 rounded-lg transition-colors ${
-                isToday ? 'bg-brand/10 border border-brand/30' : isCurrentWeek ? 'hover:bg-gray-800' : ''
+                isToday ? 'bg-brand/10 border border-brand/30' : 'hover:bg-gray-800'
               }`}
             >
               <div className="flex items-center gap-3">
@@ -128,7 +123,7 @@ export default function WeekOverview({ weekInfo, weekModifiers, trainingDays, ra
               {isCompleted && (
                 <span className="text-xs text-success">Done</span>
               )}
-            </Wrapper>
+            </Link>
           )
         })}
       </div>

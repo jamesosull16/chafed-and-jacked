@@ -43,14 +43,19 @@ function buildSchedule(raceDate, programStart) {
     weekEnd.setHours(23, 59, 59, 999)
 
     let type, mesocycle, weekInMeso
+    // Use iteration count instead of ms arithmetic to avoid DST errors
+    const weeksFromStart = weekNum - 1
 
     if (current >= taperStart) {
-      const taperWeekNum = Math.floor((current - taperStart) / (7 * 86400000)) + 1
       type = 'taper'
       mesocycle = null
-      weekInMeso = taperWeekNum
+      // Count taper week by distance from first taper week
+      if (!weeks.length || weeks[weeks.length - 1].type !== 'taper') {
+        weekInMeso = 1
+      } else {
+        weekInMeso = weeks[weeks.length - 1].weekInMesocycle + 1
+      }
     } else {
-      const weeksFromStart = Math.floor((current - programStart) / (7 * 86400000))
       mesocycle = Math.floor(weeksFromStart / 5) + 1
       weekInMeso = (weeksFromStart % 5) + 1
       type = weekInMeso === 5 ? 'deload' : 'build'
