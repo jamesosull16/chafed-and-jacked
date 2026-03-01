@@ -1,39 +1,92 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { TRAINING_SCHEDULES, DAY_TYPE_ORDER, DAY_LABELS } from '../../lib/program'
-import { useFirestore, getWeekId } from '../../hooks/useFirestore'
+import { useFirestore } from '../../hooks/useFirestore'
+import { getSchedule, getWeekModifiers, getPerpetualWeek } from '../../lib/periodization'
 
-export default function WeekOverview({ weekInfo, weekModifiers, trainingDays }) {
+export default function WeekOverview({ weekInfo, weekModifiers, trainingDays, raceDate, programStart }) {
   const { getCollection } = useFirestore()
   const [completedDays, setCompletedDays] = useState([])
+  const [weekOffset, setWeekOffset] = useState(0)
   const schedule = TRAINING_SCHEDULES[trainingDays] || TRAINING_SCHEDULES['mon-wed-fri']
   const today = new Date().getDay()
 
+  // Compute target week for the current offset
+  const targetWeek = getTargetWeek(weekOffset, weekInfo, raceDate, programStart)
+  const targetModifiers = targetWeek ? getWeekModifiers(targetWeek) : weekModifiers
+  const isCurrentWeek = weekOffset === 0
+
+  // Navigation bounds
+  const canGoBack = weekOffset > -1
+  const canGoForward = (() => {
+    if (raceDate && programStart) {
+      const sched = getSchedule(raceDate, programStart)
+      const idx = getCurrentIndex(sched)
+      return (idx + weekOffset + 1) < sched.length
+    }
+    return weekOffset < 12
+  })()
+
   useEffect(() => {
+    if (weekOffset > 0) {
+      setCompletedDays([])
+      return
+    }
     loadCompletedSessions()
-  }, [])
+  }, [weekOffset])
 
   async function loadCompletedSessions() {
     try {
-      const sessions = await getCollection('workoutSessions', 'date', 'desc', 10)
-      const thisWeekSessions = sessions.filter((s) => {
-        const sessionDate = new Date(s.date)
-        const weekStart = new Date()
-        weekStart.setDate(weekStart.getDate() - weekStart.getDay() + (weekStart.getDay() === 0 ? -6 : 1))
-        weekStart.setHours(0, 0, 0, 0)
-        return sessionDate >= weekStart
+      const sessions = await getCollection('workoutSessions', 'date', 'desc', 20)
+      const tw = weekOffset === 0 ? weekInfo : targetWeek
+      if (!tw?.startDate || !tw?.endDate) {
+        setCompletedDays([])
+        return
+      }
+      const filtered = sessions.filter((s) => {
+        const d = new Date(s.date)
+        return d >= tw.startDate && d <= tw.endDate
       })
-      setCompletedDays(thisWeekSessions.map((s) => s.dayType))
+      setCompletedDays(filtered.map((s) => s.dayType))
     } catch (err) {
       console.error('Failed to load sessions:', err)
     }
   }
 
+  function getHeaderTitle(offset) {
+    if (offset === 0) return "This Week's Training"
+    if (offset === -1) return 'Last Week'
+    if (offset === 1) return 'Next Week'
+    return `${offset} Weeks Ahead`
+  }
+
   return (
     <div className="bg-surface rounded-xl p-4 border border-gray-800">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-300">This Week's Training</h3>
-        <span className="text-xs text-gray-500">{weekModifiers.label}</span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setWeekOffset((o) => o - 1)}
+            disabled={!canGoBack}
+            className={`p-1 rounded ${canGoBack ? 'text-gray-400 hover:text-gray-200' : 'text-gray-700 cursor-not-allowed'}`}
+            aria-label="Previous week"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <h3 className="text-sm font-semibold text-gray-300">{getHeaderTitle(weekOffset)}</h3>
+          <button
+            onClick={() => setWeekOffset((o) => o + 1)}
+            disabled={!canGoForward}
+            className={`p-1 rounded ${canGoForward ? 'text-gray-400 hover:text-gray-200' : 'text-gray-700 cursor-not-allowed'}`}
+            aria-label="Next week"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+        <span className="text-xs text-gray-500">{targetModifiers.label}</span>
       </div>
 
       <div className="space-y-2">
@@ -41,15 +94,19 @@ export default function WeekOverview({ weekInfo, weekModifiers, trainingDays }) 
           const dayType = DAY_TYPE_ORDER[i]
           const dayOfWeek = schedule.days[i]
           const isCompleted = completedDays.includes(dayType)
-          const isToday = dayOfWeek === today
-          const isPast = dayOfWeek < today || (today === 0 && dayOfWeek < 7)
+          const isToday = isCurrentWeek && dayOfWeek === today
+
+          const Wrapper = isCurrentWeek ? Link : 'div'
+          const wrapperProps = isCurrentWeek
+            ? { to: `/workout?day=${dayType}${isCompleted ? '&review=1' : ''}` }
+            : {}
 
           return (
-            <Link
+            <Wrapper
               key={dayType}
-              to={`/workout?day=${dayType}${isCompleted ? '&review=1' : ''}`}
+              {...wrapperProps}
               className={`flex items-center justify-between py-2 px-3 rounded-lg transition-colors ${
-                isToday ? 'bg-brand/10 border border-brand/30' : 'hover:bg-gray-800'
+                isToday ? 'bg-brand/10 border border-brand/30' : isCurrentWeek ? 'hover:bg-gray-800' : ''
               }`}
             >
               <div className="flex items-center gap-3">
@@ -71,10 +128,33 @@ export default function WeekOverview({ weekInfo, weekModifiers, trainingDays }) 
               {isCompleted && (
                 <span className="text-xs text-success">Done</span>
               )}
-            </Link>
+            </Wrapper>
           )
         })}
       </div>
     </div>
   )
+}
+
+function getTargetWeek(offset, currentWeek, raceDate, programStart) {
+  if (offset === 0) return currentWeek
+
+  if (raceDate && programStart) {
+    const sched = getSchedule(raceDate, programStart)
+    const idx = getCurrentIndex(sched)
+    const target = idx + offset
+    if (target < 0 || target >= sched.length) return null
+    return sched[target]
+  }
+
+  // Perpetual mode
+  const shifted = new Date()
+  shifted.setDate(shifted.getDate() + offset * 7)
+  return getPerpetualWeek(shifted)
+}
+
+function getCurrentIndex(schedule) {
+  const now = new Date()
+  const idx = schedule.findIndex((w) => now >= w.startDate && now <= w.endDate)
+  return idx >= 0 ? idx : schedule.length - 1
 }

@@ -235,6 +235,7 @@ export function useWorkout() {
     loading,
     activeRace,
     raceDate,
+    programStart,
     raceDaysLeft,
     weekInfo,
     weekModifiers,

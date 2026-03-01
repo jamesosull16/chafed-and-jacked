@@ -29,6 +29,8 @@ export default function Dashboard() {
   const {
     loading,
     activeRace,
+    raceDate,
+    programStart,
     raceDaysLeft,
     weekInfo,
     weekModifiers,
@@ -143,6 +145,8 @@ export default function Dashboard() {
         weekInfo={weekInfo}
         weekModifiers={weekModifiers}
         trainingDays={trainingDays}
+        raceDate={raceDate}
+        programStart={programStart}
       />
 
       {/* Body metrics summary */}

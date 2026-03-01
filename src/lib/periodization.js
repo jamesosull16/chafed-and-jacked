@@ -121,7 +121,7 @@ export function getCurrentWeek(raceDate, programStart, date = new Date()) {
  * Perpetual build/deload cycle when no race is configured.
  * 4-week build + 1-week deload, repeating from a fixed epoch.
  */
-function getPerpetualWeek(date) {
+export function getPerpetualWeek(date) {
   // Use a fixed Monday as epoch for consistent cycling
   const epoch = new Date('2026-01-05') // A Monday
   const msPerWeek = 7 * 86400000
