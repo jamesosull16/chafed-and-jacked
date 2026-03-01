@@ -640,7 +640,7 @@ export default function Workout() {
     <div className="space-y-4 pb-6">
       {/* Header */}
       <div className="pt-2">
-        {inReviewMode && (
+        {(inReviewMode || requestedDay) && (
           <button
             onClick={() => navigate('/')}
             className="text-xs text-gray-500 hover:text-gray-300 mb-2"
