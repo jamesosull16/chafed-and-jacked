@@ -25,7 +25,9 @@ export function useWorkout() {
   const activeRace = getActiveRace(userProfile?.races)
   const raceDate = activeRace ? new Date(activeRace.date + 'T00:00:00') : null
   const programStart = activeRace
-    ? new Date(activeRace.programStart || calculateProgramStart(raceDate))
+    ? (activeRace.programStart
+        ? new Date(activeRace.programStart + 'T00:00:00')
+        : calculateProgramStart(raceDate))
     : null
 
   const weekInfo = getCurrentWeek(raceDate, programStart)
