@@ -19,7 +19,7 @@ export default function RaceCountdown({ race }) {
     )
   }
 
-  const raceDate = new Date(race.date)
+  const raceDate = new Date(race.date + 'T00:00:00')
   const days = daysUntilRace(raceDate)
   const raceStr = raceDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
   const distanceLabel = race.distance >= 1 ? `${race.distance} mi` : ''

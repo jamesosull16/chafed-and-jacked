@@ -143,8 +143,8 @@ export default function Settings() {
       }
     } catch { /* use onboarding values */ }
 
-    const activeRace = races.find((r) => r.isARace && new Date(r.date) > new Date())
-      || races.find((r) => new Date(r.date) > new Date())
+    const activeRace = races.find((r) => r.isARace && new Date(r.date + 'T00:00:00') > new Date())
+      || races.find((r) => new Date(r.date + 'T00:00:00') > new Date())
 
     if (!activeRace) {
       setGoalResult({ error: 'Add an upcoming race first to calculate time-gated goals.' })

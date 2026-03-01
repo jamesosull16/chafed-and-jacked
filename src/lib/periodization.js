@@ -214,8 +214,8 @@ export function getActiveRace(races) {
   const now = new Date()
   now.setHours(0, 0, 0, 0)
   const futureRaces = races
-    .filter((r) => new Date(r.date) >= now)
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .filter((r) => new Date(r.date + 'T00:00:00') >= now)
+    .sort((a, b) => new Date(a.date + 'T00:00:00') - new Date(b.date + 'T00:00:00'))
 
   const aRace = futureRaces.find((r) => r.isARace)
   return aRace || futureRaces[0] || null
