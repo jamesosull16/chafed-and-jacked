@@ -99,7 +99,7 @@ export default function WeekOverview({ weekInfo, weekModifiers, trainingDays, ra
           return (
             <Link
               key={dayType}
-              to={`/workout?day=${dayType}${isCompleted ? '&review=1' : ''}`}
+              to={`/workout?day=${dayType}${isCompleted ? '&review=1' : ''}${!isCurrentWeek && targetWeek?.weekNumber ? `&week=${targetWeek.weekNumber}` : ''}`}
               className={`flex items-center justify-between py-2 px-3 rounded-lg transition-colors ${
                 isToday ? 'bg-brand/10 border border-brand/30' : 'hover:bg-gray-800'
               }`}
