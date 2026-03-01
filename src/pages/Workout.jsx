@@ -4,7 +4,7 @@ import { useWorkout } from '../hooks/useWorkout'
 import { useFirestore } from '../hooks/useFirestore'
 import { useAuth } from '../contexts/AuthContext'
 import { DAY_LABELS, EXERCISES } from '../lib/program'
-import { getScalingExplanation } from '../lib/loadScaling'
+import { getScalingExplanation, getScalingTier } from '../lib/loadScaling'
 import { checkForPR } from '../lib/progression'
 import { getWeekModifiers } from '../lib/periodization'
 import LoadingSpinner from '../components/common/LoadingSpinner'
@@ -294,8 +294,9 @@ export default function Workout() {
   const overrideMeso = searchParams.get('meso') ? parseInt(searchParams.get('meso'), 10) : null
   const overrideWeekType = searchParams.get('weekType')
   const overrideWeekInMeso = searchParams.get('weekInMeso') ? parseInt(searchParams.get('weekInMeso'), 10) : null
+  const weekOffset = searchParams.get('weekOffset') ? parseInt(searchParams.get('weekOffset'), 10) : 0
   const { userProfile } = useAuth()
-  const { loading, getTodaysWorkout, getWorkoutForDay, saveSession, weekInfo, weekModifiers, scalingTier, exerciseHistory, currentMileage } = useWorkout()
+  const { loading, getTodaysWorkout, getWorkoutForDay, saveSession, weekInfo, weekModifiers, scalingTier, exerciseHistory, currentMileage, weekDailySum } = useWorkout()
   const { getCollection, setDocument } = useFirestore()
   const [workout, setWorkout] = useState(null)
   const [sessionData, setSessionData] = useState({})
@@ -349,12 +350,25 @@ export default function Workout() {
         const effectiveModifiers = overrideWeekType
           ? getWeekModifiers({ type: overrideWeekType, mesocycle: overrideMeso, weekInMesocycle: overrideWeekInMeso })
           : weekModifiers
+
+        // Project mileage forward for future weeks: use actual daily sum or planned, whichever is higher
+        let projectedMileage = null
+        let projectedScalingTier = scalingTier
+        if (weekOffset > 0) {
+          const baseMileage = Math.max(currentMileage || 0, weekDailySum || 0)
+          projectedMileage = Math.round(baseMileage * Math.pow(1.075, weekOffset))
+          projectedScalingTier = getScalingTier(projectedMileage)
+        }
+
         w = {
           dayType: requestedDay,
-          exercises: getWorkoutForDay(requestedDay, overrideMeso),
+          exercises: weekOffset > 0
+            ? getWorkoutForDay(requestedDay, overrideMeso, projectedMileage, effectiveModifiers)
+            : getWorkoutForDay(requestedDay, overrideMeso),
           weekInfo,
           weekModifiers: effectiveModifiers,
-          scalingTier,
+          scalingTier: projectedScalingTier,
+          projectedMileage,
           isToday: false,
         }
       } else {
@@ -668,7 +682,9 @@ export default function Workout() {
               <p className="text-xs text-gray-600">{workout.weekModifiers.label}</p>
               {workout.scalingTier.id !== 'full' && (
                 <p className={`text-xs ${workout.scalingTier.color}`}>
-                  {getScalingExplanation(currentMileage, weekInfo?.type)}
+                  {workout.projectedMileage
+                    ? `Projected ${workout.projectedMileage} mi — load at ${Math.round(workout.scalingTier.loadMultiplier * 100)}%`
+                    : getScalingExplanation(currentMileage, weekInfo?.type)}
                 </p>
               )}
             </div>

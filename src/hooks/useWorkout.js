@@ -97,10 +97,13 @@ export function useWorkout() {
    * Get the fully-prepared workout for a given day type.
    */
   const getWorkoutForDay = useCallback(
-    (dayType, overrideMesocycle = null) => {
+    (dayType, overrideMesocycle = null, overrideMileage = null, overrideModifiers = null) => {
       const exercises = getExercisesForDay(dayType, overrideMesocycle || weekInfo?.mesocycle)
-      const mileageMultiplier = scalingTier.loadMultiplier
-      const periodMultiplier = weekModifiers.loadMultiplier
+      const effectiveMileage = overrideMileage != null ? overrideMileage : currentMileage
+      const effectiveScaling = getScalingTier(effectiveMileage)
+      const mileageMultiplier = effectiveScaling.loadMultiplier
+      const periodMultiplier = overrideModifiers ? overrideModifiers.loadMultiplier : weekModifiers.loadMultiplier
+      const setReduction = overrideModifiers ? overrideModifiers.setReduction : weekModifiers.setReduction
 
       return exercises.map((exercise) => {
         const history = exerciseHistory[exercise.id]
@@ -117,8 +120,8 @@ export function useWorkout() {
 
         const effectiveSets = calculateEffectiveSets(
           exercise.sets,
-          currentMileage,
-          weekModifiers.setReduction
+          effectiveMileage,
+          setReduction
         )
 
         return {

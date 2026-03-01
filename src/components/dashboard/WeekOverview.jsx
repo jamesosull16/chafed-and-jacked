@@ -99,7 +99,7 @@ export default function WeekOverview({ weekInfo, weekModifiers, trainingDays, ra
           return (
             <Link
               key={dayType}
-              to={`/workout?day=${dayType}${isCompleted ? '&review=1' : ''}${!isCurrentWeek && targetWeek ? `&meso=${targetWeek.mesocycle || ''}&weekType=${targetWeek.type}&weekInMeso=${targetWeek.weekInMesocycle || ''}` : ''}`}
+              to={`/workout?day=${dayType}${isCompleted ? '&review=1' : ''}${!isCurrentWeek && targetWeek ? `&meso=${targetWeek.mesocycle || ''}&weekType=${targetWeek.type}&weekInMeso=${targetWeek.weekInMesocycle || ''}&weekOffset=${weekOffset}` : ''}`}
               className={`flex items-center justify-between py-2 px-3 rounded-lg transition-colors ${
                 isToday ? 'bg-brand/10 border border-brand/30' : 'hover:bg-gray-800'
               }`}
