@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { TRAINING_SCHEDULES, DAY_TYPE_ORDER, DAY_LABELS } from '../../lib/program'
+import { TRAINING_SCHEDULES, DAY_TYPE_ORDER, DAY_LABELS, getExercisesForDay } from '../../lib/program'
 import { useFirestore } from '../../hooks/useFirestore'
 import { getSchedule, getWeekModifiers, getPerpetualWeek } from '../../lib/periodization'
 
@@ -114,7 +114,9 @@ export default function WeekOverview({ weekInfo, weekModifiers, trainingDays, ra
                   <p className={`text-sm font-medium ${isToday ? 'text-brand' : 'text-gray-300'}`}>
                     {dayName}
                   </p>
-                  <p className="text-xs text-gray-500">{DAY_LABELS[dayType]}</p>
+                  <p className="text-xs text-gray-500">
+                    {getExercisesForDay(dayType, targetWeek?.mesocycle).map((e) => e.name).join(' · ')}
+                  </p>
                 </div>
               </div>
               {isToday && !isCompleted && (
