@@ -290,7 +290,7 @@ export default function Workout() {
   const [searchParams] = useSearchParams()
   const requestedDay = searchParams.get('day') // 'A', 'B', or 'C' from URL
   const isReview = searchParams.get('review') === '1'
-  const overrideWeek = searchParams.get('week') ? parseInt(searchParams.get('week'), 10) : null
+  const overrideMeso = searchParams.get('meso') ? parseInt(searchParams.get('meso'), 10) : null
   const { userProfile } = useAuth()
   const { loading, getTodaysWorkout, getWorkoutForDay, saveSession, weekInfo, weekModifiers, scalingTier, exerciseHistory, currentMileage } = useWorkout()
   const { getCollection, setDocument } = useFirestore()
@@ -345,7 +345,7 @@ export default function Workout() {
       if (requestedDay && ['A', 'B', 'C'].includes(requestedDay)) {
         w = {
           dayType: requestedDay,
-          exercises: getWorkoutForDay(requestedDay, overrideWeek),
+          exercises: getWorkoutForDay(requestedDay, overrideMeso),
           weekInfo,
           weekModifiers,
           scalingTier,

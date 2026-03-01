@@ -97,8 +97,8 @@ export function useWorkout() {
    * Get the fully-prepared workout for a given day type.
    */
   const getWorkoutForDay = useCallback(
-    (dayType, overrideWeekNumber = null) => {
-      const exercises = getExercisesForDay(dayType, overrideWeekNumber || weekInfo?.weekNumber)
+    (dayType, overrideMesocycle = null) => {
+      const exercises = getExercisesForDay(dayType, overrideMesocycle || weekInfo?.mesocycle)
       const mileageMultiplier = scalingTier.loadMultiplier
       const periodMultiplier = weekModifiers.loadMultiplier
 

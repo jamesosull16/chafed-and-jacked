@@ -99,7 +99,7 @@ export default function WeekOverview({ weekInfo, weekModifiers, trainingDays, ra
           return (
             <Link
               key={dayType}
-              to={`/workout?day=${dayType}${isCompleted ? '&review=1' : ''}${!isCurrentWeek && targetWeek?.weekNumber ? `&week=${targetWeek.weekNumber}` : ''}`}
+              to={`/workout?day=${dayType}${isCompleted ? '&review=1' : ''}${!isCurrentWeek && targetWeek?.mesocycle ? `&meso=${targetWeek.mesocycle}` : ''}`}
               className={`flex items-center justify-between py-2 px-3 rounded-lg transition-colors ${
                 isToday ? 'bg-brand/10 border border-brand/30' : 'hover:bg-gray-800'
               }`}
@@ -115,7 +115,7 @@ export default function WeekOverview({ weekInfo, weekModifiers, trainingDays, ra
                     {dayName}
                   </p>
                   <p className="text-xs text-gray-500">
-                    {getExercisesForDay(dayType, targetWeek?.weekNumber).map((e) => e.name).join(' · ')}
+                    {getExercisesForDay(dayType, targetWeek?.mesocycle).map((e) => e.name).join(' · ')}
                   </p>
                 </div>
               </div>
