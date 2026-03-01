@@ -105,8 +105,16 @@ export function getCurrentWeek(raceDate, programStart, date = new Date()) {
   if (date < programStart) {
     return { ...schedule[0], isFuture: true }
   }
-  // After race
-  return { ...schedule[schedule.length - 1], isPast: true }
+  // After race — return race week only if past race day, otherwise find nearest week
+  const raceWeek = schedule[schedule.length - 1]
+  if (date > raceWeek.endDate) {
+    return { ...raceWeek, isPast: true }
+  }
+  // Date is within program range but fell between weeks (shouldn't happen) — find nearest
+  for (const week of schedule) {
+    if (date < week.endDate) return week
+  }
+  return raceWeek
 }
 
 /**
