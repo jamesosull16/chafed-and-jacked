@@ -98,8 +98,13 @@ export function getRecommendedWeight(exerciseId, lastSession, mileageMultiplier 
     lastSession.weight
   )
 
-  // Apply scaling on top of progression
-  const scaledWeight = roundToNearest(nextWeight * mileageMultiplier * periodMultiplier, 2.5)
+  // Apply scaling on top of progression, but never reduce below last session's
+  // weight when progression says maintain or increase — the user already proved
+  // they can handle that load at their current mileage.
+  let scaledWeight = roundToNearest(nextWeight * mileageMultiplier * periodMultiplier, 2.5)
+  if (direction !== 'down' && scaledWeight < lastSession.weight && periodMultiplier >= 1.0) {
+    scaledWeight = lastSession.weight
+  }
 
   const scalingNotes = []
   if (mileageMultiplier < 1.0) {
