@@ -40,6 +40,7 @@ function buildSchedule(raceDate, programStart) {
   while (current < raceWeekStart) {
     const weekEnd = new Date(current)
     weekEnd.setDate(weekEnd.getDate() + 6)
+    weekEnd.setHours(23, 59, 59, 999)
 
     let type, mesocycle, weekInMeso
 
@@ -69,10 +70,12 @@ function buildSchedule(raceDate, programStart) {
   }
 
   // Race week
+  const raceWeekEnd = new Date(raceDate)
+  raceWeekEnd.setHours(23, 59, 59, 999)
   weeks.push({
     weekNumber: weekNum,
     startDate: new Date(raceWeekStart),
-    endDate: new Date(raceDate),
+    endDate: raceWeekEnd,
     type: 'race',
     mesocycle: null,
     weekInMesocycle: null,
