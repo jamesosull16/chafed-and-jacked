@@ -138,6 +138,7 @@ export default function Dashboard() {
         todayMiles={todayMiles}
         onSaveDailyMileage={saveDailyMileage}
         weekDailySum={weekDailySum}
+        weekDailyMiles={weekDailyMiles}
       />
 
       {/* Week overview - training schedule */}
