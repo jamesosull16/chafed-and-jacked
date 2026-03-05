@@ -38,6 +38,7 @@ export default function Dashboard() {
     currentMileage,
     todayMiles,
     weekDailySum,
+    weekDailyMiles,
     isStrengthDay,
     trainingDays,
     saveMileage,
