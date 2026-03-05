@@ -67,7 +67,7 @@ export function useWorkout() {
 
       // Load daily entries for the current week
       const ws = getWeekStart()
-      const allDaily = await getCollection('dailyMileage', 'date', 'asc', 7)
+      const allDaily = await getCollection('dailyMileage', 'date', 'desc')
       const weekEnd = new Date(ws)
       weekEnd.setDate(weekEnd.getDate() + 6)
       weekEnd.setHours(23, 59, 59, 999)
