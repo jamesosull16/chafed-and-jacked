@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts'
-import { useFirestore } from '../hooks/useFirestore'
+import { useFirestore, getWeekStart, getWeekId } from '../hooks/useFirestore'
 import { useAuth } from '../contexts/AuthContext'
 import { EXERCISES } from '../lib/program'
 import LoadingSpinner from '../components/common/LoadingSpinner'
@@ -185,15 +185,35 @@ function VolumeHistoryChart({ sessions }) {
   )
 }
 
-function MileageChart({ mileageLogs }) {
+function MileageChart({ mileageLogs, dailyMileage }) {
   if (!mileageLogs || mileageLogs.length < 2) return null
+
+  const currentWeekId = getWeekId()
+
+  // Sum daily entries by week
+  const dailySumByWeek = {}
+  if (dailyMileage) {
+    dailyMileage.forEach((d) => {
+      const wId = getWeekId(new Date(d.date + 'T00:00:00'))
+      dailySumByWeek[wId] = (dailySumByWeek[wId] || 0) + (d.miles || 0)
+    })
+  }
 
   const data = [...mileageLogs]
     .sort((a, b) => new Date(a.weekStart) - new Date(b.weekStart))
-    .map((entry) => ({
-      week: new Date(entry.weekStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      miles: entry.actualMiles || 0,
-    }))
+    .map((entry) => {
+      const wId = getWeekId(new Date(entry.weekStart))
+      const isCurrentWeek = wId === currentWeekId
+      // Past weeks: use actual daily sum if available, else fall back to logged estimate
+      // Current week: use estimated/planned value
+      const miles = isCurrentWeek
+        ? (entry.actualMiles || 0)
+        : (dailySumByWeek[wId] != null ? Math.round(dailySumByWeek[wId] * 10) / 10 : (entry.actualMiles || 0))
+      return {
+        week: new Date(entry.weekStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        miles,
+      }
+    })
 
   return (
     <div className="bg-surface rounded-xl p-4 border border-gray-800">
@@ -265,6 +285,7 @@ export default function Progress() {
   const [exerciseProgress, setExerciseProgress] = useState({})
   const [bodyMetrics, setBodyMetrics] = useState([])
   const [mileageLogs, setMileageLogs] = useState([])
+  const [dailyMileage, setDailyMileage] = useState([])
 
   useEffect(() => {
     loadData()
@@ -272,11 +293,12 @@ export default function Progress() {
 
   async function loadData() {
     try {
-      const [sessionsData, progressData, metricsData, mileageData] = await Promise.all([
+      const [sessionsData, progressData, metricsData, mileageData, dailyData] = await Promise.all([
         getCollection('workoutSessions', 'date', 'desc', 100),
         getCollection('exerciseProgress'),
         getCollection('bodyMetrics', 'date', 'desc', 52),
         getCollection('mileageLogs', 'weekStart', 'desc', 52),
+        getCollection('dailyMileage', 'date', 'desc'),
       ])
       setSessions(sessionsData)
       const progress = {}
@@ -284,6 +306,7 @@ export default function Progress() {
       setExerciseProgress(progress)
       setBodyMetrics(metricsData)
       setMileageLogs(mileageData)
+      setDailyMileage(dailyData)
     } catch (err) {
       console.error('Failed to load progress data:', err)
     } finally {
@@ -402,7 +425,7 @@ export default function Progress() {
       {tab === 'mileage' && (
         <div className="space-y-3">
           {filteredMileage.length >= 2 ? (
-            <MileageChart mileageLogs={filteredMileage} />
+            <MileageChart mileageLogs={filteredMileage} dailyMileage={dailyMileage} />
           ) : (
             <EmptyState message="Log at least 2 weeks of mileage to see trends." />
           )}
