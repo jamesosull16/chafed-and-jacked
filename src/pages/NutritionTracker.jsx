@@ -165,7 +165,7 @@ export default function NutritionTracker() {
     const proteinVal = Number(protein)
     const carbsVal = Number(carbs)
     const fatVal = Number(fat)
-    if (!kcalVal || !proteinVal || !carbsVal || !fatVal) return
+    if (kcal === '' || protein === '' || carbs === '' || fat === '') return
 
     const entry = {
       id: crypto.randomUUID(),
@@ -400,7 +400,7 @@ export default function NutritionTracker() {
         </div>
         <button
           onClick={handleAdd}
-          disabled={!kcal || !protein || !carbs || !fat}
+          disabled={kcal === '' || protein === '' || carbs === '' || fat === ''}
           className="w-full bg-brand text-white font-semibold rounded-lg py-2.5 text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-brand-light transition-colors"
         >
           + Add
