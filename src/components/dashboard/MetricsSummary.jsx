@@ -8,7 +8,13 @@ export default function MetricsSummary() {
   const [latest, setLatest] = useState(null)
   const [previous, setPrevious] = useState(null)
   const [alerts, setAlerts] = useState([])
-  const [dismissedAlerts, setDismissedAlerts] = useState([])
+  const [dismissedAlerts, setDismissedAlerts] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('dismissedMetricAlerts') || '[]')
+    } catch {
+      return []
+    }
+  })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -96,7 +102,11 @@ export default function MetricsSummary() {
               }`}
             >
               <button
-                onClick={() => setDismissedAlerts((prev) => [...prev, originalIndex])}
+                onClick={() => setDismissedAlerts((prev) => {
+                  const next = [...prev, originalIndex]
+                  sessionStorage.setItem('dismissedMetricAlerts', JSON.stringify(next))
+                  return next
+                })}
                 className={`absolute top-2.5 right-2.5 p-0.5 rounded-full transition-colors ${
                   alert.type === 'danger'
                     ? 'text-red-400/60 hover:text-red-300'
