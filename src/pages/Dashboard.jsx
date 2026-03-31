@@ -45,10 +45,11 @@ export default function Dashboard() {
     saveMileage,
     saveDailyMileage,
   } = useWorkout()
-  const { getCollection } = useFirestore()
+  const { getCollection, getDocument } = useFirestore()
   const [metricsLoggedThisWeek, setMetricsLoggedThisWeek] = useState(true)
   const [latestWeight, setLatestWeight] = useState(null)
   const [latestBodyFatPct, setLatestBodyFatPct] = useState(null)
+  const [todayNutritionLog, setTodayNutritionLog] = useState(null)
 
   useEffect(() => {
     if (!user) return
@@ -69,6 +70,16 @@ export default function Dashboard() {
         setLatestWeight(userProfile?.onboarding?.initialWeight || null)
         setLatestBodyFatPct(userProfile?.onboarding?.initialBodyFat || null)
       }
+    } catch {
+      // Silently fail
+    }
+
+    // Load today's nutrition log
+    try {
+      const today = new Date()
+      const todayId = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      const log = await getDocument(`nutritionLogs/${todayId}`)
+      setTodayNutritionLog(log)
     } catch {
       // Silently fail
     }
@@ -171,6 +182,7 @@ export default function Dashboard() {
         isCutting={isCutting}
         currentBodyFatPct={latestBodyFatPct}
         targetBodyFatPct={targetBF}
+        todayNutritionLog={todayNutritionLog}
       />
 
       {/* Push notification permission prompt */}

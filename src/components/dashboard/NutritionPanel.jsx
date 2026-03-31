@@ -13,6 +13,7 @@ export default function NutritionPanel({
   isCutting,
   currentBodyFatPct,
   targetBodyFatPct,
+  todayNutritionLog,
 }) {
   if (!weightLbs) {
     return (
@@ -44,6 +45,22 @@ export default function NutritionPanel({
 
   if (!advice) return null
 
+  // Fat target: 27.5% of total calories / 9
+  const fatTarget = Math.round((advice.calories.target * 0.275) / 9)
+
+  // Consumed totals from today's nutrition log
+  const entries = todayNutritionLog?.entries || []
+  const consumed = entries.reduce(
+    (acc, e) => ({
+      kcal: acc.kcal + (e.kcal || 0),
+      protein: acc.protein + (e.protein || 0),
+      carbs: acc.carbs + (e.carbs || 0),
+      fat: acc.fat + (e.fat || 0),
+    }),
+    { kcal: 0, protein: 0, carbs: 0, fat: 0 }
+  )
+  const hasLogged = entries.length > 0
+
   // Activity badge
   let activityLabel, activityStyle
   if (advice.isRestDay) {
@@ -74,18 +91,42 @@ export default function NutritionPanel({
       </div>
 
       {/* Macro grid */}
-      <div className="grid grid-cols-3 gap-3 mb-3">
+      <div className="grid grid-cols-4 gap-3 mb-3">
         <div>
           <p className="text-lg font-semibold text-gray-100">{advice.calories.target.toLocaleString()}</p>
           <p className="text-xs text-gray-500">kcal</p>
+          {hasLogged && (
+            <p className={`text-xs mt-0.5 ${consumed.kcal > advice.calories.target ? 'text-yellow-400' : 'text-brand'}`}>
+              {consumed.kcal.toLocaleString()} logged
+            </p>
+          )}
         </div>
         <div>
           <p className="text-lg font-semibold text-gray-100">{advice.protein.grams}g</p>
           <p className="text-xs text-gray-500">protein</p>
+          {hasLogged && (
+            <p className={`text-xs mt-0.5 ${consumed.protein > advice.protein.grams ? 'text-yellow-400' : 'text-brand'}`}>
+              {Math.round(consumed.protein)}g logged
+            </p>
+          )}
         </div>
         <div>
           <p className="text-lg font-semibold text-gray-100">{advice.carbs.lowGrams}–{advice.carbs.highGrams}g</p>
           <p className="text-xs text-gray-500">carbs</p>
+          {hasLogged && (
+            <p className={`text-xs mt-0.5 ${consumed.carbs > advice.carbs.highGrams ? 'text-yellow-400' : 'text-brand'}`}>
+              {Math.round(consumed.carbs)}g logged
+            </p>
+          )}
+        </div>
+        <div>
+          <p className="text-lg font-semibold text-gray-100">{fatTarget}g</p>
+          <p className="text-xs text-gray-500">fat</p>
+          {hasLogged && (
+            <p className={`text-xs mt-0.5 ${consumed.fat > fatTarget ? 'text-yellow-400' : 'text-brand'}`}>
+              {Math.round(consumed.fat)}g logged
+            </p>
+          )}
         </div>
       </div>
 
