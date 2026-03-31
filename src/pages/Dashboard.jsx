@@ -40,6 +40,7 @@ export default function Dashboard() {
     weekDailySum,
     weekDailyMiles,
     isStrengthDay,
+    todayLiftStats,
     trainingDays,
     saveMileage,
     saveDailyMileage,
@@ -165,7 +166,7 @@ export default function Dashboard() {
         sex={sex}
         dailyMiles={todayMiles || 0}
         weeklyMiles={currentMileage}
-        isStrengthDay={isStrengthDay}
+        todayLiftStats={todayLiftStats}
         trainingPhase={weekInfo?.type || 'build'}
         isCutting={isCutting}
         currentBodyFatPct={latestBodyFatPct}

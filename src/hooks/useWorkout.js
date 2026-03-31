@@ -18,6 +18,7 @@ export function useWorkout() {
   const [todayMiles, setTodayMiles] = useState(null)
   const [weekDailyMiles, setWeekDailyMiles] = useState([])
   const [exerciseHistory, setExerciseHistory] = useState({})
+  const [todayLiftStats, setTodayLiftStats] = useState(null)
 
   const trainingDays = userProfile?.onboarding?.trainingDays || 'mon-wed-fri'
 
@@ -75,6 +76,19 @@ export function useWorkout() {
         const dDate = new Date(d.date + 'T00:00:00')
         return dDate >= ws && dDate <= weekEnd
       }))
+
+      // Aggregate today's strength session stats (supports multiple sessions per day)
+      const recentSessions = await getCollection('workoutSessions', 'date', 'desc', 10)
+      const todaySessions = recentSessions.filter((s) => s.date?.slice(0, 10) === today)
+      if (todaySessions.length > 0) {
+        setTodayLiftStats({
+          totalVolume: todaySessions.reduce((sum, s) => sum + (s.totalVolume || 0), 0),
+          totalDuration: todaySessions.reduce((sum, s) => sum + (s.duration || 0), 0),
+          sessionCount: todaySessions.length,
+        })
+      } else {
+        setTodayLiftStats(null)
+      }
 
       // Load exercise progress data
       const progressDocs = await getCollection('exerciseProgress')
@@ -248,6 +262,7 @@ export function useWorkout() {
     weekDailyMiles,
     weekDailySum,
     isStrengthDay,
+    todayLiftStats,
     exerciseHistory,
     trainingDays,
     getTodaysWorkout,

@@ -8,7 +8,7 @@ export default function NutritionPanel({
   sex,
   dailyMiles,
   weeklyMiles,
-  isStrengthDay,
+  todayLiftStats,
   trainingPhase,
   isCutting,
   currentBodyFatPct,
@@ -26,6 +26,8 @@ export default function NutritionPanel({
     )
   }
 
+  const didLift = !!todayLiftStats
+
   const advice = getNutritionAdvice({
     weightLbs,
     heightInches,
@@ -33,7 +35,7 @@ export default function NutritionPanel({
     sex,
     dailyMiles: dailyMiles || 0,
     weeklyMiles: weeklyMiles || 0,
-    isStrengthDay,
+    todayLiftStats,
     trainingPhase,
     isCutting,
     currentBodyFatPct,
@@ -47,7 +49,7 @@ export default function NutritionPanel({
   if (advice.isRestDay) {
     activityLabel = 'Rest'
     activityStyle = 'text-gray-400 bg-gray-800 border-gray-700'
-  } else if (dailyMiles > 0 && isStrengthDay) {
+  } else if (dailyMiles > 0 && didLift) {
     activityLabel = 'Run + Lift'
     activityStyle = 'text-yellow-400 bg-yellow-900/30 border-yellow-700'
   } else if (dailyMiles > 0) {
@@ -59,7 +61,10 @@ export default function NutritionPanel({
   }
 
   return (
-    <div className="bg-surface rounded-xl p-4 border border-gray-800">
+    <Link
+      to="/nutrition"
+      className="block bg-surface rounded-xl p-4 border border-gray-800 hover:border-gray-700 transition-colors"
+    >
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs text-gray-500 uppercase tracking-wide">Fuel Guide</p>
@@ -100,6 +105,6 @@ export default function NutritionPanel({
       <div className="border-t border-gray-800 pt-3">
         <p className="text-sm text-gray-300 italic leading-relaxed">{advice.tip}</p>
       </div>
-    </div>
+    </Link>
   )
 }

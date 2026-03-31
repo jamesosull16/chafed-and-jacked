@@ -5,7 +5,8 @@
  * doing concurrent strength training.
  *
  * Key references:
- * - Mifflin-St Jeor (1990) — BMR estimation (ACSM-recommended)
+ * - Katch-McArdle — BMR from lean body mass (preferred when body fat % available)
+ * - Mifflin-St Jeor (1990) — BMR fallback when body fat % unavailable
  * - ISSN Position Stand on Protein (Jager et al., 2017) — 1.6-2.2 g/kg/day
  * - IOC Consensus on Sports Nutrition (2011) — carb ranges by activity level
  * - ACSM Position Stand on Fluid Replacement (2007) — hydration guidelines
@@ -24,7 +25,7 @@ export function getNutritionAdvice({
   sex,
   dailyMiles = 0,
   weeklyMiles = 0,
-  isStrengthDay = false,
+  todayLiftStats = null,
   trainingPhase = 'build',
   isCutting = false,
   currentBodyFatPct = null,
@@ -36,22 +37,27 @@ export function getNutritionAdvice({
   const heightCm = (heightInches || 70) * 2.54
   const age = ageYears || 35
 
-  const bmr = calculateBMR(weightKg, heightCm, age, sex)
-  const tdee = calculateTDEE(bmr, dailyMiles, weightLbs, isStrengthDay)
+  const didLift = !!todayLiftStats
+
+  const bmr = currentBodyFatPct
+    ? calculateBMR_KatchMcArdle(weightKg, currentBodyFatPct)
+    : calculateBMR(weightKg, heightCm, age, sex)
+  const strengthCals = estimateStrengthCalories(todayLiftStats, weightLbs)
+  const tdee = calculateTDEE(bmr, dailyMiles, weightLbs, strengthCals)
 
   const { target: calorieTarget, deficit } = getCalorieTarget(tdee, isCutting, trainingPhase)
   const protein = getProteinTarget(weightKg, trainingPhase, isCutting)
-  const carbs = getCarbGuidance(weightKg, dailyMiles, isStrengthDay)
+  const carbs = getCarbGuidance(weightKg, dailyMiles, didLift)
   const hydration = getHydrationTarget(weightLbs, dailyMiles)
   const tip = getNutritionTip({
     isCutting,
-    isStrengthDay,
+    didLift,
     trainingPhase,
     dailyMiles,
     weeklyMiles,
   })
 
-  const isRestDay = dailyMiles === 0 && !isStrengthDay
+  const isRestDay = dailyMiles === 0 && !didLift
 
   let breakdown
   if (isRestDay) {
@@ -59,7 +65,7 @@ export function getNutritionAdvice({
   } else {
     const parts = []
     if (dailyMiles > 0) parts.push(`${dailyMiles} mi run`)
-    if (isStrengthDay) parts.push('strength')
+    if (didLift) parts.push(`strength (~${Math.round(strengthCals)} kcal)`)
     breakdown = parts.join(' + ')
   }
 
@@ -88,7 +94,16 @@ export function getNutritionAdvice({
 // --- Internal helpers ---
 
 /**
- * Mifflin-St Jeor BMR (ACSM-recommended over Harris-Benedict).
+ * Katch-McArdle BMR — uses lean body mass, more accurate when body fat % is known.
+ * BMR = 370 + (21.6 × lean mass in kg)
+ */
+function calculateBMR_KatchMcArdle(weightKg, bodyFatPct) {
+  const leanMassKg = weightKg * (1 - bodyFatPct / 100)
+  return 370 + (21.6 * leanMassKg)
+}
+
+/**
+ * Mifflin-St Jeor BMR — fallback when body fat % is not available.
  */
 function calculateBMR(weightKg, heightCm, age, sex) {
   if (sex === 'female') {
@@ -98,14 +113,42 @@ function calculateBMR(weightKg, heightCm, age, sex) {
 }
 
 /**
+ * Estimate strength training calories from actual session data.
+ * Uses duration as primary driver (~5-8 kcal/min for resistance training),
+ * with volume as a scaling factor for intensity.
+ *
+ * A typical 45-min session at moderate volume ≈ 250 kcal.
+ * A double session (A+B same day) with higher volume will scale up accordingly.
+ */
+function estimateStrengthCalories(todayLiftStats, weightLbs) {
+  if (!todayLiftStats) return 0
+
+  const { totalDuration = 0, totalVolume = 0, sessionCount = 0 } = todayLiftStats
+
+  // Duration-based estimate: ~6 kcal/min for resistance training (Haltom et al., 1999)
+  // Scale slightly with bodyweight (heavier athletes burn more)
+  const weightFactor = weightLbs / 180 // normalized to ~180 lb baseline
+  const durationCals = totalDuration * 6 * weightFactor
+
+  // If we have duration data, use it as the primary estimate
+  if (totalDuration > 0) return durationCals
+
+  // Fallback: estimate from volume alone if duration wasn't logged
+  // ~0.005 kcal per lb of volume is a rough heuristic
+  if (totalVolume > 0) return Math.max(totalVolume * 0.005, sessionCount * 200)
+
+  // Last resort: flat estimate per session
+  return sessionCount * 250
+}
+
+/**
  * TDEE = sedentary base + explicit exercise calories.
  * Running: ~0.63 kcal/lb/mile (approximation of ~1 kcal/kg/km, ACSM metabolic eq.)
- * Strength: ~250 kcal for a 45-60 min session (conservative for endurance athletes).
+ * Strength calories are pre-calculated from actual session data.
  */
-function calculateTDEE(bmr, dailyMiles, weightLbs, isStrengthDay) {
+function calculateTDEE(bmr, dailyMiles, weightLbs, strengthCals) {
   const base = bmr * 1.2
   const runningCals = dailyMiles * weightLbs * 0.63
-  const strengthCals = isStrengthDay ? 250 : 0
   return base + runningCals + strengthCals
 }
 
@@ -157,7 +200,7 @@ function getProteinTarget(weightKg, trainingPhase, isCutting) {
  * Carbohydrate guidance — IOC Consensus on Sports Nutrition (2011).
  * Ranges by daily activity level + strength training add-on.
  */
-function getCarbGuidance(weightKg, dailyMiles, isStrengthDay) {
+function getCarbGuidance(weightKg, dailyMiles, didLift) {
   let lowPerKg, highPerKg, guidance
 
   if (dailyMiles === 0) {
@@ -178,7 +221,7 @@ function getCarbGuidance(weightKg, dailyMiles, isStrengthDay) {
     guidance = 'Heavy mileage — high carbs essential for recovery'
   }
 
-  if (isStrengthDay) {
+  if (didLift) {
     lowPerKg += 1
     highPerKg += 1
     guidance += ' + strength session'
@@ -205,7 +248,7 @@ function getHydrationTarget(weightLbs, dailyMiles) {
  * Contextual nutrition tip — rotates daily by day-of-year.
  * Selected from the most relevant pool based on current state.
  */
-function getNutritionTip({ isCutting, isStrengthDay, trainingPhase, dailyMiles, weeklyMiles }) {
+function getNutritionTip({ isCutting, didLift, trainingPhase, dailyMiles, weeklyMiles }) {
   let pool
 
   if (trainingPhase === 'deload') {
@@ -216,9 +259,9 @@ function getNutritionTip({ isCutting, isStrengthDay, trainingPhase, dailyMiles, 
     pool = CUTTING_TIPS
   } else if (weeklyMiles >= 55) {
     pool = HIGH_MILEAGE_TIPS
-  } else if (dailyMiles === 0 && !isStrengthDay) {
+  } else if (dailyMiles === 0 && !didLift) {
     pool = REST_DAY_TIPS
-  } else if (isStrengthDay) {
+  } else if (didLift) {
     pool = STRENGTH_DAY_TIPS
   } else {
     pool = GENERAL_TIPS
