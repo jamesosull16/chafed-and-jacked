@@ -8,6 +8,7 @@ export default function MetricsSummary() {
   const [latest, setLatest] = useState(null)
   const [previous, setPrevious] = useState(null)
   const [alerts, setAlerts] = useState([])
+  const [dismissedAlerts, setDismissedAlerts] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -79,25 +80,44 @@ export default function MetricsSummary() {
       </div>
 
       {/* Alerts */}
-      {alerts.map((alert, i) => (
-        <div
-          key={i}
-          className={`rounded-xl p-3 border ${
-            alert.type === 'danger'
-              ? 'bg-red-900/20 border-red-800'
-              : alert.type === 'warning'
-              ? 'bg-yellow-900/20 border-yellow-800'
-              : 'bg-green-900/20 border-green-800'
-          }`}
-        >
-          <p className={`text-xs font-semibold ${
-            alert.type === 'danger' ? 'text-danger' : alert.type === 'warning' ? 'text-warning' : 'text-success'
-          }`}>
-            {alert.title}
-          </p>
-          <p className="text-xs text-gray-400 mt-1">{alert.message}</p>
-        </div>
-      ))}
+      {alerts
+        .filter((_, i) => !dismissedAlerts.includes(i))
+        .map((alert, i) => {
+          const originalIndex = alerts.indexOf(alert)
+          return (
+            <div
+              key={originalIndex}
+              className={`rounded-xl p-3 border relative ${
+                alert.type === 'danger'
+                  ? 'bg-red-900/20 border-red-800'
+                  : alert.type === 'warning'
+                  ? 'bg-yellow-900/20 border-yellow-800'
+                  : 'bg-green-900/20 border-green-800'
+              }`}
+            >
+              <button
+                onClick={() => setDismissedAlerts((prev) => [...prev, originalIndex])}
+                className={`absolute top-2.5 right-2.5 p-0.5 rounded-full transition-colors ${
+                  alert.type === 'danger'
+                    ? 'text-red-400/60 hover:text-red-300'
+                    : alert.type === 'warning'
+                    ? 'text-yellow-400/60 hover:text-yellow-300'
+                    : 'text-green-400/60 hover:text-green-300'
+                }`}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+              <p className={`text-xs font-semibold pr-5 ${
+                alert.type === 'danger' ? 'text-danger' : alert.type === 'warning' ? 'text-warning' : 'text-success'
+              }`}>
+                {alert.title}
+              </p>
+              <p className="text-xs text-gray-400 mt-1 pr-5">{alert.message}</p>
+            </div>
+          )
+        })}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { getNutritionAdvice } from '../../lib/nutritionAdvice'
+import MacroRings from '../common/MacroRings'
 
 export default function NutritionPanel({
   weightLbs,
@@ -90,43 +91,36 @@ export default function NutritionPanel({
         </span>
       </div>
 
-      {/* Macro grid */}
-      <div className="grid grid-cols-4 gap-3 mb-3">
-        <div>
-          <p className="text-lg font-semibold text-gray-100">{advice.calories.target.toLocaleString()}</p>
-          <p className="text-xs text-gray-500">kcal</p>
-          {hasLogged && (
-            <p className={`text-xs mt-0.5 ${consumed.kcal > advice.calories.target ? 'text-yellow-400' : 'text-brand'}`}>
-              {consumed.kcal.toLocaleString()} logged
-            </p>
-          )}
-        </div>
-        <div>
-          <p className="text-lg font-semibold text-gray-100">{advice.protein.grams}g</p>
-          <p className="text-xs text-gray-500">protein</p>
-          {hasLogged && (
-            <p className={`text-xs mt-0.5 ${consumed.protein > advice.protein.grams ? 'text-yellow-400' : 'text-brand'}`}>
-              {Math.round(consumed.protein)}g logged
-            </p>
-          )}
-        </div>
-        <div>
-          <p className="text-lg font-semibold text-gray-100">{advice.carbs.lowGrams}–{advice.carbs.highGrams}g</p>
-          <p className="text-xs text-gray-500">carbs</p>
-          {hasLogged && (
-            <p className={`text-xs mt-0.5 ${consumed.carbs > advice.carbs.highGrams ? 'text-yellow-400' : 'text-brand'}`}>
-              {Math.round(consumed.carbs)}g logged
-            </p>
-          )}
-        </div>
-        <div>
-          <p className="text-lg font-semibold text-gray-100">{fatTarget}g</p>
-          <p className="text-xs text-gray-500">fat</p>
-          {hasLogged && (
-            <p className={`text-xs mt-0.5 ${consumed.fat > fatTarget ? 'text-yellow-400' : 'text-brand'}`}>
-              {Math.round(consumed.fat)}g logged
-            </p>
-          )}
+      {/* Macro rings + legend */}
+      <div className="flex items-center gap-4 mb-3">
+        <MacroRings
+          size={110}
+          macros={[
+            { key: 'kcal', consumed: consumed.kcal, target: advice.calories.target },
+            { key: 'protein', consumed: consumed.protein, target: advice.protein.grams },
+            { key: 'carbs', consumed: consumed.carbs, target: Math.round((advice.carbs.lowGrams + advice.carbs.highGrams) / 2) },
+            { key: 'fat', consumed: consumed.fat, target: fatTarget },
+          ]}
+        />
+        <div className="flex-1 space-y-2">
+          {[
+            { label: 'Calories', color: 'bg-orange-500', consumed: consumed.kcal, target: advice.calories.target, unit: '', warn: consumed.kcal > advice.calories.target },
+            { label: 'Protein', color: 'bg-emerald-500', consumed: consumed.protein, target: advice.protein.grams, unit: 'g', warn: consumed.protein > advice.protein.grams },
+            { label: 'Carbs', color: 'bg-sky-400', consumed: consumed.carbs, target: Math.round((advice.carbs.lowGrams + advice.carbs.highGrams) / 2), unit: 'g', warn: consumed.carbs > advice.carbs.highGrams },
+            { label: 'Fat', color: 'bg-violet-400', consumed: consumed.fat, target: fatTarget, unit: 'g', warn: consumed.fat > fatTarget },
+          ].map(({ label, color, consumed: c, target: t, unit, warn }) => (
+            <div key={label} className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${warn ? 'bg-yellow-400' : color}`} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs text-gray-400">{label}</span>
+                  <span className={`text-xs font-medium ${warn ? 'text-yellow-400' : 'text-gray-200'}`}>
+                    {hasLogged ? `${Math.round(c)}` : '0'} <span className="text-gray-500">/ {Math.round(t)}{unit}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
