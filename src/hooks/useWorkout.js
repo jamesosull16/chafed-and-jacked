@@ -16,6 +16,7 @@ export function useWorkout() {
   const [loading, setLoading] = useState(true)
   const [currentMileage, setCurrentMileage] = useState(null)
   const [todayMiles, setTodayMiles] = useState(null)
+  const [allDailyMiles, setAllDailyMiles] = useState([])
   const [weekDailyMiles, setWeekDailyMiles] = useState([])
   const [exerciseHistory, setExerciseHistory] = useState({})
   const [todayLiftStats, setTodayLiftStats] = useState(null)
@@ -71,21 +72,27 @@ export function useWorkout() {
         setTodayMiles(todayDoc?.miles ?? null)
       }
 
-      // Load daily entries for the current week
-      const ws = getWeekStart()
+      // Load all daily entries (normalized to runs format)
       const allDaily = await getCollection('dailyMileage', 'date', 'desc')
-      const weekEnd = new Date(ws)
-      weekEnd.setDate(weekEnd.getDate() + 6)
-      weekEnd.setHours(23, 59, 59, 999)
-      setWeekDailyMiles(allDaily.filter((d) => {
-        const dDate = new Date(d.date + 'T00:00:00')
-        return dDate >= ws && dDate <= weekEnd
-      }).map((d) => {
-        // Normalize legacy docs to runs format
+      const normalized = allDaily.map((d) => {
         if (d.runs) {
           return { ...d, miles: d.runs.reduce((s, r) => s + r.miles, 0) }
         }
+        if (d.miles) {
+          return { ...d, runs: [{ miles: d.miles, enteredAt: d.enteredAt }] }
+        }
         return d
+      })
+      setAllDailyMiles(normalized)
+
+      // Filter to current week for the weekly sum
+      const ws = getWeekStart()
+      const weekEnd = new Date(ws)
+      weekEnd.setDate(weekEnd.getDate() + 6)
+      weekEnd.setHours(23, 59, 59, 999)
+      setWeekDailyMiles(normalized.filter((d) => {
+        const dDate = new Date(d.date + 'T00:00:00')
+        return dDate >= ws && dDate <= weekEnd
       }))
 
       // Aggregate today's strength session stats (supports multiple sessions per day)
@@ -292,6 +299,7 @@ export function useWorkout() {
     scalingTier,
     currentMileage,
     todayMiles,
+    allDailyMiles,
     weekDailyMiles,
     weekDailySum,
     isStrengthDay,

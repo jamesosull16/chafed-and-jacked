@@ -37,6 +37,7 @@ export default function Dashboard() {
     scalingTier,
     currentMileage,
     todayMiles,
+    allDailyMiles,
     weekDailySum,
     weekDailyMiles,
     isStrengthDay,
@@ -154,6 +155,7 @@ export default function Dashboard() {
         onDeleteRun={deleteRun}
         weekDailySum={weekDailySum}
         weekDailyMiles={weekDailyMiles}
+        allDailyMiles={allDailyMiles}
       />
 
       {/* Week overview - training schedule */}

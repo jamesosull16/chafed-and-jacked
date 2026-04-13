@@ -3,8 +3,7 @@ import { getWeekStart, formatLocalDate } from '../../hooks/useFirestore'
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-function getWeekDays() {
-  const start = getWeekStart()
+function getWeekDaysForStart(start) {
   return DAY_NAMES.map((name, i) => {
     const d = new Date(start)
     d.setDate(d.getDate() + i)
@@ -12,22 +11,50 @@ function getWeekDays() {
   })
 }
 
-export default function MileageBadge({ currentMileage, scalingTier, onSaveMileage, todayMiles, onAddRun, onDeleteRun, weekDailySum, weekDailyMiles = [] }) {
+function formatWeekLabel(start) {
+  const s = new Date(start)
+  const e = new Date(s)
+  e.setDate(e.getDate() + 6)
+  const fmt = (d) => `${d.getMonth() + 1}/${d.getDate()}`
+  return `${fmt(s)} – ${fmt(e)}`
+}
+
+export default function MileageBadge({ currentMileage, scalingTier, onSaveMileage, todayMiles, onAddRun, onDeleteRun, weekDailySum, allDailyMiles = [] }) {
   const [editing, setEditing] = useState(false)
   const [miles, setMiles] = useState(currentMileage || '')
   const [addingRun, setAddingRun] = useState(false)
   const [runInput, setRunInput] = useState('')
   const [expanded, setExpanded] = useState(false)
+  const [weekOffset, setWeekOffset] = useState(0)
   const [addingRunForDay, setAddingRunForDay] = useState(null)
   const [dayRunInput, setDayRunInput] = useState('')
 
   const today = formatLocalDate()
-  const weekDays = useMemo(() => getWeekDays(), [])
+  const currentWeekStart = getWeekStart()
+
+  // Compute the viewed week's start date based on offset
+  const viewedWeekStart = useMemo(() => {
+    const d = new Date(currentWeekStart)
+    d.setDate(d.getDate() + weekOffset * 7)
+    return d
+  }, [weekOffset])
+
+  const viewedWeekDays = useMemo(() => getWeekDaysForStart(viewedWeekStart), [viewedWeekStart])
+  const isCurrentWeek = weekOffset === 0
+
+  // Build milesByDate from allDailyMiles for viewed week
   const milesByDate = useMemo(() => {
     const map = {}
-    weekDailyMiles.forEach((d) => { map[d.date] = d })
+    const dates = new Set(viewedWeekDays.map((d) => d.date))
+    allDailyMiles.forEach((d) => {
+      if (dates.has(d.date)) map[d.date] = d
+    })
     return map
-  }, [weekDailyMiles])
+  }, [allDailyMiles, viewedWeekDays])
+
+  const viewedWeekSum = useMemo(() => {
+    return viewedWeekDays.reduce((sum, { date }) => sum + (milesByDate[date]?.miles || 0), 0)
+  }, [viewedWeekDays, milesByDate])
 
   async function handleSave() {
     const val = parseFloat(miles)
@@ -138,16 +165,6 @@ export default function MileageBadge({ currentMileage, scalingTier, onSaveMileag
               <p className="text-lg font-semibold text-gray-100">
                 {todayMiles != null ? `${todayMiles} mi` : 'Rest day'}
               </p>
-              {/* Show individual runs for today */}
-              {milesByDate[today]?.runs && milesByDate[today].runs.length > 1 && (
-                <div className="flex gap-2 mt-0.5">
-                  {milesByDate[today].runs.map((run, i) => (
-                    <span key={i} className="text-xs text-gray-500">
-                      Run {i + 1}: {run.miles} mi
-                    </span>
-                  ))}
-                </div>
-              )}
               {currentMileage && weekDailySum > 0 && (
                 <button
                   onClick={() => setExpanded(!expanded)}
@@ -168,6 +185,24 @@ export default function MileageBadge({ currentMileage, scalingTier, onSaveMileag
                   )}
                 </button>
               )}
+              {/* Show expand toggle even if no current-week data, for navigating to past weeks */}
+              {(!currentMileage || weekDailySum === 0) && (
+                <button
+                  onClick={() => setExpanded(!expanded)}
+                  className="text-xs text-gray-500 mt-0.5 flex items-center gap-1 hover:text-gray-400 transition-colors"
+                >
+                  <svg
+                    className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                  Daily breakdown
+                </button>
+              )}
             </div>
             <button
               onClick={() => setAddingRun(true)}
@@ -178,92 +213,110 @@ export default function MileageBadge({ currentMileage, scalingTier, onSaveMileag
           </div>
         )}
 
-        {/* Daily breakdown dropdown */}
+        {/* Daily breakdown with week navigation */}
         {expanded && (
-          <div className="mt-2 space-y-1">
-            {weekDays.map(({ name, date }) => {
-              const dayData = milesByDate[date]
-              const dayMiles = dayData?.miles || 0
-              const dayRuns = dayData?.runs || []
-              const isToday = date === today
-              const isAdding = addingRunForDay === date
+          <div className="mt-2">
+            {/* Week navigator */}
+            <div className="flex items-center justify-between mb-2">
+              <button
+                onClick={() => setWeekOffset(weekOffset - 1)}
+                className="text-gray-400 hover:text-gray-200 text-xs px-1 transition-colors"
+              >
+                &larr; Prev
+              </button>
+              <span className="text-xs text-gray-400">
+                {formatWeekLabel(viewedWeekStart)}
+                {isCurrentWeek && ' (this week)'}
+              </span>
+              <button
+                onClick={() => setWeekOffset(weekOffset + 1)}
+                disabled={isCurrentWeek}
+                className={`text-xs px-1 transition-colors ${isCurrentWeek ? 'text-gray-700 cursor-not-allowed' : 'text-gray-400 hover:text-gray-200'}`}
+              >
+                Next &rarr;
+              </button>
+            </div>
 
-              return (
-                <div key={date}>
-                  <div className={`flex items-center justify-between px-2 py-1 rounded ${isToday ? 'bg-gray-800/30' : ''}`}>
-                    <span className={`text-xs ${isToday ? 'text-gray-200 font-medium' : 'text-gray-400'}`}>
-                      {name}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs ${dayMiles ? (isToday ? 'text-gray-200' : 'text-gray-300') : 'text-gray-600'}`}>
-                        {dayMiles ? `${dayMiles} mi` : '—'}
+            {/* Week total */}
+            {viewedWeekSum > 0 && (
+              <p className="text-xs text-gray-500 mb-1 px-2">
+                Total: {Math.round(viewedWeekSum * 10) / 10} mi
+              </p>
+            )}
+
+            <div className="space-y-1">
+              {viewedWeekDays.map(({ name, date }) => {
+                const dayData = milesByDate[date]
+                const dayMiles = dayData?.miles || 0
+                const dayRuns = dayData?.runs || []
+                const isToday = date === today
+                const isAdding = addingRunForDay === date
+
+                return (
+                  <div key={date}>
+                    <div className={`flex items-center justify-between px-2 py-1 rounded ${isToday ? 'bg-gray-800/30' : ''}`}>
+                      <span className={`text-xs ${isToday ? 'text-gray-200 font-medium' : 'text-gray-400'}`}>
+                        {name}
                       </span>
-                      <button
-                        onClick={() => { setAddingRunForDay(date); setDayRunInput('') }}
-                        className="text-brand text-xs hover:text-brand-light"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                  {/* Show individual runs for this day */}
-                  {dayRuns.length > 1 && (
-                    <div className="ml-4 space-y-0.5">
-                      {dayRuns.map((run, i) => (
-                        <div key={i} className="flex items-center justify-between px-2">
-                          <span className="text-xs text-gray-600">Run {i + 1}: {run.miles} mi</span>
-                          <button
-                            onClick={() => onDeleteRun(date, i)}
-                            className="text-gray-600 hover:text-red-400 text-xs transition-colors"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {/* Single run - show delete option */}
-                  {dayRuns.length === 1 && (
-                    <div className="ml-4">
-                      <div className="flex items-center justify-between px-2">
-                        <span className="text-xs text-gray-600">{dayRuns[0].miles} mi</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs ${dayMiles ? (isToday ? 'text-gray-200' : 'text-gray-300') : 'text-gray-600'}`}>
+                          {dayMiles ? `${dayMiles} mi` : '—'}
+                        </span>
                         <button
-                          onClick={() => onDeleteRun(date, 0)}
-                          className="text-gray-600 hover:text-red-400 text-xs transition-colors"
+                          onClick={() => { setAddingRunForDay(date); setDayRunInput('') }}
+                          className="text-brand text-xs hover:text-brand-light"
                         >
-                          ×
+                          +
                         </button>
                       </div>
                     </div>
-                  )}
-                  {isAdding && (
-                    <div className="flex items-center gap-2 ml-4 py-1">
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={dayRunInput}
-                        onChange={(e) => setDayRunInput(e.target.value)}
-                        autoFocus
-                        placeholder="Miles"
-                        className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 focus:outline-none focus:border-brand"
-                      />
-                      <button
-                        onClick={() => handleAddDayRun(date)}
-                        className="text-brand text-xs hover:text-brand-light"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => { setAddingRunForDay(null); setDayRunInput('') }}
-                        className="text-gray-500 text-xs"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+                    {/* Show individual runs with delete */}
+                    {dayRuns.length > 0 && (
+                      <div className="ml-4 space-y-0.5">
+                        {dayRuns.map((run, i) => (
+                          <div key={i} className="flex items-center justify-between px-2">
+                            <span className="text-xs text-gray-600">
+                              {dayRuns.length > 1 ? `Run ${i + 1}: ` : ''}{run.miles} mi
+                            </span>
+                            <button
+                              onClick={() => onDeleteRun(date, i)}
+                              className="text-gray-600 hover:text-red-400 text-xs transition-colors"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {isAdding && (
+                      <div className="flex items-center gap-2 ml-4 py-1">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={dayRunInput}
+                          onChange={(e) => setDayRunInput(e.target.value)}
+                          autoFocus
+                          placeholder="Miles"
+                          className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 focus:outline-none focus:border-brand"
+                        />
+                        <button
+                          onClick={() => handleAddDayRun(date)}
+                          className="text-brand text-xs hover:text-brand-light"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => { setAddingRunForDay(null); setDayRunInput('') }}
+                          className="text-gray-500 text-xs"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
       </div>
