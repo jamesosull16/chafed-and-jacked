@@ -43,7 +43,8 @@ export default function Dashboard() {
     todayLiftStats,
     trainingDays,
     saveMileage,
-    saveDailyMileage,
+    addRun,
+    deleteRun,
   } = useWorkout()
   const { getCollection, getDocument } = useFirestore()
   const [metricsLoggedThisWeek, setMetricsLoggedThisWeek] = useState(true)
@@ -149,7 +150,8 @@ export default function Dashboard() {
         scalingTier={scalingTier}
         onSaveMileage={saveMileage}
         todayMiles={todayMiles}
-        onSaveDailyMileage={saveDailyMileage}
+        onAddRun={addRun}
+        onDeleteRun={deleteRun}
         weekDailySum={weekDailySum}
         weekDailyMiles={weekDailyMiles}
       />

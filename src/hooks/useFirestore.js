@@ -130,6 +130,14 @@ export function useRealtimeCollection(collectionName, orderField, orderDir = 'de
 }
 
 /**
+ * Format a Date as YYYY-MM-DD using local timezone (avoids UTC shift).
+ */
+export function formatLocalDate(date = new Date()) {
+  const d = new Date(date)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/**
  * Get the week ID string (YYYY-WNN) for consistent document IDs.
  */
 export function getWeekId(date = new Date()) {

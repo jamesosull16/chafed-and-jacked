@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useFirestore, getWeekId, getWeekStart } from './useFirestore'
+import { useFirestore, getWeekId, getWeekStart, formatLocalDate } from './useFirestore'
 import { getExercisesForDay, EXERCISES } from '../lib/program'
 import { getCurrentWeek, getWeekModifiers, getNextSession, getDayTypeForDate, getActiveRace, daysUntilRace, calculateProgramStart } from '../lib/periodization'
 import { getScalingTier, calculateEffectiveSets } from '../lib/loadScaling'
@@ -62,9 +62,14 @@ export function useWorkout() {
       }
 
       // Load today's daily mileage
-      const today = new Date().toISOString().slice(0, 10)
+      const today = formatLocalDate()
       const todayDoc = await getDocument(`dailyMileage/${today}`)
-      setTodayMiles(todayDoc?.miles ?? null)
+      // Support legacy docs (single miles field) and new format (runs array)
+      if (todayDoc?.runs) {
+        setTodayMiles(todayDoc.runs.reduce((s, r) => s + r.miles, 0))
+      } else {
+        setTodayMiles(todayDoc?.miles ?? null)
+      }
 
       // Load daily entries for the current week
       const ws = getWeekStart()
@@ -75,6 +80,12 @@ export function useWorkout() {
       setWeekDailyMiles(allDaily.filter((d) => {
         const dDate = new Date(d.date + 'T00:00:00')
         return dDate >= ws && dDate <= weekEnd
+      }).map((d) => {
+        // Normalize legacy docs to runs format
+        if (d.runs) {
+          return { ...d, miles: d.runs.reduce((s, r) => s + r.miles, 0) }
+        }
+        return d
       }))
 
       // Aggregate today's strength session stats (supports multiple sessions per day)
@@ -229,17 +240,39 @@ export function useWorkout() {
     setCurrentMileage(miles)
   }
 
-  /** Save daily mileage */
-  async function saveDailyMileage(miles, dateStr = null) {
+  /** Add a run to a day's mileage */
+  async function addRun(miles, dateStr = null) {
     if (!user) return
-    const date = dateStr || new Date().toISOString().slice(0, 10)
-    await setDocument(`dailyMileage/${date}`, {
-      date,
-      miles,
-      enteredAt: new Date().toISOString(),
-    })
-    if (!dateStr || dateStr === new Date().toISOString().slice(0, 10)) {
-      setTodayMiles(miles)
+    const date = dateStr || formatLocalDate()
+    const existing = await getDocument(`dailyMileage/${date}`)
+    // Build runs array from existing data (supports legacy single-miles docs)
+    let runs = existing?.runs || []
+    if (runs.length === 0 && existing?.miles) {
+      runs = [{ miles: existing.miles, enteredAt: existing.enteredAt }]
+    }
+    runs.push({ miles, enteredAt: new Date().toISOString() })
+    const total = runs.reduce((s, r) => s + r.miles, 0)
+    await setDocument(`dailyMileage/${date}`, { date, runs, miles: total })
+    if (!dateStr || dateStr === formatLocalDate()) {
+      setTodayMiles(total)
+    }
+    await loadWeekData()
+  }
+
+  /** Delete a specific run from a day */
+  async function deleteRun(dateStr, runIndex) {
+    if (!user) return
+    const existing = await getDocument(`dailyMileage/${dateStr}`)
+    if (!existing) return
+    let runs = existing.runs || []
+    if (runs.length === 0 && existing.miles) {
+      runs = [{ miles: existing.miles, enteredAt: existing.enteredAt }]
+    }
+    runs.splice(runIndex, 1)
+    const total = runs.reduce((s, r) => s + r.miles, 0)
+    await setDocument(`dailyMileage/${dateStr}`, { date: dateStr, runs, miles: total })
+    if (dateStr === formatLocalDate()) {
+      setTodayMiles(total || null)
     }
     await loadWeekData()
   }
@@ -269,7 +302,8 @@ export function useWorkout() {
     getWorkoutForDay,
     saveSession,
     saveMileage,
-    saveDailyMileage,
+    addRun,
+    deleteRun,
     refreshData: loadWeekData,
   }
 }
