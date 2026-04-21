@@ -15,6 +15,8 @@ export default function NutritionPanel({
   currentBodyFatPct,
   targetBodyFatPct,
   todayNutritionLog,
+  todayRuns = null,
+  vo2max = null,
 }) {
   if (!weightLbs) {
     return (
@@ -42,12 +44,14 @@ export default function NutritionPanel({
     isCutting,
     currentBodyFatPct,
     targetBodyFatPct,
+    todayRuns,
+    vo2max,
   })
 
   if (!advice) return null
 
-  // Fat target: 27.5% of total calories / 9
-  const fatTarget = Math.round((advice.calories.target * 0.275) / 9)
+  // Fat target from calculator (balanced to TDEE, floored at 0.8 g/kg)
+  const fatTarget = advice.fat?.grams || Math.round((advice.calories.target * 0.275) / 9)
 
   // Consumed totals from today's nutrition log
   const entries = todayNutritionLog?.entries || []
@@ -134,6 +138,18 @@ export default function NutritionPanel({
         <p className="text-xs text-yellow-400/80 mb-3">
           Includes {advice.deficit} kcal deficit ({trainingPhase} phase)
         </p>
+      )}
+
+      {/* Run calorie source indicator */}
+      {advice.runKcal > 0 && (
+        <div className="flex items-center gap-1.5 mb-3 text-xs">
+          <span className="text-gray-500">Run: ~{advice.runKcal} kcal</span>
+          {advice.runSource === 'distance' ? (
+            <span className="text-yellow-500/70">· distance estimate</span>
+          ) : (
+            <span className="text-emerald-500/70">· HR-based ({advice.runSource === 'keytel_vo2' ? 'Keytel+VO2' : 'Keytel'})</span>
+          )}
+        </div>
       )}
 
       {/* Contextual tip */}

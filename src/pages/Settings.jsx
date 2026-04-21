@@ -42,6 +42,7 @@ export default function Settings() {
   const heightTotal = userProfile?.profile?.heightInches || 0
   const [heightFeet, setHeightFeet] = useState(heightTotal ? Math.floor(heightTotal / 12) : '')
   const [heightInches, setHeightInches] = useState(heightTotal ? heightTotal % 12 : '')
+  const [vo2max, setVo2max] = useState(userProfile?.profile?.vo2max || '')
   const [profileSaving, setProfileSaving] = useState(false)
 
   // Race fields
@@ -72,6 +73,7 @@ export default function Settings() {
       setRaces(userProfile.races || [])
       setTrainingDays(userProfile.onboarding?.trainingDays || 'mon-wed-fri')
       setTargetBF(userProfile.goals?.targetBodyFatPct || '')
+      setVo2max(userProfile.profile?.vo2max || '')
     }
   }, [userProfile])
 
@@ -79,8 +81,10 @@ export default function Settings() {
   async function saveProfile() {
     setProfileSaving(true)
     const totalInches = ((parseInt(heightFeet) || 0) * 12) + (parseInt(heightInches) || 0)
+    const profileData = { birthday, biologicalSex: sex, heightInches: totalInches }
+    if (vo2max) profileData.vo2max = parseFloat(vo2max)
     await updateUserProfile({
-      profile: { birthday, biologicalSex: sex, heightInches: totalInches },
+      profile: profileData,
     })
     setProfileSaving(false)
   }
@@ -257,6 +261,17 @@ export default function Settings() {
               </button>
             ))}
           </div>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">VO2max <span className="text-gray-600">(optional — improves run calorie accuracy)</span></label>
+          <input
+            type="number"
+            step="0.1"
+            value={vo2max}
+            onChange={(e) => setVo2max(e.target.value)}
+            placeholder="e.g. 52"
+            className={inputClass}
+          />
         </div>
         <button
           onClick={saveProfile}

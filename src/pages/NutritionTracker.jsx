@@ -39,6 +39,7 @@ export default function NutritionTracker() {
     todayMiles,
     currentMileage,
     todayLiftStats,
+    todayRuns,
     weekInfo,
   } = useWorkout()
   const { getDocument, setDocument, getCollection } = useFirestore()
@@ -131,16 +132,18 @@ export default function NutritionTracker() {
         isCutting,
         currentBodyFatPct: latestBodyFatPct,
         targetBodyFatPct: targetBF,
+        todayRuns: todayRuns || null,
+        vo2max: userProfile?.profile?.vo2max || null,
       })
     : null
 
-  // Derive targets including fat
+  // Derive targets including fat (now from calculator when available)
   const targets = advice
     ? {
         kcal: advice.calories.target,
         protein: advice.protein.grams,
         carbs: Math.round((advice.carbs.lowGrams + advice.carbs.highGrams) / 2),
-        fat: Math.round((advice.calories.target * 0.275) / 9),
+        fat: advice.fat?.grams || Math.round((advice.calories.target * 0.275) / 9),
       }
     : null
 

@@ -247,8 +247,12 @@ export function useWorkout() {
     setCurrentMileage(miles)
   }
 
-  /** Add a run to a day's mileage */
-  async function addRun(miles, dateStr = null) {
+  /** Add a run to a day's mileage
+   * @param {number} miles - Distance in miles
+   * @param {string|null} dateStr - Date string (YYYY-MM-DD), defaults to today
+   * @param {Object} opts - Optional fields: { duration_minutes, avg_hr_bpm }
+   */
+  async function addRun(miles, dateStr = null, opts = {}) {
     if (!user) return
     const date = dateStr || formatLocalDate()
     const existing = await getDocument(`dailyMileage/${date}`)
@@ -257,7 +261,10 @@ export function useWorkout() {
     if (runs.length === 0 && existing?.miles) {
       runs = [{ miles: existing.miles, enteredAt: existing.enteredAt }]
     }
-    runs.push({ miles, enteredAt: new Date().toISOString() })
+    const newRun = { miles, enteredAt: new Date().toISOString() }
+    if (opts.duration_minutes) newRun.duration_minutes = opts.duration_minutes
+    if (opts.avg_hr_bpm) newRun.avg_hr_bpm = opts.avg_hr_bpm
+    runs.push(newRun)
     const total = runs.reduce((s, r) => s + r.miles, 0)
     await setDocument(`dailyMileage/${date}`, { date, runs, miles: total })
     if (!dateStr || dateStr === formatLocalDate()) {
@@ -288,6 +295,9 @@ export function useWorkout() {
   const isStrengthDay = getDayTypeForDate(new Date(), trainingDays) !== null
   const weekDailySum = weekDailyMiles.reduce((sum, d) => sum + (d.miles || 0), 0)
 
+  // Today's individual runs (with duration/HR if present) for nutrition calculations
+  const todayRuns = allDailyMiles.find((d) => d.date === formatLocalDate())?.runs || []
+
   return {
     loading,
     activeRace,
@@ -305,6 +315,7 @@ export function useWorkout() {
     isStrengthDay,
     todayLiftStats,
     exerciseHistory,
+    todayRuns,
     trainingDays,
     getTodaysWorkout,
     getWorkoutForDay,

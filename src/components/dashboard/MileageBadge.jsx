@@ -28,6 +28,10 @@ export default function MileageBadge({ currentMileage, scalingTier, onSaveMileag
   const [weekOffset, setWeekOffset] = useState(0)
   const [addingRunForDay, setAddingRunForDay] = useState(null)
   const [dayRunInput, setDayRunInput] = useState('')
+  const [durationInput, setDurationInput] = useState('')
+  const [hrInput, setHrInput] = useState('')
+  const [dayDurationInput, setDayDurationInput] = useState('')
+  const [dayHrInput, setDayHrInput] = useState('')
 
   const today = formatLocalDate()
   const currentWeekStart = getWeekStart()
@@ -67,18 +71,28 @@ export default function MileageBadge({ currentMileage, scalingTier, onSaveMileag
   async function handleAddRun() {
     const val = parseFloat(runInput)
     if (val > 0) {
-      await onAddRun(val)
+      const opts = {}
+      if (durationInput) opts.duration_minutes = parseFloat(durationInput)
+      if (hrInput) opts.avg_hr_bpm = parseFloat(hrInput)
+      await onAddRun(val, null, opts)
       setAddingRun(false)
       setRunInput('')
+      setDurationInput('')
+      setHrInput('')
     }
   }
 
   async function handleAddDayRun(dateStr) {
     const val = parseFloat(dayRunInput)
     if (val > 0) {
-      await onAddRun(val, dateStr)
+      const opts = {}
+      if (dayDurationInput) opts.duration_minutes = parseFloat(dayDurationInput)
+      if (dayHrInput) opts.avg_hr_bpm = parseFloat(dayHrInput)
+      await onAddRun(val, dateStr, opts)
       setAddingRunForDay(null)
       setDayRunInput('')
+      setDayDurationInput('')
+      setDayHrInput('')
     }
   }
 
@@ -136,28 +150,49 @@ export default function MileageBadge({ currentMileage, scalingTier, onSaveMileag
       <div className="mt-3 pt-3 border-t border-gray-800/50">
         <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Today</p>
         {addingRun ? (
-          <div className="flex gap-2 items-center">
-            <input
-              type="number"
-              step="0.1"
-              value={runInput}
-              onChange={(e) => setRunInput(e.target.value)}
-              placeholder="Miles"
-              autoFocus
-              className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-brand"
-            />
-            <button
-              onClick={handleAddRun}
-              className="bg-brand hover:bg-brand-light text-white px-3 py-2 rounded-lg text-xs transition-colors"
-            >
-              Save
-            </button>
-            <button
-              onClick={() => { setAddingRun(false); setRunInput('') }}
-              className="text-gray-500 px-2 py-2 text-xs"
-            >
-              Cancel
-            </button>
+          <div className="space-y-2">
+            <div className="flex gap-2 items-center">
+              <input
+                type="number"
+                step="0.1"
+                value={runInput}
+                onChange={(e) => setRunInput(e.target.value)}
+                placeholder="Miles"
+                autoFocus
+                className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-brand"
+              />
+              <button
+                onClick={handleAddRun}
+                className="bg-brand hover:bg-brand-light text-white px-3 py-2 rounded-lg text-xs transition-colors"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => { setAddingRun(false); setRunInput(''); setDurationInput(''); setHrInput('') }}
+                className="text-gray-500 px-2 py-2 text-xs"
+              >
+                Cancel
+              </button>
+            </div>
+            <div className="flex gap-2 items-center">
+              <input
+                type="number"
+                step="1"
+                value={durationInput}
+                onChange={(e) => setDurationInput(e.target.value)}
+                placeholder="Duration (min)"
+                className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-100 focus:outline-none focus:border-brand"
+              />
+              <input
+                type="number"
+                step="1"
+                value={hrInput}
+                onChange={(e) => setHrInput(e.target.value)}
+                placeholder="Avg HR (bpm)"
+                className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-100 focus:outline-none focus:border-brand"
+              />
+            </div>
+            <p className="text-xs text-gray-600">Duration + HR are optional — improves macro accuracy</p>
           </div>
         ) : (
           <div className="flex items-center justify-between">
@@ -277,6 +312,8 @@ export default function MileageBadge({ currentMileage, scalingTier, onSaveMileag
                           <div key={i} className="flex items-center justify-between px-2">
                             <span className="text-xs text-gray-600">
                               {dayRuns.length > 1 ? `Run ${i + 1}: ` : ''}{run.miles} mi
+                              {run.duration_minutes && <span className="text-gray-700"> · {run.duration_minutes}min</span>}
+                              {run.avg_hr_bpm && <span className="text-gray-700"> · {run.avg_hr_bpm}bpm</span>}
                             </span>
                             <button
                               onClick={() => onDeleteRun(date, i)}
@@ -289,28 +326,48 @@ export default function MileageBadge({ currentMileage, scalingTier, onSaveMileag
                       </div>
                     )}
                     {isAdding && (
-                      <div className="flex items-center gap-2 ml-4 py-1">
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={dayRunInput}
-                          onChange={(e) => setDayRunInput(e.target.value)}
-                          autoFocus
-                          placeholder="Miles"
-                          className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 focus:outline-none focus:border-brand"
-                        />
-                        <button
-                          onClick={() => handleAddDayRun(date)}
-                          className="text-brand text-xs hover:text-brand-light"
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={() => { setAddingRunForDay(null); setDayRunInput('') }}
-                          className="text-gray-500 text-xs"
-                        >
-                          Cancel
-                        </button>
+                      <div className="ml-4 py-1 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={dayRunInput}
+                            onChange={(e) => setDayRunInput(e.target.value)}
+                            autoFocus
+                            placeholder="Miles"
+                            className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 focus:outline-none focus:border-brand"
+                          />
+                          <button
+                            onClick={() => handleAddDayRun(date)}
+                            className="text-brand text-xs hover:text-brand-light"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => { setAddingRunForDay(null); setDayRunInput(''); setDayDurationInput(''); setDayHrInput('') }}
+                            className="text-gray-500 text-xs"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            step="1"
+                            value={dayDurationInput}
+                            onChange={(e) => setDayDurationInput(e.target.value)}
+                            placeholder="Min"
+                            className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 focus:outline-none focus:border-brand"
+                          />
+                          <input
+                            type="number"
+                            step="1"
+                            value={dayHrInput}
+                            onChange={(e) => setDayHrInput(e.target.value)}
+                            placeholder="Avg HR"
+                            className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 focus:outline-none focus:border-brand"
+                          />
+                        </div>
                       </div>
                     )}
                   </div>

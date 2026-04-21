@@ -42,6 +42,7 @@ export default function Dashboard() {
     weekDailyMiles,
     isStrengthDay,
     todayLiftStats,
+    todayRuns,
     trainingDays,
     saveMileage,
     addRun,
@@ -187,6 +188,8 @@ export default function Dashboard() {
         currentBodyFatPct={latestBodyFatPct}
         targetBodyFatPct={targetBF}
         todayNutritionLog={todayNutritionLog}
+        todayRuns={todayRuns}
+        vo2max={userProfile?.profile?.vo2max || null}
       />
 
       {/* Push notification permission prompt */}

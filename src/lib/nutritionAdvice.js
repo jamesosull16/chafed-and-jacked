@@ -15,8 +15,16 @@
  * - Mujika & Burke (2010) — periodized nutrition for endurance athletes
  */
 
+import { calculateDailyMacros } from './macroCalculator'
+
 /**
  * Main entry point. Returns a complete nutrition snapshot for display.
+ *
+ * Now delegates core macro math to calculateDailyMacros (macroCalculator.js)
+ * while preserving the existing return shape, tips, hydration, and breakdown.
+ *
+ * New optional fields on todayRuns entries: duration_minutes, avg_hr_bpm
+ * New optional field on profile: vo2max
  */
 export function getNutritionAdvice({
   weightLbs,
@@ -30,87 +38,106 @@ export function getNutritionAdvice({
   isCutting = false,
   currentBodyFatPct = null,
   targetBodyFatPct = null,
+  todayRuns = null,
+  vo2max = null,
 }) {
   if (!weightLbs) return null
 
-  const weightKg = weightLbs / 2.205
-  const heightCm = (heightInches || 70) * 2.54
-  const age = ageYears || 35
-
   const didLift = !!todayLiftStats
-
-  const bmr = currentBodyFatPct
-    ? calculateBMR_KatchMcArdle(weightKg, currentBodyFatPct)
-    : calculateBMR(weightKg, heightCm, age, sex)
   const strengthCals = estimateStrengthCalories(todayLiftStats, weightLbs)
-  const tdee = calculateTDEE(bmr, dailyMiles, weightLbs, strengthCals)
 
-  const { target: calorieTarget, deficit } = getCalorieTarget(tdee, isCutting, trainingPhase)
-  const protein = getProteinTarget(weightKg, trainingPhase, isCutting)
-  const carbs = getCarbGuidance(weightKg, dailyMiles, didLift)
-  const hydration = getHydrationTarget(weightLbs, dailyMiles)
+  // Aggregate today's runs for the calculator
+  const totalMiles = dailyMiles || 0
+  const runsWithHR = (todayRuns || []).filter((r) => r.duration_minutes && r.avg_hr_bpm)
+  const totalDuration = runsWithHR.reduce((s, r) => s + (r.duration_minutes || 0), 0)
+  const avgHR = runsWithHR.length > 0
+    ? runsWithHR.reduce((s, r) => s + r.avg_hr_bpm * r.duration_minutes, 0) / totalDuration
+    : null
+
+  const run = totalMiles > 0 || totalDuration > 0
+    ? {
+        miles: totalMiles,
+        duration_minutes: totalDuration || null,
+        avg_hr_bpm: avgHR,
+      }
+    : null
+
+  const weightSessionForCalc = todayLiftStats
+    ? { ...todayLiftStats, _computedKcal: strengthCals }
+    : null
+
+  const macros = calculateDailyMacros({
+    profile: {
+      weightLbs,
+      heightInches,
+      ageYears,
+      sex,
+      bodyFatPct: currentBodyFatPct,
+      vo2max,
+    },
+    run,
+    weightSession: weightSessionForCalc,
+    phase: { trainingPhase, isCutting },
+  })
+
+  if (!macros) return null
+
+  // Hydration + tips (not part of the pure calc module)
+  const hydration = getHydrationTarget(weightLbs, totalMiles)
   const tip = getNutritionTip({
     isCutting,
     didLift,
     trainingPhase,
-    dailyMiles,
+    dailyMiles: totalMiles,
     weeklyMiles,
   })
 
-  const isRestDay = dailyMiles === 0 && !didLift
+  const isRestDay = totalMiles === 0 && !didLift
 
   let breakdown
   if (isRestDay) {
     breakdown = 'Rest day'
   } else {
     const parts = []
-    if (dailyMiles > 0) parts.push(`${dailyMiles} mi run`)
+    if (totalMiles > 0) parts.push(`${totalMiles} mi run`)
     if (didLift) parts.push(`strength (~${Math.round(strengthCals)} kcal)`)
     breakdown = parts.join(' + ')
   }
 
+  // Preserve carb range format for existing UI consumers
+  const carbMid = macros.carbs_g
+  const carbSpread = Math.round(macros.carbs.perKg * 0.5 * (weightLbs / 2.205))
+  const carbLow = Math.max(0, carbMid - carbSpread)
+  const carbHigh = carbMid + carbSpread
+
   return {
-    calories: { target: Math.round(calorieTarget), breakdown },
+    calories: { target: macros.kcal, breakdown },
     protein: {
-      grams: Math.round(protein.grams),
-      perKg: protein.perKg,
-      rationale: protein.rationale,
+      grams: macros.protein_g,
+      perKg: macros.protein.perKg,
+      rationale: macros.protein.rationale,
     },
     carbs: {
-      lowGrams: Math.round(carbs.low),
-      highGrams: Math.round(carbs.high),
-      guidance: carbs.guidance,
+      lowGrams: carbLow,
+      highGrams: carbHigh,
+      guidance: macros.carbs.guidance,
+    },
+    fat: {
+      grams: macros.fat_g,
     },
     hydration: {
       oz: Math.round(hydration.oz),
       liters: round(hydration.oz * 0.0296, 1),
     },
     tip,
-    deficit,
+    deficit: macros.deficit,
     isRestDay,
+    runSource: macros.source,
+    runKcal: macros.runKcal,
   }
 }
 
-// --- Internal helpers ---
-
-/**
- * Katch-McArdle BMR — uses lean body mass, more accurate when body fat % is known.
- * BMR = 370 + (21.6 × lean mass in kg)
- */
-function calculateBMR_KatchMcArdle(weightKg, bodyFatPct) {
-  const leanMassKg = weightKg * (1 - bodyFatPct / 100)
-  return 370 + (21.6 * leanMassKg)
-}
-
-/**
- * Mifflin-St Jeor BMR — fallback when body fat % is not available.
- */
-function calculateBMR(weightKg, heightCm, age, sex) {
-  if (sex === 'female') {
-    return (10 * weightKg) + (6.25 * heightCm) - (5 * age) - 161
-  }
-  return (10 * weightKg) + (6.25 * heightCm) - (5 * age) + 5
-}
+// --- Internal helpers (strength, hydration, tips — macro math now in macroCalculator.js) ---
 
 /**
  * Estimate strength training calories from actual session data.
@@ -139,99 +166,6 @@ function estimateStrengthCalories(todayLiftStats, weightLbs) {
 
   // Last resort: flat estimate per session
   return sessionCount * 250
-}
-
-/**
- * TDEE = sedentary base + explicit exercise calories.
- * Running: ~0.63 kcal/lb/mile (approximation of ~1 kcal/kg/km, ACSM metabolic eq.)
- * Strength calories are pre-calculated from actual session data.
- */
-function calculateTDEE(bmr, dailyMiles, weightLbs, strengthCals) {
-  const base = bmr * 1.2
-  const runningCals = dailyMiles * weightLbs * 0.63
-  return base + runningCals + strengthCals
-}
-
-/**
- * Calorie target adjusted for cutting phase.
- * IOC RED-S Consensus: no more than ~500 kcal/day deficit for endurance athletes.
- * Phase scaling: smaller deficit during deload/taper to prioritize recovery.
- */
-function getCalorieTarget(tdee, isCutting, trainingPhase) {
-  if (!isCutting) return { target: tdee, deficit: null }
-
-  const deficitByPhase = {
-    build: 400,
-    deload: 300,
-    taper: 250,
-    peak: 250,
-    race: 0,
-  }
-  const deficit = deficitByPhase[trainingPhase] || 400
-  return { target: tdee - deficit, deficit }
-}
-
-/**
- * Protein target — ISSN Position Stand (Jager et al., 2017).
- * Concurrent training (endurance + resistance): 1.6-2.2 g/kg/day.
- * Higher during deficit to preserve lean mass (Helms et al., 2014).
- */
-function getProteinTarget(weightKg, trainingPhase, isCutting) {
-  let perKg, rationale
-
-  if (isCutting) {
-    perKg = 2.2
-    rationale = 'High protein to preserve lean mass during deficit (Helms et al.)'
-  } else if (trainingPhase === 'deload') {
-    perKg = 1.6
-    rationale = 'Recovery week — lower end of concurrent training range'
-  } else if (trainingPhase === 'taper' || trainingPhase === 'peak') {
-    perKg = 1.8
-    rationale = 'Moderate protein for taper — maintain, not build'
-  } else {
-    perKg = 1.8
-    rationale = 'Concurrent training range midpoint (ISSN 1.6-2.2 g/kg)'
-  }
-
-  return { grams: weightKg * perKg, perKg, rationale }
-}
-
-/**
- * Carbohydrate guidance — IOC Consensus on Sports Nutrition (2011).
- * Ranges by daily activity level + strength training add-on.
- */
-function getCarbGuidance(weightKg, dailyMiles, didLift) {
-  let lowPerKg, highPerKg, guidance
-
-  if (dailyMiles === 0) {
-    lowPerKg = 3
-    highPerKg = 5
-    guidance = 'Rest day — moderate carbs for glycogen maintenance'
-  } else if (dailyMiles < 6) {
-    lowPerKg = 5
-    highPerKg = 7
-    guidance = 'Light run — moderate carbs to replenish'
-  } else if (dailyMiles < 12) {
-    lowPerKg = 6
-    highPerKg = 8
-    guidance = 'Moderate run — prioritize carbs around your run'
-  } else {
-    lowPerKg = 8
-    highPerKg = 10
-    guidance = 'Heavy mileage — high carbs essential for recovery'
-  }
-
-  if (didLift) {
-    lowPerKg += 1
-    highPerKg += 1
-    guidance += ' + strength session'
-  }
-
-  return {
-    low: weightKg * lowPerKg,
-    high: weightKg * highPerKg,
-    guidance,
-  }
 }
 
 /**
