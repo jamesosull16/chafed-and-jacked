@@ -4,6 +4,17 @@
  * Pure-function module for daily macro targets.
  * All inputs are passed in — no data-layer reads.
  *
+ * Branches on training mode:
+ *
+ *   'running'  — endurance model. TDEE = BMR×1.2 + run kcal + strength kcal,
+ *                carbs laddered by run duration, phase-scaled deficit.
+ *   'strength' — hypertrophy model. TDEE = BMR×activityFactor + strength kcal
+ *                (no run term), carbs on a training-day/rest-day split, and a
+ *                configurable surplus rather than a deficit.
+ *
+ * Mode defaults to 'running' so every pre-existing caller keeps its exact
+ * behaviour; the strength path is opt-in.
+ *
  * Key references:
  * - Mifflin-St Jeor (1990) — BMR
  * - Katch-McArdle — BMR from lean body mass
@@ -12,6 +23,8 @@
  * - IOC Consensus on Sports Nutrition (2011) — carb ranges
  * - IOC RED-S Consensus (2018) — max deficit guidance
  * - Helms et al. (2014) — higher protein during deficit
+ * - Slater & Phillips (2011) — carbohydrate needs of strength athletes
+ * - Garthe et al. (2013) — rate of gain and body composition during a surplus
  */
 
 // ── Unit helpers ──────────────────────────────────────────────
@@ -253,6 +266,181 @@ export function getFatTarget(calorieTarget, proteinGrams, carbGrams, weightKg) {
   return Math.max(fatFromRemainder, fatFloor)
 }
 
+// ── STRENGTH MODE ─────────────────────────────────────────────
+
+/**
+ * Default multiplier on BMR for a lifter training 4x/week.
+ *
+ * The endurance model uses 1.2 because run calories are added separately and
+ * would otherwise be double-counted. In strength mode there is no run term, so
+ * the factor has to carry all non-lifting activity itself — collapsing to 1.2
+ * would under-feed rest days badly.
+ */
+export const DEFAULT_STRENGTH_ACTIVITY_FACTOR = 1.5
+
+/** TDEE for strength mode: no run term, lifting-appropriate activity factor. */
+export function calculateStrengthTDEE(
+  bmr,
+  strengthKcal = 0,
+  activityFactor = DEFAULT_STRENGTH_ACTIVITY_FACTOR
+) {
+  return bmr * activityFactor + strengthKcal
+}
+
+/** Baseline kcal delta per body-composition goal, before any user override. */
+export const GOAL_KCAL_DELTA = {
+  leanBulk: 300,
+  aggressiveBulk: 600,
+  recomp: 0,
+  maintain: 0,
+  cut: -400,
+}
+
+/**
+ * Calorie target in strength mode.
+ *
+ * `surplusOverride` wins when supplied — the rate-of-gain guardrail nudges it
+ * up and down over the block, so the stored value is the source of truth.
+ */
+export function getStrengthCalorieTarget(tdee, bodyCompGoal = 'leanBulk', surplusOverride) {
+  const delta =
+    typeof surplusOverride === 'number'
+      ? surplusOverride
+      : (GOAL_KCAL_DELTA[bodyCompGoal] ?? GOAL_KCAL_DELTA.leanBulk)
+  return { target: tdee + delta, delta, bodyCompGoal }
+}
+
+/**
+ * Protein for hypertrophy — ISSN range is 1.6-2.2 g/kg; 2.0 is the default for
+ * a surplus, 2.2 in a deficit where lean-mass retention is the binding
+ * constraint.
+ */
+export function getStrengthProteinTarget(weightKg, bodyCompGoal = 'leanBulk') {
+  let perKg, rationale
+
+  if (bodyCompGoal === 'cut') {
+    perKg = 2.2
+    rationale = 'Upper ISSN range to protect lean mass through the deficit (Helms et al.)'
+  } else if (bodyCompGoal === 'recomp' || bodyCompGoal === 'maintain') {
+    perKg = 2.0
+    rationale = 'Recomposition needs the surplus-level protein without the surplus calories'
+  } else {
+    perKg = 2.0
+    rationale = 'Hypertrophy baseline — ISSN 1.6-2.2 g/kg, mid-upper for a lean bulk'
+  }
+
+  return { grams: weightKg * perKg, perKg, rationale }
+}
+
+/**
+ * Carbs for hypertrophy: 4-6 g/kg, weighted toward training days.
+ *
+ * Deliberately NOT the endurance duration ladder — a 75-minute lifting session
+ * does not empty glycogen the way a three-hour run does, and 10 g/kg would just
+ * be fat gain.
+ */
+export function getStrengthCarbTarget(weightKg, isTrainingDay = true, bodyCompGoal = 'leanBulk') {
+  let perKg, guidance
+
+  if (isTrainingDay) {
+    perKg = bodyCompGoal === 'cut' ? 4.5 : 6
+    guidance =
+      bodyCompGoal === 'cut'
+        ? 'Training day in a deficit — put most carbs around the session.'
+        : 'Training day — carbs before and after the session drive performance and recovery.'
+  } else {
+    perKg = bodyCompGoal === 'cut' ? 3 : 4
+    guidance = 'Rest day — lower carbs, protein and fat hold steady.'
+  }
+
+  return { grams: weightKg * perKg, perKg, guidance }
+}
+
+/**
+ * Rate-of-gain guardrail.
+ *
+ * Target for a lean bulk is 0.25-0.5% of bodyweight per week (Garthe et al.):
+ * fast enough to support hypertrophy, slow enough that the surplus mostly goes
+ * to lean mass. Deliberately consumes a multi-week trend — a single weigh-in is
+ * mostly water and glycogen, and reacting to it would send the surplus
+ * oscillating.
+ *
+ * @param weeklyChangeLbs  average weekly change over the trend window (+ = gain)
+ * @param weeksOfData      how many weeks the trend covers
+ */
+export const RATE_ADJUSTMENT_KCAL = 150
+export const MIN_TREND_WEEKS = 3
+
+export function assessRateOfGain({
+  weeklyChangeLbs,
+  bodyWeightLbs,
+  bodyCompGoal = 'leanBulk',
+  currentSurplus = 300,
+  weeksOfData = 0,
+} = {}) {
+  const goalRanges = {
+    leanBulk: [0.0025, 0.005],
+    aggressiveBulk: [0.005, 0.01],
+    recomp: [-0.001, 0.001],
+    maintain: [-0.001, 0.001],
+    cut: [-0.01, -0.005],
+  }
+  const [minRate, maxRate] = goalRanges[bodyCompGoal] || goalRanges.leanBulk
+  const targetRange = [
+    Math.round(minRate * bodyWeightLbs * 100) / 100,
+    Math.round(maxRate * bodyWeightLbs * 100) / 100,
+  ]
+
+  if (weeksOfData < MIN_TREND_WEEKS || !bodyWeightLbs) {
+    return {
+      status: 'insufficientData',
+      targetRange,
+      suggestedSurplus: currentSurplus,
+      message: `Need ${MIN_TREND_WEEKS} weeks of weigh-ins before adjusting — a single reading is water, not tissue.`,
+    }
+  }
+
+  const actualPct = weeklyChangeLbs / bodyWeightLbs
+  const actualPctDisplay = Math.round(actualPct * 1000) / 10
+
+  // Copy has to follow the direction of travel: "gaining -1.5 lb/week" during a
+  // cut is nonsense, and a rate below a negative target means losing too FAST.
+  const isLosingGoal = maxRate <= 0
+  const verb = weeklyChangeLbs >= 0 ? 'Gaining' : 'Losing'
+  const magnitude = Math.abs(weeklyChangeLbs).toFixed(2)
+  const band = isLosingGoal
+    ? `${Math.abs(targetRange[1])}-${Math.abs(targetRange[0])} lb`
+    : `${targetRange[0]}-${targetRange[1]} lb`
+  const common = { actualPctPerWeek: actualPctDisplay, weeklyChangeLbs, targetRange }
+
+  if (actualPct < minRate) {
+    return {
+      ...common,
+      status: isLosingGoal ? 'tooFast' : 'below',
+      suggestedSurplus: currentSurplus + RATE_ADJUSTMENT_KCAL,
+      message: isLosingGoal
+        ? `${verb} ${magnitude} lb/week — faster than the ${band} target, which costs lean mass. Add ${RATE_ADJUSTMENT_KCAL} kcal.`
+        : `${verb} ${magnitude} lb/week — below the ${band} target. Add ${RATE_ADJUSTMENT_KCAL} kcal and hold for three weeks.`,
+    }
+  }
+  if (actualPct > maxRate) {
+    return {
+      ...common,
+      status: isLosingGoal ? 'tooSlow' : 'above',
+      suggestedSurplus: currentSurplus - RATE_ADJUSTMENT_KCAL,
+      message: isLosingGoal
+        ? `${verb} ${magnitude} lb/week — slower than the ${band} target. Cut a further ${RATE_ADJUSTMENT_KCAL} kcal.`
+        : `${verb} ${magnitude} lb/week — faster than the ${band} target, so more of it is fat. Cut ${RATE_ADJUSTMENT_KCAL} kcal.`,
+    }
+  }
+  return {
+    ...common,
+    status: 'onTarget',
+    suggestedSurplus: currentSurplus,
+    message: `${verb} ${magnitude} lb/week — right in the ${band} band. Hold steady.`,
+  }
+}
+
 // ── Main entry point ──────────────────────────────────────────
 
 /**
@@ -287,7 +475,7 @@ export function getFatTarget(calorieTarget, proteinGrams, carbGrams, weightKg) {
  *   carbs: { grams: number, perKg: number, guidance: string },
  * }}
  */
-export function calculateDailyMacros({ profile, run, weightSession, phase }) {
+export function calculateDailyMacros({ profile, run, weightSession, phase, mode, strength }) {
   if (!profile || !profile.weightLbs) return null
 
   // Convert units
@@ -305,8 +493,12 @@ export function calculateDailyMacros({ profile, run, weightSession, phase }) {
     vo2max: profile.vo2max || null,
   }
 
-  // 1. BMR
+  // 1. BMR — shared by both models
   const bmr = calculateBMR(profileMetric)
+
+  if (mode === 'strength') {
+    return strengthMacros({ bmr, weightKg, weightSession, strength })
+  }
 
   // 2. Run kcal (Keytel or distance fallback)
   const runResult = calculateRunKcal(run, profileMetric)
@@ -339,6 +531,59 @@ export function calculateDailyMacros({ profile, run, weightSession, phase }) {
     bmr: Math.round(bmr),
     tdee: Math.round(tdee),
     deficit,
+    protein,
+    carbs,
+  }
+}
+
+/**
+ * Strength-mode macros. Same return shape as the endurance path so every UI
+ * consumer works unchanged; `source` is 'strength' and run fields are zeroed.
+ */
+function strengthMacros({ bmr, weightKg, weightSession, strength }) {
+  const {
+    bodyCompGoal = 'leanBulk',
+    calorieSurplus,
+    activityFactor = DEFAULT_STRENGTH_ACTIVITY_FACTOR,
+    isTrainingDay,
+  } = strength || {}
+
+  const strengthKcal = weightSession?._computedKcal || 0
+  const didLift = !!(weightSession && weightSession.sessionCount > 0)
+
+  // An explicit isTrainingDay wins; otherwise infer it from whether a session
+  // was logged. Carb targets should be visible before the session, not only
+  // after it, so callers that know the schedule should pass this in.
+  const trainingDay = typeof isTrainingDay === 'boolean' ? isTrainingDay : didLift
+
+  const tdee = calculateStrengthTDEE(bmr, strengthKcal, activityFactor)
+  const { target: calorieTarget, delta } = getStrengthCalorieTarget(
+    tdee,
+    bodyCompGoal,
+    calorieSurplus
+  )
+
+  const protein = getStrengthProteinTarget(weightKg, bodyCompGoal)
+  const carbs = getStrengthCarbTarget(weightKg, trainingDay, bodyCompGoal)
+  const fat_g = getFatTarget(calorieTarget, protein.grams, carbs.grams, weightKg)
+
+  return {
+    kcal: Math.round(calorieTarget),
+    protein_g: Math.round(protein.grams),
+    carbs_g: Math.round(carbs.grams),
+    fat_g: Math.round(fat_g),
+    source: 'strength',
+    runKcal: 0,
+    bmr: Math.round(bmr),
+    tdee: Math.round(tdee),
+    // Kept for shape compatibility: negative delta reads as a deficit, and a
+    // surplus is reported separately so the UI can label it correctly.
+    deficit: delta < 0 ? Math.abs(delta) : null,
+    surplus: delta > 0 ? delta : null,
+    kcalDelta: delta,
+    bodyCompGoal,
+    isTrainingDay: trainingDay,
+    strengthKcal: Math.round(strengthKcal),
     protein,
     carbs,
   }

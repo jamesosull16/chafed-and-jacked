@@ -40,11 +40,27 @@ export function getNutritionAdvice({
   targetBodyFatPct = null,
   todayRuns = null,
   vo2max = null,
+  mode = 'running',
+  strength = null,
 }) {
   if (!weightLbs) return null
 
   const didLift = !!todayLiftStats
   const strengthCals = estimateStrengthCalories(todayLiftStats, weightLbs)
+
+  if (mode === 'strength') {
+    return strengthAdvice({
+      weightLbs,
+      heightInches,
+      ageYears,
+      sex,
+      currentBodyFatPct,
+      todayLiftStats,
+      strengthCals,
+      didLift,
+      strength: strength || {},
+    })
+  }
 
   // Aggregate today's runs for the calculator
   const totalMiles = dailyMiles || 0
@@ -134,6 +150,78 @@ export function getNutritionAdvice({
     isRestDay,
     runSource: macros.source,
     runKcal: macros.runKcal,
+  }
+}
+
+/**
+ * Strength-mode advice. Same return shape as the endurance path, with the run
+ * fields dropped and a surplus reported in place of a deficit.
+ */
+function strengthAdvice({
+  weightLbs,
+  heightInches,
+  ageYears,
+  sex,
+  currentBodyFatPct,
+  todayLiftStats,
+  strengthCals,
+  didLift,
+  strength,
+}) {
+  const macros = calculateDailyMacros({
+    mode: 'strength',
+    profile: { weightLbs, heightInches, ageYears, sex, bodyFatPct: currentBodyFatPct },
+    weightSession: todayLiftStats ? { ...todayLiftStats, _computedKcal: strengthCals } : null,
+    strength,
+  })
+
+  if (!macros) return null
+
+  const hydration = getHydrationTarget(weightLbs, 0)
+  const tip = pickDaily(
+    macros.bodyCompGoal === 'cut'
+      ? CUTTING_TIPS
+      : macros.isTrainingDay
+        ? STRENGTH_TRAINING_DAY_TIPS
+        : STRENGTH_REST_DAY_TIPS
+  )
+
+  const carbSpread = Math.round(0.5 * (weightLbs / 2.205))
+
+  return {
+    calories: {
+      target: macros.kcal,
+      breakdown: didLift
+        ? `Strength session (~${Math.round(strengthCals)} kcal)`
+        : macros.isTrainingDay
+          ? 'Training day'
+          : 'Rest day',
+    },
+    protein: {
+      grams: macros.protein_g,
+      perKg: macros.protein.perKg,
+      rationale: macros.protein.rationale,
+    },
+    carbs: {
+      lowGrams: Math.max(0, macros.carbs_g - carbSpread),
+      highGrams: macros.carbs_g + carbSpread,
+      guidance: macros.carbs.guidance,
+    },
+    fat: { grams: macros.fat_g },
+    hydration: {
+      oz: Math.round(hydration.oz),
+      liters: round(hydration.oz * 0.0296, 1),
+    },
+    tip,
+    deficit: macros.deficit,
+    surplus: macros.surplus,
+    bodyCompGoal: macros.bodyCompGoal,
+    isRestDay: !macros.isTrainingDay,
+    isTrainingDay: macros.isTrainingDay,
+    bmr: macros.bmr,
+    tdee: macros.tdee,
+    runSource: 'strength',
+    runKcal: 0,
   }
 }
 
@@ -263,6 +351,25 @@ const STRENGTH_DAY_TIPS = [
   'Concurrent training athletes need more total protein than pure lifters or pure runners. Aim for the upper end of the range.',
   'Carbs before a strength session top off muscle glycogen and improve lifting performance — don\'t train fasted if you can help it.',
   'Leucine is the key amino acid for triggering muscle protein synthesis. Whey, eggs, and chicken are rich sources.',
+]
+
+const STRENGTH_TRAINING_DAY_TIPS = [
+  'Put 40-60g of carbs and 30g of protein in 60-90 minutes before lifting. Training fasted costs you working sets.',
+  'Total daily protein matters more than timing, but 4 feedings of 0.4 g/kg beats 2 large ones for muscle protein synthesis.',
+  'Creatine monohydrate, 5g daily, timing irrelevant. It is the most evidence-backed supplement in existence — take it.',
+  'A lean bulk is won on the boring days. Hitting your surplus on Wednesday matters more than any single big meal.',
+  'If the last set of hip thrusts feels lighter than the first, you under-ate. Fuel is a training variable.',
+  'Carbs are the cheapest performance lever you have in a hypertrophy block. Do not fear them because you used to run.',
+  'Leucine threshold is roughly 2.5-3g per meal — about 30g of whey, 4 eggs, or 120g of chicken.',
+]
+
+const STRENGTH_REST_DAY_TIPS = [
+  'Rest-day protein is non-negotiable — muscle protein synthesis stays elevated for 24-48h after training.',
+  'Carbs drop on rest days, protein and fat do not. That is the whole rest-day adjustment.',
+  'Growth happens on rest days. Under-eating today undoes yesterday\'s session.',
+  'Sleep is the highest-leverage recovery tool you own. Seven to nine hours, consistently.',
+  'Use rest days to prep food. Hitting a surplus by accident is much harder than hitting it by plan.',
+  'Fat below 0.8 g/kg starts costing you testosterone and joint comfort. The floor exists for a reason.',
 ]
 
 const GENERAL_TIPS = [

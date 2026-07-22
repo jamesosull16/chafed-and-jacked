@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chafed &amp; Jacked — Strength Block (redesign mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#ffffff; --surface:#f6f7f9; --surface-2:#eef0f3; --border:#e5e8ec;
+    --text:#0b0b0c; --muted:#5b6472; --faint:#9aa2ad;
+    --brand:#2563eb; --brand-weak:#dbe6ff; --accent:#06b6d4; --accent-weak:#cffafe;
+    --success:#16a34a; --success-weak:#dcfce7;
+    --warning:#d97706; --warning-weak:#fef3c7;
+    --danger:#dc2626;
+    --indigo:#6366f1; --teal:#14b8a6; --sky:#0ea5e9;
+    --shadow:0 1px 2px rgba(16,24,40,.04), 0 6px 20px rgba(16,24,40,.06);
+    --shadow-sm:0 1px 2px rgba(16,24,40,.05);
+    --r:20px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:linear-gradient(180deg,#e9edf2,#dfe4ea);
+    color:var(--text);
+    -webkit-font-smoothing:antialiased; padding:28px 0 60px;
+    display:flex; justify-content:center;
+  }
+  .tnum{font-variant-numeric:tabular-nums}
+  .phone{
+    width:412px; max-width:calc(100vw - 24px);
+    background:var(--bg); border-radius:40px; overflow:hidden;
+    box-shadow:0 30px 60px rgba(16,24,40,.22), 0 2px 8px rgba(16,24,40,.10);
+    border:1px solid #d7dce2; position:relative; min-height:880px;
+  }
+  .app{padding:0 16px 96px}
+
+  /* Top bar */
+  .topbar{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.86);
+    backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--border);
+    padding:14px 16px 12px;margin:0 -16px 4px;display:flex;align-items:center;justify-content:space-between}
+  .brand{display:flex;align-items:center;gap:9px}
+  .brand .logo{width:30px;height:30px;border-radius:9px;
+    background:linear-gradient(135deg,var(--brand),var(--accent));display:grid;place-items:center;color:#fff}
+  .brand .name{font-weight:800;letter-spacing:-.02em;font-size:15px}
+  .brand .sub{font-size:11px;color:var(--muted);margin-top:-2px;font-weight:500}
+
+  /* Segmented control */
+  .seg{display:inline-flex;background:var(--surface-2);border-radius:999px;padding:3px;gap:2px}
+  .seg button{border:0;background:transparent;font:inherit;font-size:12px;font-weight:600;color:var(--muted);
+    padding:6px 12px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:5px}
+  .seg button.on{background:#fff;color:var(--brand);box-shadow:var(--shadow-sm)}
+
+  .greet{padding:14px 2px 4px}
+  .greet h1{margin:0;font-size:22px;letter-spacing:-.02em;font-weight:800}
+  .greet p{margin:3px 0 0;color:var(--muted);font-size:13px;font-weight:500}
+
+  .card{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);
+    box-shadow:var(--shadow);padding:16px;margin-top:14px}
+  .card.tint{background:linear-gradient(180deg,#f7faff,#f4f8ff);border-color:#e2ecff}
+  .row{display:flex;align-items:center;justify-content:space-between}
+  .lbl{font-size:12px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--faint)}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;
+    padding:4px 9px;border-radius:999px}
+  .pill.blue{background:var(--brand-weak);color:#1d4ed8}
+  .pill.cyan{background:var(--accent-weak);color:#0e7490}
+  .pill.green{background:var(--success-weak);color:#15803d}
+  .pill.amber{background:var(--warning-weak);color:#b45309}
+
+  /* Block progress */
+  .track{height:8px;border-radius:999px;background:var(--surface-2);overflow:hidden;margin-top:12px}
+  .track > i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--brand),var(--accent))}
+  .mini{display:flex;justify-content:space-between;margin-top:8px;color:var(--muted);font-size:11.5px;font-weight:600}
+
+  /* Today session */
+  .sesh h2{margin:2px 0 0;font-size:18px;letter-spacing:-.02em;font-weight:800}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+  .exlist{margin:14px 0 0;display:flex;flex-direction:column;gap:2px}
+  .ex{display:flex;align-items:center;justify-content:space-between;padding:9px 2px;border-bottom:1px dashed var(--border)}
+  .ex:last-child{border-bottom:0}
+  .ex .n{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:9px}
+  .ex .dot{width:7px;height:7px;border-radius:99px;flex:none}
+  .ex .s{color:var(--muted);font-size:12px;font-weight:600}
+  .btn{margin-top:14px;width:100%;border:0;border-radius:14px;padding:14px;
+    background:var(--brand);color:#fff;font:inherit;font-weight:700;font-size:15px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 16px rgba(37,99,235,.28)}
+  .btn.ghost{background:var(--surface);color:var(--text);box-shadow:none;border:1px solid var(--border)}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+
+  /* Macro rings */
+  .rings{display:flex;align-items:center;gap:16px;margin-top:14px}
+  .kcal{position:relative;width:104px;height:104px;flex:none}
+  .kcal .v{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+  .kcal .v b{font-size:22px;font-weight:800;letter-spacing:-.02em}
+  .kcal .v span{font-size:10.5px;color:var(--muted);font-weight:600}
+  .macros{flex:1;display:flex;flex-direction:column;gap:11px}
+  .macro .row{margin-bottom:5px}
+  .macro .row b{font-size:13px;font-weight:700}
+  .macro .row .g{font-size:11.5px;color:var(--muted);font-weight:600}
+  .bar{height:7px;border-radius:99px;background:var(--surface-2);overflow:hidden}
+  .bar > i{display:block;height:100%;border-radius:99px}
+
+  /* Chain balance */
+  .cb .num{font-size:30px;font-weight:800;letter-spacing:-.03em}
+  .cbrow{display:flex;align-items:center;gap:10px;margin-top:6px}
+  .cbrow .t{width:74px;font-size:12px;font-weight:700;color:var(--muted)}
+  .cbrow .bar{flex:1}
+
+  /* Volume landmarks */
+  .vl{display:flex;flex-direction:column;gap:11px;margin-top:14px}
+  .vlrow{display:grid;grid-template-columns:70px 1fr 40px;align-items:center;gap:10px}
+  .vlrow .m{font-size:12.5px;font-weight:700}
+  .vlrow .m small{display:block;color:var(--faint);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+  .vtrack{position:relative;height:10px;border-radius:99px;background:var(--surface-2);overflow:hidden}
+  .vband{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(45deg,#eef0f3,#eef0f3 4px,#e6e9ee 4px,#e6e9ee 8px)}
+  .vfill{position:absolute;top:0;bottom:0;left:0;border-radius:99px}
+  .vlrow .c{font-size:12.5px;font-weight:800;text-align:right}
+  .legend{display:flex;gap:14px;margin-top:14px;color:var(--muted);font-size:11px;font-weight:600;flex-wrap:wrap}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .sw{width:10px;height:10px;border-radius:3px}
+
+  /* Weight trend sparkline */
+  .wt .num{font-size:26px;font-weight:800;letter-spacing:-.02em}
+  .wt .num small{font-size:13px;color:var(--muted);font-weight:700}
+
+  .statbig{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:2px}
+  .statsub{color:var(--muted);font-size:12px;font-weight:600;margin-top:2px}
+
+  /* Bottom nav */
+  .nav{position:absolute;left:0;right:0;bottom:0;background:rgba(255,255,255,.92);
+    backdrop-filter:blur(10px);border-top:1px solid var(--border);
+    display:flex;justify-content:space-around;padding:9px 6px 20px}
+  .nav a{display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--faint);
+    font-size:10.5px;font-weight:600;text-decoration:none;padding:2px 10px}
+  .nav a.on{color:var(--brand)}
+  .fab{position:absolute;right:18px;bottom:78px;width:56px;height:56px;border-radius:18px;border:0;
+    background:linear-gradient(135deg,var(--brand),var(--accent));color:#fff;cursor:pointer;
+    display:grid;place-items:center;box-shadow:0 10px 24px rgba(37,99,235,.4)}
+  svg{display:block}
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="app">
+
+    <!-- Top bar -->
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5 17.5 17.5"/><path d="M4 8v8"/><path d="M20 8v8"/><path d="M2 10v4"/><path d="M22 10v4"/><path d="M8 6v12"/><path d="M16 6v12"/></svg>
+        </div>
+        <div>
+          <div class="name">Chafed &amp; Jacked</div>
+          <div class="sub">Strength Block</div>
+        </div>
+      </div>
+      <div class="seg">
+        <button class="on"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5 17.5 17.5"/><path d="M5 9v6"/><path d="M19 9v6"/></svg>Strength</button>
+        <button><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="1.6"/><path d="M4 17l4-3 3 1 2-4 3 2"/><path d="m9 21 2-6"/></svg>Run</button>
+      </div>
+    </div>
+
+    <div class="greet">
+      <h1>Good morning, James</h1>
+      <p>Wednesday · Jul 22 — day 1 of your strength block</p>
+    </div>
+
+    <!-- Block progress -->
+    <div class="card tint">
+      <div class="row">
+        <span class="lbl" style="color:#3b64c4">Strength Block</span>
+        <span class="pill blue">Lean bulk · +300 kcal</span>
+      </div>
+      <div class="row" style="margin-top:8px;align-items:flex-end">
+        <div style="font-size:17px;font-weight:800;letter-spacing:-.02em">Week 1 <span style="color:var(--muted);font-weight:600">of 22</span></div>
+        <div style="font-size:12px;font-weight:600;color:var(--muted)">Mesocycle 1 · accumulation</div>
+      </div>
+      <div class="track"><i style="width:5%"></i></div>
+      <div class="mini"><span>Jul 22</span><span>Return to running · Jan</span></div>
+    </div>
+
+    <!-- Today's session -->
+    <div class="card sesh">
+      <div class="row">
+        <span class="lbl">Today's session</span>
+        <span class="pill cyan">Lower · Posterior focus</span>
+      </div>
+      <h2>Lower A — Glute &amp; Hamstring</h2>
+      <div class="chips">
+        <span class="pill green"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>5 min mobility · ankles + hips</span>
+        <span class="pill amber">⚠ hamstring: mid-range only</span>
+      </div>
+      <div class="exlist">
+        <div class="ex"><div class="n"><span class="dot" style="background:var(--brand)"></span>Barbell Hip Thrust</div><div class="s tnum">4 × 8–10</div></div>
+        <div class="ex"><div class="n"><span class="dot" style="background:var(--brand)"></span>Leg Press <small style="color:var(--faint)">(pain-free ROM)</small></div><div class="s tnum">3 × 10–12</div></div>
+        <div class="ex"><div class="n"><span class="dot" style="background:var(--accent)"></span>Seated Ham Curl <small style="color:var(--faint)">(isometric build)</small></div><div class="s tnum">3 × 12</div></div>
+        <div class="ex"><div class="n"><span class="dot" style="background:var(--accent)"></span>Standing Calf Raise</div><div class="s tnum">4 × 12–15</div></div>
+        <div class="ex"><div class="n"><span class="dot" style="background:var(--teal)"></span>Cable Abduction</div><div class="s tnum">3 × 15</div></div>
+      </div>
+      <button class="btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none"/></svg>Start session</button>
+    </div>
+
+    <!-- Nutrition -->
+    <div class="card">
+      <div class="row">
+        <span class="lbl">Today's fuel</span>
+        <button class="pill blue" style="border:0;cursor:pointer;font:inherit;font-weight:700"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-3z"/><circle cx="12" cy="13" r="3.2"/></svg> Log meal</button>
+      </div>
+      <div class="rings">
+        <div class="kcal">
+          <svg width="104" height="104" viewBox="0 0 104 104">
+            <circle cx="52" cy="52" r="45" fill="none" stroke="#eef0f3" stroke-width="11"/>
+            <circle cx="52" cy="52" r="45" fill="none" stroke="url(#g1)" stroke-width="11" stroke-linecap="round"
+              stroke-dasharray="282.7" stroke-dashoffset="110" transform="rotate(-90 52 52)"/>
+            <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs>
+          </svg>
+          <div class="v"><div><b class="tnum">1,710</b><span>of 2,940 kcal</span></div></div>
+        </div>
+        <div class="macros">
+          <div class="macro">
+            <div class="row"><b>Protein</b><span class="g tnum">128 / 165 g</span></div>
+            <div class="bar"><i style="width:78%;background:var(--brand)"></i></div>
+          </div>
+          <div class="macro">
+            <div class="row"><b>Carbs</b><span class="g tnum">180 / 330 g</span></div>
+            <div class="bar"><i style="width:55%;background:var(--accent)"></i></div>
+          </div>
+          <div class="macro">
+            <div class="row"><b>Fat</b><span class="g tnum">52 / 82 g</span></div>
+            <div class="bar"><i style="width:63%;background:var(--indigo)"></i></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chain balance + Upper balance -->
+    <div class="grid2">
+      <div class="card cb" style="margin-top:0">
+        <span class="lbl">Chain balance</span>
+        <div class="num tnum">0.82<span style="font-size:14px;color:var(--muted);font-weight:700"> P:A</span></div>
+        <div class="cbrow"><span class="t">Posterior</span><div class="bar"><i style="width:64%;background:var(--brand)"></i></div></div>
+        <div class="cbrow"><span class="t">Anterior</span><div class="bar"><i style="width:78%;background:var(--faint)"></i></div></div>
+        <span class="pill amber" style="margin-top:11px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>Posterior lagging — +2 sets queued</span>
+      </div>
+      <div class="card" style="margin-top:0">
+        <span class="lbl">Upper balance</span>
+        <div class="statbig tnum">1.0 : 1.0</div>
+        <div class="statsub">Push : Pull — balanced</div>
+        <div style="height:1px;background:var(--border);margin:12px 0"></div>
+        <span class="lbl">L / R symmetry</span>
+        <div class="statbig tnum">98%</div>
+        <div class="statsub">Within 2% — on track</div>
+      </div>
+    </div>
+
+    <!-- Weekly volume vs landmark -->
+    <div class="card">
+      <div class="row">
+        <span class="lbl">Weekly sets · per muscle</span>
+        <span class="pill blue">This week</span>
+      </div>
+      <div class="vl">
+        <!-- band represents the 10–20 set hypertrophy landmark -->
+        <div class="vlrow"><div class="m">Glutes<small>posterior</small></div><div class="vtrack"><div class="vband" style="left:40%;right:20%"></div><div class="vfill" style="width:52%;background:var(--brand)"></div></div><div class="c tnum">13</div></div>
+        <div class="vlrow"><div class="m">Hamstrings<small>posterior</small></div><div class="vtrack"><div class="vband" style="left:40%;right:20%"></div><div class="vfill" style="width:34%;background:var(--warning)"></div></div><div class="c tnum" style="color:var(--warning)">8</div></div>
+        <div class="vlrow"><div class="m">Calves<small>posterior</small></div><div class="vtrack"><div class="vband" style="left:40%;right:20%"></div><div class="vfill" style="width:44%;background:var(--brand)"></div></div><div class="c tnum">11</div></div>
+        <div class="vlrow"><div class="m">Quads<small>anterior</small></div><div class="vtrack"><div class="vband" style="left:40%;right:20%"></div><div class="vfill" style="width:60%;background:var(--faint)"></div></div><div class="c tnum">15</div></div>
+        <div class="vlrow"><div class="m">Back<small>upper</small></div><div class="vtrack"><div class="vband" style="left:40%;right:20%"></div><div class="vfill" style="width:56%;background:var(--accent)"></div></div><div class="c tnum">14</div></div>
+        <div class="vlrow"><div class="m">Chest<small>upper</small></div><div class="vtrack"><div class="vband" style="left:40%;right:20%"></div><div class="vfill" style="width:48%;background:var(--accent)"></div></div><div class="c tnum">12</div></div>
+      </div>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--brand)"></span>In range</span>
+        <span><span class="sw" style="background:var(--warning)"></span>Below target</span>
+        <span><span class="sw" style="background:repeating-linear-gradient(45deg,#eef0f3,#eef0f3 3px,#e0e4ea 3px,#e0e4ea 6px)"></span>10–20 set landmark</span>
+      </div>
+    </div>
+
+    <!-- Weight trend + mobility -->
+    <div class="grid2">
+      <div class="card wt" style="margin-top:0">
+        <span class="lbl">Weight · lean bulk</span>
+        <div class="num tnum">171.4 <small>lb</small></div>
+        <div class="statsub" style="color:var(--success)">+0.3%/wk — on target</div>
+        <svg width="100%" height="52" viewBox="0 0 160 52" preserveAspectRatio="none" style="margin-top:8px">
+          <defs><linearGradient id="wg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2563eb" stop-opacity=".18"/><stop offset="1" stop-color="#2563eb" stop-opacity="0"/></linearGradient></defs>
+          <path d="M0,40 L27,38 L54,36 L80,33 L107,31 L133,27 L160,24 L160,52 L0,52 Z" fill="url(#wg)"/>
+          <path d="M0,40 L27,38 L54,36 L80,33 L107,31 L133,27 L160,24" fill="none" stroke="#2563eb" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="160" cy="24" r="3.4" fill="#2563eb"/>
+        </svg>
+      </div>
+      <div class="card" style="margin-top:0;display:flex;flex-direction:column">
+        <span class="lbl">Mobility</span>
+        <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+          <div style="position:relative;width:64px;height:64px;flex:none">
+            <svg width="64" height="64" viewBox="0 0 64 64">
+              <circle cx="32" cy="32" r="27" fill="none" stroke="#eef0f3" stroke-width="8"/>
+              <circle cx="32" cy="32" r="27" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round" stroke-dasharray="169.6" stroke-dashoffset="51" transform="rotate(-90 32 32)"/>
+            </svg>
+            <div style="position:absolute;inset:0;display:grid;place-content:center;font-weight:800;font-size:15px" class="tnum">70%</div>
+          </div>
+          <div>
+            <div style="font-size:12.5px;font-weight:700">This week</div>
+            <div class="statsub">Ankle + hip · 5 of 7 days</div>
+          </div>
+        </div>
+        <button class="btn ghost" style="margin-top:auto">Log mobility</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- FAB + bottom nav -->
+  <button class="fab" title="Quick log"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+  <nav class="nav">
+    <a class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg>Home</a>
+    <a><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5 17.5 17.5"/><path d="M4 8v8M20 8v8M2 10v4M22 10v4M8 6v12M16 6v12"/></svg>Lift</a>
+    <a><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3"/><path d="M5 8h14l-1.5 11a2 2 0 0 1-2 1.8H8.5a2 2 0 0 1-2-1.8L5 8z"/></svg>Body</a>
+    <a><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Charts</a>
+    <a><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h9a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V6a2 2 0 0 1 2-2z"/><path d="M9 8h6M9 12h6"/></svg>Log</a>
+  </nav>
+</div>
+</body>
+</html>

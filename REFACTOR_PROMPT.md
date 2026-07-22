@@ -367,6 +367,15 @@ things done daily (log a lift, log a meal, see today's targets).
 `prefers-reduced-motion` respected, subtle transitions/micro-interactions, and proper
 empty/loading/error states. 
 
+**Reference design (approved):** `dashboard-mockup.html` in the repo root is the
+owner-approved visual target — a static mockup of the Strength-mode Dashboard in this
+exact system (light base, blue `#2563EB` → cyan `#06B6D4` accent, Inter, lucide-style
+line icons, rounded hairline-bordered cards with soft shadow, block-progress header,
+segmented Strength/Run toggle, today's-session hero card with injury guardrails shown
+inline, macro rings, chain-balance / upper-balance tiles, weekly-sets-vs-landmark bars,
+weight-trend + mobility). **Match this look and component style**; extract the palette,
+radii, spacing, and shadows from it into the `@theme` tokens as the source of truth.
+
 **Deliverable for this phase:** a short **design-tokens + components reference**
 (`DESIGN.md` or a Storybook-lite page) documenting the palette, type scale, spacing,
 and each component, plus before/after screenshots of Dashboard, Workout, and Nutrition
