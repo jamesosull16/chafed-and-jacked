@@ -60,45 +60,76 @@ describe('countSets', () => {
   it('ignores unknown exercise ids rather than throwing', () => {
     expect(countSets([session([['notARealExercise', 3]])], { now: NOW }).totalSets).toBe(0)
   })
+
+  it('scopes the weekly window to the current calendar week (Mon–Sun)', () => {
+    // NOW is a Friday; the week starts Monday. A session from the previous
+    // calendar week must fall out of the weekly count (it would have counted
+    // under the old rolling-7-day window).
+    const thisWeek = session([['barbellHipThrust', 3]], 1) // Thursday, in-week
+    const lastWeek = session([['barbellHipThrust', 3]], 6) // Saturday, previous week
+    expect(countSets([thisWeek, lastWeek], { weeks: 1, now: NOW }).perMuscle.glutes).toBe(3)
+  })
 })
 
 describe('chainRatio', () => {
-  it('reports on-target when posterior leads by the target margin', () => {
+  it('credits glutes from squat-pattern (anterior-tagged) work to the posterior side', () => {
+    // legPress is tagged anterior but trains glutes as a secondary mover. The
+    // muscle-volume ratio must give the posterior chain that credit — the whole
+    // point of the fix, since a squat trains both quads AND glutes.
+    const r = chainRatio([session([['legPress', 8]])], { now: NOW })
+    expect(r.posterior).toBeGreaterThan(0)
+  })
+
+  it('reports on-target when the posterior chain leads', () => {
     const s = session([
-      ['barbellHipThrust', 6], // posterior
-      ['legPress', 4], // anterior
+      ['barbellHipThrust', 10], // glutes 10 (+ hams 5)
+      ['seatedCalfRaise', 10], // calves 10
+      ['legPress', 6], // quads 6 (+ glutes 3)
     ])
+    // posterior mean = (13 + 5 + 10) / 3 = 9.5 ; anterior (quads) = 6 → 1.58
     const r = chainRatio([s], { now: NOW })
-    expect(r.ratio).toBe(1.5)
+    expect(r.ratio).toBe(1.58)
     expect(r.ratio).toBeGreaterThanOrEqual(CHAIN_RATIO_TARGET)
     expect(r.status).toBe('onTarget')
   })
 
-  it('flags an imbalance when anterior outpaces posterior', () => {
+  it('flags an imbalance when the quads outpace the posterior chain', () => {
     const s = session([
-      ['barbellHipThrust', 3],
-      ['legPress', 6],
+      ['legExtension', 10], // quads 10
+      ['legPress', 8], // quads 8 (+ glutes 4)
+      ['barbellHipThrust', 4], // glutes 4 (+ hams 2)
     ])
     const r = chainRatio([s], { now: NOW })
     expect(r.status).toBe('imbalanced')
-    expect(r.message).toMatch(/glutes, hamstrings and back/i)
+    expect(r.message).toMatch(/glutes, hamstrings and calves/i)
   })
 
   it('calls out the gap between parity and target', () => {
     const s = session([
-      ['barbellHipThrust', 5],
-      ['legPress', 5],
+      ['barbellHipThrust', 10], // glutes 10 (+ hams 5)
+      ['seatedCalfRaise', 8], // calves 8
+      ['legPress', 8], // quads 8 (+ glutes 4)
     ])
-    expect(chainRatio([s], { now: NOW }).status).toBe('acceptable')
+    // posterior mean = (14 + 5 + 8) / 3 = 9 ; anterior = 8 → 1.13
+    const r = chainRatio([s], { now: NOW })
+    expect(r.status).toBe('acceptable')
+    expect(r.ratio).toBe(1.13)
   })
 
-  it('excludes neutral-chain work from the ratio', () => {
+  it('ignores neutral work that touches neither chain', () => {
     const withCurls = session([
-      ['barbellHipThrust', 6],
-      ['legPress', 4],
-      ['barbellCurl', 10], // neutral
+      ['barbellHipThrust', 10],
+      ['seatedCalfRaise', 10],
+      ['legPress', 6],
+      ['barbellCurl', 10], // neutral — biceps only
     ])
-    expect(chainRatio([withCurls], { now: NOW }).ratio).toBe(1.5)
+    expect(chainRatio([withCurls], { now: NOW }).ratio).toBe(1.58)
+  })
+
+  it('reports posteriorOnly when no quad volume is logged', () => {
+    const r = chainRatio([session([['barbellHipThrust', 6], ['seatedCalfRaise', 4]])], { now: NOW })
+    expect(r.status).toBe('posteriorOnly')
+    expect(r.ratio).toBe(Infinity)
   })
 
   it('reports noData rather than dividing by zero', () => {

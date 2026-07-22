@@ -12,7 +12,8 @@ const TONE = {
 }
 
 /**
- * Objective #2 made visible: posterior vs anterior working sets this week.
+ * Objective #2 made visible: posterior vs anterior chain balance this week,
+ * as the mean working sets per muscle on each side (glutes/hams/calves vs quads).
  *
  * Rendered as a single split bar rather than two numbers, because the point is
  * the proportion, not the counts. The target line sits on top so "are we there
@@ -63,11 +64,11 @@ export default function ChainBalanceCard({ chain }) {
           <div className="flex items-center justify-between mt-2 text-xs tabular-nums">
             <span className="flex items-center gap-1.5 text-muted">
               <span className="w-2 h-2 rounded-full bg-brand" aria-hidden="true" />
-              Posterior {chain.posteriorSets}
+              Posterior {chain.posterior}/muscle
             </span>
             <span className="text-subtle">target {CHAIN_RATIO_TARGET}:1</span>
             <span className="flex items-center gap-1.5 text-muted">
-              Anterior {chain.anteriorSets}
+              Quads {chain.anterior}
               <span className="w-2 h-2 rounded-full bg-accent" aria-hidden="true" />
             </span>
           </div>

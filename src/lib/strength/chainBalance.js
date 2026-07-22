@@ -69,10 +69,33 @@ function isWorkingSet(set) {
   return true
 }
 
-function sessionsSince(sessions, weeks, now) {
+/** Local midnight at the start of the week containing `now` (Monday by default). */
+function startOfWeek(now, weekStartsOn = 1) {
+  const d = new Date(now)
+  d.setHours(0, 0, 0, 0)
+  const delta = (d.getDay() - weekStartsOn + 7) % 7
+  d.setDate(d.getDate() - delta)
+  return d
+}
+
+/**
+ * Scope sessions to the relevant window.
+ *
+ * The weekly metrics (weeks === 1) use the current CALENDAR week (Mon–Sun) so
+ * the numbers reset on Monday and match how weekly volume is actually planned.
+ * Longer horizons (weeks > 1 — left/right, mobility) stay ROLLING, which is the
+ * correct lens for a trailing multi-week trend.
+ */
+function scopeSessions(sessions, { weeks = 1, now = new Date(), weekStartsOn = 1 } = {}) {
   if (!weeks) return sessions
-  const cutoff = new Date(now)
-  cutoff.setDate(cutoff.getDate() - weeks * 7)
+  const cutoff =
+    weeks === 1
+      ? startOfWeek(now, weekStartsOn)
+      : (() => {
+          const c = new Date(now)
+          c.setDate(c.getDate() - weeks * 7)
+          return c
+        })()
   return sessions.filter((s) => new Date(s.date) >= cutoff)
 }
 
@@ -84,8 +107,8 @@ function sessionsSince(sessions, weeks, now) {
  * @returns {{ perMuscle: Record<string, number>, totalSets: number,
  *            posteriorSets: number, anteriorSets: number, neutralSets: number }}
  */
-export function countSets(sessions = [], { weeks = 1, now = new Date() } = {}) {
-  const scoped = sessionsSince(sessions, weeks, now)
+export function countSets(sessions = [], { weeks = 1, now = new Date(), weekStartsOn = 1 } = {}) {
+  const scoped = scopeSessions(sessions, { weeks, now, weekStartsOn })
   const perMuscle = {}
   let posteriorSets = 0
   let anteriorSets = 0
@@ -125,43 +148,65 @@ export const CHAIN_RATIO_TARGET = 1.2
 export const CHAIN_RATIO_FLOOR = 1.0
 
 /**
- * Posterior : anterior working-set ratio.
+ * Muscles that define the posterior/anterior LOWER-body chain (objective #2).
  *
- * Neutral-chain work (curls, lateral raises, carries) is excluded — it belongs
- * to neither side, and including it would dilute the signal the block is
- * steering by.
+ * The ratio is the MEAN weekly sets across each side's muscles, computed from
+ * the fractional per-muscle counts — so a squat credits BOTH quads (anterior)
+ * and glutes (posterior) instead of being dumped wholesale onto one side by its
+ * exercise tag. Averaging per muscle keeps the posterior chain's larger muscle
+ * count from structurally inflating the number, so the 1.2:1 target stays
+ * meaningful. Upper-body front/back is covered separately by pushPullBalance.
+ */
+export const CHAIN_MUSCLES = {
+  posterior: ['glutes', 'hamstrings', 'calves'],
+  anterior: ['quads'],
+}
+
+const roundHalf = (n) => Math.round(n * 2) / 2
+
+/**
+ * Posterior : anterior chain balance, from per-muscle working-set volume.
  */
 export function chainRatio(sessions = [], opts = {}) {
-  const { posteriorSets, anteriorSets } = countSets(sessions, opts)
+  const { perMuscle } = countSets(sessions, opts)
 
-  if (anteriorSets === 0) {
+  const mean = (muscles) =>
+    muscles.reduce((sum, m) => sum + (perMuscle[m] || 0), 0) / muscles.length
+
+  const posterior = roundHalf(mean(CHAIN_MUSCLES.posterior))
+  const anterior = roundHalf(mean(CHAIN_MUSCLES.anterior))
+
+  if (anterior === 0) {
     return {
-      ratio: posteriorSets > 0 ? Infinity : null,
-      posteriorSets,
-      anteriorSets,
-      status: posteriorSets > 0 ? 'posteriorOnly' : 'noData',
+      ratio: posterior > 0 ? Infinity : null,
+      posterior,
+      anterior,
+      // aliases kept so ChainBalanceCard's split-bar math stays consistent
+      posteriorSets: posterior,
+      anteriorSets: anterior,
+      status: posterior > 0 ? 'posteriorOnly' : 'noData',
       message:
-        posteriorSets > 0
-          ? 'No anterior-chain volume logged this week.'
+        posterior > 0
+          ? 'Posterior volume logged, no quad volume yet this week.'
           : 'Not enough logged volume to assess chain balance.',
     }
   }
 
-  const ratio = Math.round((posteriorSets / anteriorSets) * 100) / 100
+  const ratio = Math.round((posterior / anterior) * 100) / 100
   let status, message
 
   if (ratio >= CHAIN_RATIO_TARGET) {
     status = 'onTarget'
-    message = `Posterior chain leading ${ratio}:1 — on target for closing the imbalance.`
+    message = `Posterior chain averaging ${ratio}× quad volume — on target for closing the imbalance.`
   } else if (ratio >= CHAIN_RATIO_FLOOR) {
     status = 'acceptable'
-    message = `${ratio}:1 posterior to anterior. Above parity, but below the ${CHAIN_RATIO_TARGET}:1 target — add posterior volume.`
+    message = `${ratio}:1 posterior to quads. Above parity, but below the ${CHAIN_RATIO_TARGET}:1 target — add glute, hamstring or calf volume.`
   } else {
     status = 'imbalanced'
-    message = `Anterior chain is outpacing posterior at ${ratio}:1. Bias the next sessions toward glutes, hamstrings and back.`
+    message = `Quads are outpacing the posterior chain at ${ratio}:1. Bias the next sessions toward glutes, hamstrings and calves.`
   }
 
-  return { ratio, posteriorSets, anteriorSets, status, message }
+  return { ratio, posterior, anterior, posteriorSets: posterior, anteriorSets: anterior, status, message }
 }
 
 /**
@@ -209,7 +254,7 @@ export function assessVolume(sessions = [], opts = {}) {
 export const LR_IMBALANCE_THRESHOLD_PCT = 10
 
 export function leftRightBalance(sessions = [], { weeks = 4, now = new Date() } = {}) {
-  const scoped = sessionsSince(sessions, weeks, now)
+  const scoped = scopeSessions(sessions, { weeks, now })
   const byExercise = {}
 
   for (const session of scoped) {
@@ -249,7 +294,7 @@ export function leftRightBalance(sessions = [], { weeks = 4, now = new Date() } 
  * slight pull bias being the healthier error for someone with runner's posture.
  */
 export function pushPullBalance(sessions = [], opts = {}) {
-  const scoped = sessionsSince(sessions, opts.weeks ?? 1, opts.now || new Date())
+  const scoped = scopeSessions(sessions, { weeks: opts.weeks ?? 1, now: opts.now || new Date() })
   let push = 0
   let pull = 0
 

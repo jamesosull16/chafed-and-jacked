@@ -32,8 +32,15 @@ export default function SetRow({
   const [editing, setEditing] = useState(false)
   const [weightOverride, setWeightOverride] = useState(null)
   const [reps, setReps] = useState(data?.reps ?? '')
-  const [rir, setRir] = useState(data?.rir ?? '')
-  const [side, setSide] = useState(data?.side ?? (exercise.isUnilateral ? 'left' : null))
+  // Prefill with the session's target RIR so logging is one tap (accept), while
+  // staying fully editable and optional. Caveat: a prefilled target the athlete
+  // blows past reads optimistic until they correct it — worth the friction win.
+  const [rir, setRir] = useState(
+    data?.rir ?? (typeof rirTarget === 'number' ? String(rirTarget) : '')
+  )
+  // No preselected side: a defaulted side manufactures a fake L/R imbalance, so
+  // unilateral sets must have a side picked before they can be logged (below).
+  const [side, setSide] = useState(data?.side ?? null)
 
   // The field follows the suggested weight until the athlete types over it,
   // so carrying weight forward between sets needs no effect.
@@ -132,7 +139,10 @@ export default function SetRow({
         </div>
       )}
 
-      <div className="ml-auto shrink-0">
+      <div className="ml-auto flex items-center gap-2 shrink-0">
+        {!locked && exercise.isUnilateral && !side && reps ? (
+          <span className="text-xs font-medium text-warning-strong">Pick a side</span>
+        ) : null}
         {locked && readOnly ? (
           <Button
             variant="ghost"
@@ -142,7 +152,11 @@ export default function SetRow({
             onClick={() => setEditing(true)}
           />
         ) : !locked ? (
-          <Button size="xs" onClick={handleLog} disabled={!reps}>
+          <Button
+            size="xs"
+            onClick={handleLog}
+            disabled={!reps || (exercise.isUnilateral && !side)}
+          >
             {editing ? 'Save' : 'Log'}
           </Button>
         ) : null}
