@@ -25,3 +25,7 @@ dist-ssr
 
 # Firebase deploy cache
 .firebase/
+
+# Local briefs and mockups (not part of the app)
+CHAT_FEATURE_PROMPT.md
+chat-mockup.html
