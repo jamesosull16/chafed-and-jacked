@@ -9,6 +9,7 @@ import {
 } from 'firebase/auth'
 import { doc, getDoc, setDoc, collection, addDoc } from 'firebase/firestore'
 import { auth, googleProvider, db } from '../lib/firebase'
+import { normalizeProfile, needsMigration, DEFAULT_MODE, MODES } from '../lib/appMode'
 
 const AuthContext = createContext(null)
 
@@ -31,7 +32,7 @@ export function AuthProvider({ children }) {
         if (firebaseUser) {
           const profileDoc = await getDoc(doc(db, 'users', firebaseUser.uid))
           if (profileDoc.exists()) {
-            setUserProfile(profileDoc.data())
+            await hydrateProfile(firebaseUser.uid, profileDoc.data())
           } else {
             setUserProfile(null)
           }
@@ -46,6 +47,29 @@ export function AuthProvider({ children }) {
     })
     return unsubscribe
   }, [])
+
+  /**
+   * Fill in any fields added since the doc was written, and persist the result
+   * once so the migration is a no-op on every subsequent load.
+   */
+  async function hydrateProfile(uid, raw) {
+    const normalized = normalizeProfile(raw)
+    setUserProfile(normalized)
+    if (needsMigration(raw)) {
+      try {
+        await setDoc(
+          doc(db, 'users', uid),
+          { mode: normalized.mode, strength: normalized.strength },
+          { merge: true }
+        )
+      } catch (err) {
+        // Non-fatal: the in-memory profile is already normalized, so the app
+        // works. The write retries on next load.
+        console.error('Profile migration write failed:', err)
+      }
+    }
+    return normalized
+  }
 
   async function loginWithGoogle() {
     const result = await signInWithPopup(auth, googleProvider)
@@ -75,17 +99,17 @@ export function AuthProvider({ children }) {
     const userRef = doc(db, 'users', firebaseUser.uid)
     const snap = await getDoc(userRef)
     if (!snap.exists()) {
-      const newProfile = {
+      const newProfile = normalizeProfile({
         displayName: firebaseUser.displayName || '',
         email: firebaseUser.email,
         createdAt: new Date().toISOString(),
         preferences: { viewMode: 'list', restTimerEnabled: true },
         onboarding: { completed: false },
-      }
+      })
       await setDoc(userRef, newProfile)
       setUserProfile(newProfile)
     } else {
-      setUserProfile(snap.data())
+      await hydrateProfile(firebaseUser.uid, snap.data())
     }
   }
 
@@ -131,23 +155,43 @@ export function AuthProvider({ children }) {
     setUserProfile(updated)
   }
 
+  /** Update a subset of the strength-block settings, merging with what's there. */
+  async function updateStrengthSettings(patch) {
+    if (!user) return
+    const merged = { ...(userProfile?.strength || {}), ...patch }
+    await updateUserProfile({ strength: merged })
+  }
+
+  /**
+   * Switch training mode. Purely a pointer change — no data in either mode is
+   * touched, so flipping back restores the other program exactly.
+   */
+  async function setMode(mode) {
+    if (!user) return
+    const next = mode === MODES.RUNNING ? MODES.RUNNING : MODES.STRENGTH
+    await updateUserProfile({ mode: next })
+  }
+
   // Refresh profile from Firestore
   async function refreshProfile() {
     if (!user) return
     const snap = await getDoc(doc(db, 'users', user.uid))
-    if (snap.exists()) setUserProfile(snap.data())
+    if (snap.exists()) return hydrateProfile(user.uid, snap.data())
   }
 
   const value = {
     user,
     userProfile,
     loading,
+    mode: userProfile?.mode || DEFAULT_MODE,
     loginWithGoogle,
     loginWithEmail,
     signUpWithEmail,
     logout,
     completeOnboarding,
     updateUserProfile,
+    updateStrengthSettings,
+    setMode,
     refreshProfile,
   }
 

@@ -1,23 +1,224 @@
 @import "tailwindcss";
+@import "@fontsource-variable/inter";
 
-@theme {
-  --color-brand: #C2410C;
-  --color-brand-light: #EA580C;
-  --color-brand-dark: #9A3412;
-  --color-surface: #1F2937;
-  --color-surface-light: #374151;
-  --color-danger: #EF4444;
-  --color-success: #22C55E;
-  --color-warning: #F59E0B;
+/**
+ * DESIGN TOKENS — Chafed & Jacked
+ *
+ * Light-first. Raw values live on :root so a future dark theme is a matter of
+ * overriding [data-theme="dark"] — no component churn. `@theme inline` maps them
+ * into Tailwind utilities (bg-surface, text-muted, border-default, ...).
+ *
+ * Contrast (vs --color-bg #FFF), measured:
+ *   brand #2563EB 5.17:1 · danger #DC2626 4.62:1 · muted #5B6472 5.98:1  — AA text
+ *   accent #06B6D4 2.43:1 · success #16A34A 3.25:1 · warning #D97706 3.14:1
+ *     ^ fills/borders/large-text ONLY. Use the -strong variants for body text.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --cj-bg: #ffffff;
+  --cj-surface: #f6f7f9;
+  --cj-surface-2: #eef0f3;
+  --cj-surface-3: #e4e7ec;
+  --cj-border: #e5e8ec;
+  --cj-border-strong: #cdd3db;
+
+  /* Text */
+  --cj-text: #0b0b0c;
+  --cj-text-muted: #5b6472;
+  --cj-text-subtle: #8a929e;
+  --cj-text-inverse: #ffffff;
+
+  /* Brand — cool blue (primary actions) */
+  --cj-brand: #2563eb;
+  --cj-brand-hover: #1d4ed8;
+  --cj-brand-active: #1e40af;
+  --cj-brand-subtle: #eff6ff;
+  --cj-brand-border: #bfdbfe;
+
+  /* Accent — cyan (data / secondary emphasis, NOT small text on white) */
+  --cj-accent: #06b6d4;
+  --cj-accent-strong: #0e7490;
+  --cj-accent-subtle: #ecfeff;
+  --cj-accent-border: #a5f3fc;
+
+  /* Semantics — `-strong` variants are the AA-safe text colors */
+  --cj-success: #16a34a;
+  --cj-success-strong: #15803d;
+  --cj-success-subtle: #f0fdf4;
+  --cj-success-border: #bbf7d0;
+
+  --cj-warning: #d97706;
+  --cj-warning-strong: #b45309;
+  --cj-warning-subtle: #fffbeb;
+  --cj-warning-border: #fde68a;
+
+  --cj-danger: #dc2626;
+  --cj-danger-strong: #b91c1c;
+  --cj-danger-subtle: #fef2f2;
+  --cj-danger-border: #fecaca;
+
+  /* Chart series — derived from brand/accent, ordered for greyscale separation */
+  --cj-chart-1: #2563eb;
+  --cj-chart-2: #06b6d4;
+  --cj-chart-3: #7c3aed;
+  --cj-chart-4: #d97706;
+  --cj-chart-5: #16a34a;
+  --cj-chart-6: #db2777;
+  --cj-chart-grid: #eef0f3;
+  --cj-chart-axis: #8a929e;
+
+  /* Elevation — light UI: hairline + soft, never heavy */
+  --cj-shadow-sm: 0 1px 2px 0 rgb(11 11 12 / 0.04);
+  --cj-shadow: 0 1px 3px 0 rgb(11 11 12 / 0.06), 0 1px 2px -1px rgb(11 11 12 / 0.04);
+  --cj-shadow-md: 0 4px 12px -2px rgb(11 11 12 / 0.08), 0 2px 4px -2px rgb(11 11 12 / 0.04);
+  --cj-shadow-lg: 0 12px 32px -8px rgb(11 11 12 / 0.12), 0 4px 8px -4px rgb(11 11 12 / 0.06);
+}
+
+/**
+ * Dark theme — not enabled by default. Present so the token contract is proven
+ * themeable; flip by setting data-theme="dark" on <html>.
+ */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --cj-bg: #0b0d10;
+  --cj-surface: #14181d;
+  --cj-surface-2: #1c2128;
+  --cj-surface-3: #262c35;
+  --cj-border: #262c35;
+  --cj-border-strong: #38414d;
+
+  --cj-text: #f2f4f7;
+  --cj-text-muted: #9aa4b2;
+  --cj-text-subtle: #6b7480;
+  --cj-text-inverse: #0b0d10;
+
+  --cj-brand: #60a5fa;
+  --cj-brand-hover: #93c5fd;
+  --cj-brand-active: #bfdbfe;
+  --cj-brand-subtle: #16233a;
+  --cj-brand-border: #1e3a6b;
+
+  --cj-accent: #22d3ee;
+  --cj-accent-strong: #67e8f9;
+  --cj-accent-subtle: #0c2b31;
+  --cj-accent-border: #155e69;
+
+  --cj-success: #4ade80;
+  --cj-success-strong: #86efac;
+  --cj-success-subtle: #0d2417;
+  --cj-success-border: #17512f;
+
+  --cj-warning: #fbbf24;
+  --cj-warning-strong: #fcd34d;
+  --cj-warning-subtle: #2a1e07;
+  --cj-warning-border: #5c3f0d;
+
+  --cj-danger: #f87171;
+  --cj-danger-strong: #fca5a5;
+  --cj-danger-subtle: #2b1414;
+  --cj-danger-border: #5f2222;
+
+  --cj-chart-1: #60a5fa;
+  --cj-chart-2: #22d3ee;
+  --cj-chart-3: #a78bfa;
+  --cj-chart-4: #fbbf24;
+  --cj-chart-5: #4ade80;
+  --cj-chart-6: #f472b6;
+  --cj-chart-grid: #1c2128;
+  --cj-chart-axis: #6b7480;
+
+  --cj-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --cj-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.3);
+  --cj-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.45), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+  --cj-shadow-lg: 0 12px 32px -8px rgb(0 0 0 / 0.55), 0 4px 8px -4px rgb(0 0 0 / 0.35);
+}
+
+@theme inline {
+  --color-bg: var(--cj-bg);
+  --color-surface: var(--cj-surface);
+  --color-surface-2: var(--cj-surface-2);
+  --color-surface-3: var(--cj-surface-3);
+  --color-border-default: var(--cj-border);
+  --color-border-strong: var(--cj-border-strong);
+
+  --color-text: var(--cj-text);
+  --color-muted: var(--cj-text-muted);
+  --color-subtle: var(--cj-text-subtle);
+  --color-inverse: var(--cj-text-inverse);
+
+  --color-brand: var(--cj-brand);
+  --color-brand-hover: var(--cj-brand-hover);
+  --color-brand-active: var(--cj-brand-active);
+  --color-brand-subtle: var(--cj-brand-subtle);
+  --color-brand-border: var(--cj-brand-border);
+
+  --color-accent: var(--cj-accent);
+  --color-accent-strong: var(--cj-accent-strong);
+  --color-accent-subtle: var(--cj-accent-subtle);
+  --color-accent-border: var(--cj-accent-border);
+
+  --color-success: var(--cj-success);
+  --color-success-strong: var(--cj-success-strong);
+  --color-success-subtle: var(--cj-success-subtle);
+  --color-success-border: var(--cj-success-border);
+
+  --color-warning: var(--cj-warning);
+  --color-warning-strong: var(--cj-warning-strong);
+  --color-warning-subtle: var(--cj-warning-subtle);
+  --color-warning-border: var(--cj-warning-border);
+
+  --color-danger: var(--cj-danger);
+  --color-danger-strong: var(--cj-danger-strong);
+  --color-danger-subtle: var(--cj-danger-subtle);
+  --color-danger-border: var(--cj-danger-border);
+
+  --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
+
+  --shadow-sm: var(--cj-shadow-sm);
+  --shadow-md: var(--cj-shadow-md);
+  --shadow-lg: var(--cj-shadow-lg);
+}
+
+/* ── Base ──────────────────────────────────────────────────────────── */
+
+html {
+  background: var(--cj-bg);
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
+  background: var(--cj-bg);
+  color: var(--cj-text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv11", "ss01";
 }
 
-/* Hide number input spinners */
+/* Every number that can change should not reflow its neighbours. */
+.tabular-nums,
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}
+
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* ── Focus ─────────────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--cj-brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Form resets ───────────────────────────────────────────────────── */
+
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
@@ -27,7 +228,37 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #111827; }
-::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #4B5563; }
+/* ── Scrollbar ─────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--cj-border-strong);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--cj-text-subtle);
+}
+
+/* ── Motion ────────────────────────────────────────────────────────── */
+
+@keyframes cj-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
