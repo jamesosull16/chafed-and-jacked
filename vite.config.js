@@ -24,8 +24,10 @@ export default defineConfig({
         name: 'Chafed & Jacked',
         short_name: 'C&J',
         description: 'Because your nipples bleed but your deadlift doesn\'t.',
-        theme_color: '#C2410C',
-        background_color: '#111827',
+        // Must track the light theme — an orange splash into a white app reads
+        // as a different product loading.
+        theme_color: '#FFFFFF',
+        background_color: '#FFFFFF',
         display: 'standalone',
         scope: '/',
         start_url: '/',
