@@ -209,6 +209,15 @@ input[type="number"] {
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
+/* Horizontal chip rows scroll but shouldn't show a scrollbar on desktop. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* ── Focus ─────────────────────────────────────────────────────────── */
 
 :focus-visible {

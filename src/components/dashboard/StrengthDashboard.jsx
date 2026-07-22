@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Dumbbell, ChevronRight } from 'lucide-react'
+import { Dumbbell, ChevronRight, Sparkles } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useAppMode } from '../../hooks/useAppMode'
 import { useStrengthBlock } from '../../hooks/useStrengthBlock'
@@ -149,18 +149,25 @@ export default function StrengthDashboard() {
 
       <GuardrailsCard guardrails={guardrails} />
 
-      <Card>
-        <CardLabel>Coaching</CardLabel>
-        <p className="text-sm text-muted mt-2">
-          The S&amp;C Coach and Sports Nutritionist skills read this data live over MCP — ask them
-          for today&apos;s session or what to eat next.
-        </p>
-        <div className="flex items-center gap-2 mt-3">
-          <Badge tone="brand">Week {blockStatus.blockWeek}</Badge>
-          <Badge tone="neutral">RIR {blockStatus.rirTarget}</Badge>
-          {balance.chain.ratio != null && balance.chain.ratio !== Infinity && (
-            <Badge tone="accent">{balance.chain.ratio}:1 chain</Badge>
-          )}
+      <Card to="/coach" interactive>
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-brand-subtle border border-brand-border flex items-center justify-center shrink-0">
+            <Sparkles className="w-4 h-4 text-brand" aria-hidden="true" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-text">Ask your coach</p>
+            <p className="text-sm text-muted mt-0.5">
+              Log a meal, get today&apos;s session, or ask why a number is what it is.
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              <Badge tone="brand" size="xs">Week {blockStatus.blockWeek}</Badge>
+              <Badge tone="neutral" size="xs">RIR {blockStatus.rirTarget}</Badge>
+              {balance.chain.ratio != null && balance.chain.ratio !== Infinity && (
+                <Badge tone="accent" size="xs">{balance.chain.ratio}:1 chain</Badge>
+              )}
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-subtle shrink-0 mt-1" aria-hidden="true" />
         </div>
       </Card>
 

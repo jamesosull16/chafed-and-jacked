@@ -11,14 +11,26 @@ service cloud.firestore {
     //
     // The nested wildcard covers every per-user collection — bodyMetrics,
     // workoutSessions, exerciseProgress, mileageLogs, dailyMileage,
-    // nutritionLogs — so adding a collection needs no rules change, and no
-    // collection is ever accidentally left world-readable.
+    // nutritionLogs, coachChat — so adding a collection needs no rules change,
+    // and no collection is ever accidentally left world-readable.
     match /users/{userId} {
       allow read, write: if isOwner(userId);
 
       match /{document=**} {
         allow read, write: if isOwner(userId);
       }
+    }
+
+    // Coach rate-limit counters.
+    //
+    // Deliberately OUTSIDE the user subtree. Firestore evaluates rules as a
+    // permissive union — any matching allow wins — so a `deny` nested under
+    // `users/{uid}/{document=**}` would be overridden by the wildcard above and
+    // the client could reset its own limit. Only the Cloud Function, which runs
+    // with admin credentials and bypasses rules entirely, writes here.
+    match /coachUsage/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
     }
 
     // Shared program definitions are read-only reference data.

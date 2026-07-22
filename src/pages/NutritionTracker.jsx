@@ -569,9 +569,14 @@ export default function NutritionTracker() {
         </Card>
       )}
 
-      <Button size="lg" fullWidth icon={Camera} onClick={() => setSheetOpen(true)}>
-        Log a meal
-      </Button>
+      <div className="grid grid-cols-2 gap-2">
+        <Button size="lg" icon={Camera} onClick={() => setSheetOpen(true)}>
+          Quick log
+        </Button>
+        <Button size="lg" variant="secondary" icon={Sparkles} onClick={() => navigate('/coach')}>
+          Ask coach
+        </Button>
+      </div>
 
       <EstimateSheet
         open={sheetOpen}

@@ -11,6 +11,7 @@ import Progress from './pages/Progress'
 import History from './pages/History'
 import Settings from './pages/Settings'
 import NutritionTracker from './pages/NutritionTracker'
+import CoachChat from './pages/CoachChat'
 
 export default function App() {
   return (
@@ -64,6 +65,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Layout><NutritionTracker /></Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/coach"
+            element={
+              <ProtectedRoute>
+                <Layout><CoachChat /></Layout>
               </ProtectedRoute>
             }
           />

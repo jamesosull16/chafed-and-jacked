@@ -17,7 +17,7 @@ Recharts · installable PWA.
 ```bash
 npm install
 npm run dev      # local dev
-npm test         # vitest — 209 tests
+npm test         # vitest — 282 tests
 npm run build    # production build
 npm run lint
 ```
@@ -175,12 +175,49 @@ API keys live only in the Cloud Function. Setup: [`mcp/README.md`](mcp/README.md
 
 ---
 
+## The Coach
+
+An in-app chat tab (`/coach`) that is one coach with two areas of expertise —
+strength and nutrition — not two bots behind a switch. It routes each turn
+itself and blends both when a question spans them ("what do I eat after leg
+day?"). One thread, persisted per user, so logging, corrections, fuelling and
+training talk all live in the same conversation.
+
+It can log a meal from text or a photo, correct one conversationally, propose
+dinners sized to the remaining macro gap, show today's session, and propose
+guardrail-respecting adjustments.
+
+**Context injection over tool round-trips.** Targets, intake, today's session
+and chain balance are injected into the prompt rather than exposed as read
+tools. They're needed on nearly every turn, and a tool call per message would
+double latency for no gain. Tools are reserved for *actions* (log, update,
+delete) and for *rendering* cards the model authored.
+
+**Two trust levels.** The uid comes from the verified auth token, never the
+payload. Injury flags, the block week, the hamstring rehab stage and the meal
+ids the coach may correct are all re-derived server-side from stored data — a
+client claiming "stage 3, full range" cannot unlock a movement the athlete's
+actual block week forbids. Macro targets and session details are client-computed
+and advisory: they only ever inform advice returned to the same person who sent
+them.
+
+Because Cloud Functions deploy `functions/` standalone, the guardrail constants
+are duplicated there rather than imported. `functions/__tests__/guardrailParity.test.js`
+compares the two copies directly, so drift fails the build instead of quietly
+weakening a guardrail.
+
+Rate-limited to 60 turns/hour per user, counted in a top-level `coachUsage/{uid}`
+document. That's deliberately outside the user's own subtree: Firestore rules
+are a permissive union, so a `deny` nested under the user's recursive wildcard
+would be overridden by it and the client could reset its own limit.
+
 ## Coaching skills
 
 Two installable Claude skills in [`skills/`](skills/) — a Strength &
 Conditioning Coach and a Sports Nutritionist. Both are hybrid: self-contained
 methodology that reads live app data over the MCP server when it's connected,
-and falls back to a short intake when it isn't.
+and falls back to a short intake when it isn't. The in-app Coach is the same
+methodology condensed into a chat voice.
 
 ---
 
@@ -197,9 +234,10 @@ src/
   hooks/     useStrengthBlock · useWorkout · useAppMode · useFirestore
   components/
     ui/                     design system primitives
-    strength/  dashboard/  workout/  common/
+    strength/  dashboard/  workout/  chat/  common/
   pages/
-functions/                  meal estimation Cloud Function (holds the API keys)
+functions/                  Cloud Functions — meal estimation + coach (holds the API keys)
+  src/coach/                orchestration, tools, prompt, guardrail parity
 mcp/                        MCP server — log meals from a Claude conversation
 skills/                     S&C Coach + Sports Nutritionist
 ```
@@ -219,6 +257,7 @@ own subtree.
 | `exerciseProgress` | exerciseId | Current weight, last reps/RIR, capped history |
 | `bodyMetrics` | auto | Weight, body fat %, fat/lean mass |
 | `nutritionLogs` | `YYYY-MM-DD` | Target snapshot + entries with itemised breakdowns |
+| `coachChat` | auto | Chat thread — role, content, card payloads, photo thumbnail |
 | `mileageLogs` / `dailyMileage` | week / date | Running mode only |
 
 Sets carry RIR and side because chain balance needs both and neither can be

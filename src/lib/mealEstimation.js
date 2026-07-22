@@ -24,6 +24,24 @@ export const MAX_IMAGE_EDGE = 1568
 const JPEG_QUALITY = 0.85
 
 /**
+ * Thread thumbnails are stored as data URLs inside the chat message document,
+ * so they must stay well clear of Firestore's 1MB per-document limit. 320px at
+ * low quality lands around 10-20KB — plenty for a 200px-wide preview bubble,
+ * and it avoids standing up a Storage bucket just to show a thumbnail.
+ */
+const THUMB_EDGE = 320
+const THUMB_QUALITY = 0.6
+
+function drawScaled(img, maxEdge, quality) {
+  const scale = Math.min(1, maxEdge / Math.max(img.width, img.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(img.width * scale)
+  canvas.height = Math.round(img.height * scale)
+  canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL('image/jpeg', quality)
+}
+
+/**
  * Downscale and re-encode a File into base64 JPEG.
  *
  * @returns {Promise<{ base64: string, mediaType: string, previewUrl: string }>}
@@ -40,21 +58,13 @@ export function prepareImage(file) {
 
     img.onload = () => {
       try {
-        const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(img.width, img.height))
-        const width = Math.round(img.width * scale)
-        const height = Math.round(img.height * scale)
-
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        ctx.drawImage(img, 0, 0, width, height)
-
-        const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY)
+        const full = drawScaled(img, MAX_IMAGE_EDGE, JPEG_QUALITY)
         resolve({
-          base64: dataUrl.split(',')[1],
+          base64: full.split(',')[1],
           mediaType: 'image/jpeg',
-          previewUrl: dataUrl,
+          // Full-size for the local preview, tiny for anything persisted.
+          previewUrl: full,
+          thumbnailUrl: drawScaled(img, THUMB_EDGE, THUMB_QUALITY),
         })
       } catch (err) {
         reject(err)

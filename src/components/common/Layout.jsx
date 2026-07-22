@@ -1,13 +1,13 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { Home, Dumbbell, Scale, BarChart3, UtensilsCrossed } from 'lucide-react'
+import { Home, Dumbbell, Sparkles, Scale, UtensilsCrossed } from 'lucide-react'
 import { cn } from '../ui/cn'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Home', icon: Home },
   { to: '/workout', label: 'Train', icon: Dumbbell },
+  { to: '/coach', label: 'Coach', icon: Sparkles },
   { to: '/nutrition', label: 'Fuel', icon: UtensilsCrossed },
   { to: '/metrics', label: 'Body', icon: Scale },
-  { to: '/progress', label: 'Progress', icon: BarChart3 },
 ]
 
 export default function Layout({ children }) {
