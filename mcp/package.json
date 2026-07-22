@@ -1,0 +1,21 @@
+{
+  "name": "chafed-and-jacked-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Chafed & Jacked — log meals and read training data from a Claude conversation",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "chafed-and-jacked-mcp": "./index.js"
+  },
+  "main": "index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "firebase-admin": "^13.0.0"
+  }
+}

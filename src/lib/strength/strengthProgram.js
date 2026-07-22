@@ -16,9 +16,9 @@
  * Pure module — dates, flags and logged history are passed in.
  */
 
-import { STRENGTH_EXERCISES, repRangeFor, restFor, isAvailable } from './exercises'
-import { isExerciseAllowed, substituteFor } from './injuryGuardrails'
-import { getMobilityBlock } from './mobility'
+import { STRENGTH_EXERCISES, repRangeFor, restFor, isAvailable } from './exercises.js'
+import { isExerciseAllowed, substituteFor } from './injuryGuardrails.js'
+import { getMobilityBlock } from './mobility.js'
 
 /** Average seconds of actual work per set, for time estimates. */
 const SECONDS_PER_SET_WORK = 45

@@ -1,74 +1,225 @@
-# React + Vite
+# Chafed & Jacked
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A training app that runs in one of two modes.
 
-Currently, two official plugins are available:
+**Strength** (current) — a 22-week hypertrophy block: a 4-day upper/lower split
+with posterior-chain emphasis, RIR-autoregulated mesocycles, weekly volume
+landmarks, chain-balance tracking, and injury guardrails that filter exercise
+selection rather than just warning about it.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+**Running** — the original endurance programme: race-anchored periodisation with
+a taper, mileage-scaled lifting loads, and HR-based run calorie accounting.
+Preserved intact and one toggle away.
 
-## React Compiler
+React 19 · Vite 7 · Tailwind 4 · Firebase (Auth, Firestore, Functions, Hosting) ·
+Recharts · installable PWA.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Nutrition Calculation — Formulas & Citations
-
-The macro calculator (`src/lib/macroCalculator.js`) uses peer-reviewed formulas for energy expenditure and macronutrient targeting.
-
-### BMR (Basal Metabolic Rate)
-
-**Primary — Katch-McArdle** (when body fat % is available):
-```
-BMR = 370 + (21.6 × lean_mass_kg)
-```
-
-**Fallback — Mifflin-St Jeor (1990)**:
-```
-Male:   BMR = 10·kg + 6.25·cm − 5·age + 5
-Female: BMR = 10·kg + 6.25·cm − 5·age − 161
+```bash
+npm install
+npm run dev      # local dev
+npm test         # vitest — 209 tests
+npm run build    # production build
+npm run lint
 ```
 
-> Mifflin, M.D. et al. "A new predictive equation for resting energy expenditure in healthy individuals." *Am J Clin Nutr* 51(2):241–7, 1990.
+---
 
-### Run Calorie Expenditure
+## Modes
 
-**HR-based — Keytel et al. (2005)**, standard form:
+`mode` is a top-level field on the user profile, `'strength' | 'running'`,
+defaulting to `strength`. Everything downstream branches on it:
+
+| | Strength | Running |
+|---|---|---|
+| Programme | `lib/strength/strengthProgram.js` | `lib/program.js` |
+| Calendar | 22-week block, 4+1 mesocycles | Race-anchored build/deload/taper |
+| Nutrition | Lean bulk, no run calories | Endurance, Keytel run calories |
+| Dashboard | Chain balance, volume landmarks, block progress | Mileage, race countdown, scaling tier |
+| Data hook | `useStrengthBlock` | `useWorkout` |
+
+Switching writes one field. Nothing is deleted in either direction, so flipping
+back in January restores the endurance programme exactly — there is a regression
+test pinning running-mode output to measured values to keep it that way.
+
+Existing profiles are lazily defaulted on read (`lib/appMode.js`) and the filled
+document is written back once, so no migration script is needed.
+
+---
+
+## Injury guardrails
+
+The block's hardest constraint is a **proximal ("high") hamstring strain**, which
+sits in direct tension with the goal of growing hamstrings. The resolution is
+sequencing, not avoidance — **load progresses before range**:
+
+| Weeks | Stage | Permitted hamstring loading |
+|---|---|---|
+| 1–4 | 1 | Isometric and mid-range only |
+| 5–12 | 2 | Partial range introduced, to tolerance |
+| 13+ | 3 | Full range, reintroduced at ~60% load |
+
+This is why **lying** leg curl is available from week one and **seated** is not:
+the seated position flexes the hip, putting the proximal tendon under stretch
+*and* load simultaneously. Hip thrusts and glute bridges drive glute growth
+throughout, because they load hip extension without lengthening the hamstring.
+
+The guardrails are structural rather than advisory. Splits are declared as
+ordered *slots* with ranked candidates; the generator takes the first candidate
+the guardrails permit and records what it substituted and why. A blocked movement
+cannot reach the athlete, because the slot simply resolves to the next acceptable
+option. Tests assert that no disallowed movement is emitted at any block week.
+
+Knee flags exclude deep-knee-flexion movements and cap ROM on the rest; ankle and
+hip flags never block, they add heel elevation and front-loaded mobility.
+
+Working pain ≤3/10 that settles by the next day is acceptable. Higher, or pain
+lingering into the next day, means regress load or range.
+
+---
+
+## Chain balance
+
+Objective #2 is correcting an anterior/posterior imbalance, so the app measures
+it. `lib/strength/chainBalance.js` counts weekly working sets — 1.0 per primary
+muscle, 0.5 per secondary, excluding anything logged above RIR 4 — and reports:
+
+- **Posterior : anterior ratio**, target ≥1.2:1, flagged below 1.0. Neutral-chain
+  work (curls, lateral raises) is excluded; including it would dilute the signal.
+- **Sets per muscle** against MEV / MAV / MRV landmarks, with hamstring targets
+  capped while the strain is being managed — otherwise the dashboard would
+  scream "under-trained" at an athlete doing exactly the right thing.
+- **Left/right symmetry** on unilateral work, flagged above 10%. Sets logged
+  without a side are ignored rather than counted as balanced; guessing would
+  produce false reassurance.
+- **Push : pull** balance for the upper body.
+
+Lagging muscles feed back into session generation, which adds a set to movements
+training them.
+
+---
+
+## Nutrition
+
+### Strength mode — lean bulk
+
+```
+TDEE   = BMR × 1.5 + strength session kcal      (no run term)
+Target = TDEE + surplus                          (default +300 kcal)
+```
+
+The activity factor is 1.5 rather than the endurance model's 1.2 because there is
+no separate run-calorie term to carry non-lifting activity — reusing 1.2 would
+badly under-feed rest days.
+
+| Macro | Rule |
+|---|---|
+| Protein | 2.0 g/kg (2.2 cutting) — ISSN 1.6–2.2 g/kg |
+| Carbs | 6 g/kg training days, 4 g/kg rest days. **Not** the endurance duration ladder — a 75-minute lifting session doesn't empty glycogen the way a three-hour run does |
+| Fat | Remainder, floored at 0.8 g/kg |
+
+**Rate-of-gain guardrail:** target 0.25–0.5% bodyweight per week. Below the band,
+add 150 kcal; above it, cut 150. Deliberately refuses to act on fewer than three
+weeks of weigh-ins — a single reading is water, not tissue, and reacting to it
+sends the surplus oscillating.
+
+> Garthe et al., *Int J Sport Nutr Exerc Metab* 23(1):39–48, 2013 — rate of gain
+> and body composition. Jäger et al., ISSN Position Stand on Protein, 2017.
+> Slater & Phillips, *J Sports Sci* 29(sup1):S67–77, 2011 — carbohydrate needs of
+> strength athletes.
+
+### Running mode — endurance (unchanged)
+
+**BMR** — Katch-McArdle when body fat % is known (`370 + 21.6 × lean kg`),
+otherwise Mifflin-St Jeor.
+
+**Run calories** — Keytel HR-based, with a VO₂max-extended form and a
+distance-only fallback (`miles × lbs × 0.63`).
+
 ```
 Male:   kcal/min = (−55.0969 + 0.6309·HR + 0.1988·kg + 0.2017·age) / 4.184
 Female: kcal/min = (−20.4022 + 0.4472·HR − 0.1263·kg + 0.074·age)  / 4.184
 ```
 
-**Extended form** (when VO2max is available):
+**TDEE** = `BMR × 1.2 + run kcal + strength kcal`. Carbs ladder by run duration
+(5→10 g/kg); deficit is phase-scaled (build 400, deload 300, taper 250, race 0).
+
+> Mifflin et al., *Am J Clin Nutr* 51(2):241–7, 1990. Keytel et al.,
+> *J Sports Sci* 23(3):289–97, 2005. IOC Consensus on Sports Nutrition, 2011.
+> IOC RED-S Consensus, 2018. Helms et al., 2014.
+
+---
+
+## Food logging
+
+Describe a meal or photograph it; macros are estimated and logged. Two front
+doors, one estimation service:
+
 ```
-Male:   kcal/min = (−95.7735 + 0.6309·HR + 0.1988·kg + 0.2017·age + 0.6488·VO2max) / 4.184
-Female: kcal/min = (−59.3954 + 0.4472·HR − 0.1263·kg + 0.074·age  + 0.4654·VO2max) / 4.184
+in-app camera ─┐
+               ├─▶ estimateMeal Cloud Function ─▶ Claude vision ─▶ USDA FDC ─▶ Firestore
+MCP server ────┘
 ```
 
-**Distance fallback**: `kcal = miles × weight_lbs × 0.63` (ACSM metabolic equation approximation)
+The model identifies foods and estimates **portion mass**; USDA FoodData Central
+supplies **macro density**. Vision models judge "how much food is on this plate"
+far better than they recall "how many grams of protein are in 100g of this", so
+each half does what it's good at. A database match that disagrees with the model
+by more than 3× is discarded as a bad search rather than trusted.
 
-> Keytel, L.R. et al. "Prediction of energy expenditure from heart rate monitoring during submaximal exercise." *J Sports Sci* 23(3):289–97, 2005.
+Estimates are always shown for confirmation before saving, with the itemised
+breakdown and the assumptions the model made. Portion estimation is genuinely
+uncertain, and silently writing a guess into the day's totals would corrupt the
+data the whole block is steered by.
 
-### TDEE
+API keys live only in the Cloud Function. Setup: [`mcp/README.md`](mcp/README.md).
+
+---
+
+## Coaching skills
+
+Two installable Claude skills in [`skills/`](skills/) — a Strength &
+Conditioning Coach and a Sports Nutritionist. Both are hybrid: self-contained
+methodology that reads live app data over the MCP server when it's connected,
+and falls back to a short intake when it isn't.
+
+---
+
+## Project layout
+
 ```
-TDEE = (BMR × 1.2) + run_kcal + strength_kcal
+src/
+  lib/
+    appMode.js              mode, goals, injury flags, profile migration
+    macroCalculator.js      both nutrition models (pure)
+    strength/               exercises · injuryGuardrails · strengthProgram
+                            strengthPeriodization · chainBalance · mobility
+    program.js periodization.js progression.js loadScaling.js   running engine
+  hooks/     useStrengthBlock · useWorkout · useAppMode · useFirestore
+  components/
+    ui/                     design system primitives
+    strength/  dashboard/  workout/  common/
+  pages/
+functions/                  meal estimation Cloud Function (holds the API keys)
+mcp/                        MCP server — log meals from a Claude conversation
+skills/                     S&C Coach + Sports Nutritionist
 ```
 
-### Macronutrient Targets (Session-Aware)
+Design system: [`DESIGN.md`](DESIGN.md).
 
-| Macro | Rule | Citation |
-|-------|------|----------|
-| **Protein** | 1.7 g/kg baseline; 2.0 g/kg if run ≥ 90 min; 2.2 g/kg if cutting; phase-adjusted for deload (1.6) and taper (1.8) | Jager et al., ISSN Position Stand, 2017; Helms et al., 2014 |
-| **Carbs** | Duration-based: <45 min → 5 g/kg; 45–90 min → 6; 90–180 min → 8; >180 min → 10; +1 g/kg if lifting same day. Mileage fallback when duration unavailable. | IOC Consensus on Sports Nutrition, 2011 |
-| **Fat** | Remainder after protein + carb kcal (÷ 9), floored at 0.8 g/kg | IOC guidelines for endurance athletes |
-| **Deficit** | Phase-scaled: build 400, deload 300, taper/peak 250, race 0 kcal | IOC RED-S Consensus, 2018 |
+---
 
-### Formula Selection
+## Data model
 
-The `source` field in the return value indicates which formula was used:
-- `keytel` — HR-based (standard Keytel)
-- `keytel_vo2` — HR-based with VO2max correction
-- `distance` — distance-only fallback (lower confidence)
+Everything is scoped to `users/{uid}`; Firestore rules allow a user only their
+own subtree.
 
-## Expanding the ESLint configuration
+| Collection | Doc ID | Contents |
+|---|---|---|
+| `workoutSessions` | auto | Per-set `weight`, `reps`, `rir`, `side`; block week, phase, mobility completed |
+| `exerciseProgress` | exerciseId | Current weight, last reps/RIR, capped history |
+| `bodyMetrics` | auto | Weight, body fat %, fat/lean mass |
+| `nutritionLogs` | `YYYY-MM-DD` | Target snapshot + entries with itemised breakdowns |
+| `mileageLogs` / `dailyMileage` | week / date | Running mode only |
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Sets carry RIR and side because chain balance needs both and neither can be
+recovered retroactively from untagged data.

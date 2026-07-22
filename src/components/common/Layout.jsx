@@ -1,35 +1,42 @@
 import { NavLink, useLocation } from 'react-router-dom'
+import { Home, Dumbbell, Scale, BarChart3, UtensilsCrossed } from 'lucide-react'
+import { cn } from '../ui/cn'
 
-const navItems = [
-  { to: '/', label: 'Home', icon: '⌂' },
-  { to: '/workout', label: 'Lift', icon: '🏋' },
-  { to: '/metrics', label: 'Body', icon: '⚖' },
-  { to: '/progress', label: 'Charts', icon: '📊' },
-  { to: '/history', label: 'Log', icon: '📋' },
+const NAV_ITEMS = [
+  { to: '/', label: 'Home', icon: Home },
+  { to: '/workout', label: 'Train', icon: Dumbbell },
+  { to: '/nutrition', label: 'Fuel', icon: UtensilsCrossed },
+  { to: '/metrics', label: 'Body', icon: Scale },
+  { to: '/progress', label: 'Progress', icon: BarChart3 },
 ]
 
 export default function Layout({ children }) {
   const location = useLocation()
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 pb-20">
-      <main className="max-w-lg mx-auto px-4 pt-4">{children}</main>
+    <div className="min-h-screen bg-bg text-text">
+      <main className="max-w-lg mx-auto px-4 pt-4 pb-28">{children}</main>
 
-      {/* Bottom navigation bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 safe-area-pb">
-        <div className="max-w-lg mx-auto flex justify-around">
-          {navItems.map((item) => {
-            const active = location.pathname === item.to
+      <nav
+        aria-label="Primary"
+        className="fixed bottom-0 inset-x-0 bg-bg/90 backdrop-blur-md border-t border-border-default safe-area-pb"
+      >
+        <div className="max-w-lg mx-auto flex">
+          {NAV_ITEMS.map(({ to, label, icon: Icon }) => {
+            const active = location.pathname === to
             return (
               <NavLink
-                key={item.to}
-                to={item.to}
-                className={`flex flex-col items-center py-2 px-4 text-xs transition-colors ${
-                  active ? 'text-brand' : 'text-gray-500 hover:text-gray-300'
-                }`}
+                key={to}
+                to={to}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'flex-1 flex flex-col items-center justify-center gap-0.5 py-2 min-h-14',
+                  'text-[11px] font-medium transition-colors',
+                  active ? 'text-brand' : 'text-subtle hover:text-text'
+                )}
               >
-                <span className="text-lg mb-0.5">{item.icon}</span>
-                <span>{item.label}</span>
+                <Icon className="w-5 h-5" strokeWidth={active ? 2.25 : 1.75} aria-hidden="true" />
+                {label}
               </NavLink>
             )
           })}

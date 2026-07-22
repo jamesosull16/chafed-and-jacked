@@ -20,7 +20,7 @@
  * is slow and re-injury sets the block back further than patience does.
  */
 
-import { STRENGTH_EXERCISES, isAvailable } from './exercises'
+import { STRENGTH_EXERCISES, isAvailable } from './exercises.js'
 
 export const HAMSTRING_STAGES = [
   { stage: 1, fromWeek: 1, allows: ['low'], label: 'Isometric & mid-range only' },

@@ -117,14 +117,19 @@ export function AuthProvider({ children }) {
   async function completeOnboarding(data) {
     if (!user) return
     const userRef = doc(db, 'users', user.uid)
-    const { profile, races, goals, ...onboardingData } = data
-    const updated = {
+    // mode and strength are top-level profile fields, not onboarding answers —
+    // pull them out before the rest is nested under `onboarding`, or every
+    // downstream reader looks in the wrong place.
+    const { profile, races, goals, mode, strength, ...onboardingData } = data
+    const updated = normalizeProfile({
       ...userProfile,
       onboarding: { completed: true, ...onboardingData },
       ...(profile && { profile }),
       ...(races && { races }),
       ...(goals && { goals }),
-    }
+      ...(mode && { mode }),
+      ...(strength && { strength }),
+    })
     await setDoc(userRef, updated, { merge: true })
     setUserProfile(updated)
 

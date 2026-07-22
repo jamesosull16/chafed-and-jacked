@@ -2,17 +2,14 @@ import { useState, useEffect, useMemo } from 'react'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts'
+import { BarChart3, Dumbbell, Footprints, Scale, Trophy } from 'lucide-react'
 import { useFirestore, getWeekStart, getWeekId } from '../hooks/useFirestore'
 import { useAuth } from '../contexts/AuthContext'
 import { EXERCISES } from '../lib/program'
-import LoadingSpinner from '../components/common/LoadingSpinner'
-
-const CHART_TOOLTIP_STYLE = {
-  background: '#1F2937',
-  border: '1px solid #374151',
-  borderRadius: '8px',
-  fontSize: '12px',
-}
+import {
+  Card, CardHeader, EmptyState, SegmentedControl, SkeletonPage, Tabs,
+  CHART_COLORS, chartAxis, chartGrid, chartTooltip,
+} from '../components/ui'
 
 const TIME_RANGES = [
   { id: '4w', label: '4 Weeks', days: 28 },
@@ -20,23 +17,7 @@ const TIME_RANGES = [
   { id: 'all', label: 'All Time', days: Infinity },
 ]
 
-function TimeRangeFilter({ value, onChange }) {
-  return (
-    <div className="flex gap-1 bg-gray-900 rounded-lg p-0.5">
-      {TIME_RANGES.map((r) => (
-        <button
-          key={r.id}
-          onClick={() => onChange(r.id)}
-          className={`px-3 py-1 text-xs rounded-md transition-colors ${
-            value === r.id ? 'bg-gray-700 text-gray-200' : 'text-gray-500 hover:text-gray-300'
-          }`}
-        >
-          {r.label}
-        </button>
-      ))}
-    </div>
-  )
-}
+const RANGE_OPTIONS = TIME_RANGES.map((r) => ({ value: r.id, label: r.label }))
 
 function filterByRange(data, rangeId, dateField = 'date') {
   const range = TIME_RANGES.find((r) => r.id === rangeId)
@@ -44,6 +25,22 @@ function filterByRange(data, rangeId, dateField = 'date') {
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - range.days)
   return data.filter((entry) => new Date(entry[dateField]) >= cutoff)
+}
+
+/** Colour swatch + name, so a series is never identified by colour alone. */
+function LegendItem({ color, label, dashed = false }) {
+  return (
+    <span className="flex items-center gap-1.5 text-xs text-muted">
+      <span
+        className="w-3 h-0.5 inline-block rounded-full"
+        style={dashed
+          ? { backgroundImage: `repeating-linear-gradient(to right, ${color} 0 3px, transparent 3px 5px)` }
+          : { background: color }}
+        aria-hidden="true"
+      />
+      {label}
+    </span>
+  )
 }
 
 function ExerciseProgressChart({ exerciseId, history }) {
@@ -58,36 +55,42 @@ function ExerciseProgressChart({ exerciseId, history }) {
   }))
 
   return (
-    <div className="bg-surface rounded-xl p-4 border border-gray-800">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-300">{exercise.name}</h3>
-        <span className="text-xs text-gray-500">
-          Current: {history[history.length - 1]?.weight || 0} lbs
-        </span>
-      </div>
+    <Card>
+      <CardHeader
+        title={exercise.name}
+        action={
+          <span className="text-xs text-muted tabular-nums shrink-0">
+            Current: {history[history.length - 1]?.weight || 0} lbs
+          </span>
+        }
+      />
       <ResponsiveContainer width="100%" height={120}>
         <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
-          <XAxis dataKey="date" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} width={35} />
-          <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={{ color: '#9CA3AF' }} />
+          <CartesianGrid {...chartGrid} />
+          <XAxis dataKey="date" {...chartAxis} />
+          <YAxis {...chartAxis} width={40} />
+          <Tooltip {...chartTooltip} />
           <Line
             type="monotone"
             dataKey="weight"
-            stroke="#C2410C"
+            stroke={CHART_COLORS[0]}
             strokeWidth={2}
             dot={(props) => {
               const { cx, cy, payload } = props
               if (payload.pr) {
-                return <circle cx={cx} cy={cy} r={4} fill="#22C55E" stroke="#22C55E" />
+                return <circle cx={cx} cy={cy} r={4} fill="var(--cj-success)" stroke="var(--cj-success)" />
               }
-              return <circle cx={cx} cy={cy} r={2} fill="#C2410C" />
+              return <circle cx={cx} cy={cy} r={2} fill={CHART_COLORS[0]} />
             }}
             name="Weight (lbs)"
           />
         </LineChart>
       </ResponsiveContainer>
-    </div>
+      <div className="flex justify-center gap-4 mt-2">
+        <LegendItem color={CHART_COLORS[0]} label="Weight" />
+        <LegendItem color="var(--cj-success)" label="PR" />
+      </div>
+    </Card>
   )
 }
 
@@ -102,43 +105,38 @@ function BodyCompChart({ entries, goals }) {
   }))
 
   return (
-    <div className="bg-surface rounded-xl p-4 border border-gray-800">
-      <h3 className="text-sm font-semibold text-gray-300 mb-3">Body Composition Trend</h3>
+    <Card>
+      <CardHeader title="Body Composition Trend" icon={Scale} />
       <ResponsiveContainer width="100%" height={160}>
         <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
-          <XAxis dataKey="date" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} width={35} />
-          <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={{ color: '#9CA3AF' }} />
+          <CartesianGrid {...chartGrid} />
+          <XAxis dataKey="date" {...chartAxis} />
+          <YAxis {...chartAxis} width={40} />
+          <Tooltip {...chartTooltip} />
           {/* Goal reference lines */}
           {goals?.targetWeight && (
-            <ReferenceLine y={goals.targetWeight} stroke="#C2410C" strokeDasharray="6 3" label={{ value: 'Goal', fill: '#C2410C', fontSize: 10, position: 'right' }} />
+            <ReferenceLine
+              y={goals.targetWeight}
+              stroke="var(--cj-brand)"
+              strokeDasharray="6 3"
+              label={{ value: 'Goal', fill: 'var(--cj-brand)', fontSize: 10, position: 'right' }}
+            />
           )}
           {goals?.milestones?.map((m) => (
-            <ReferenceLine key={m.pctComplete} y={m.targetWeight} stroke="#4B5563" strokeDasharray="4 4" />
+            <ReferenceLine key={m.pctComplete} y={m.targetWeight} stroke="var(--cj-border-strong)" strokeDasharray="4 4" />
           ))}
-          <Line type="monotone" dataKey="weight" stroke="#9CA3AF" strokeWidth={1.5} dot={false} name="Weight" />
-          <Line type="monotone" dataKey="leanMass" stroke="#22C55E" strokeWidth={2} dot={false} name="Lean Mass" />
-          <Line type="monotone" dataKey="fatMass" stroke="#EF4444" strokeWidth={2} dot={false} name="Fat Mass" />
+          <Line type="monotone" dataKey="weight" stroke={CHART_COLORS[0]} strokeWidth={1.5} dot={false} name="Weight" />
+          <Line type="monotone" dataKey="leanMass" stroke={CHART_COLORS[4]} strokeWidth={2} dot={false} name="Lean Mass" />
+          <Line type="monotone" dataKey="fatMass" stroke="var(--cj-danger)" strokeWidth={2} dot={false} name="Fat Mass" />
         </LineChart>
       </ResponsiveContainer>
-      <div className="flex justify-center gap-4 mt-2">
-        <span className="flex items-center gap-1 text-xs text-gray-400">
-          <span className="w-3 h-0.5 bg-gray-400 inline-block" /> Weight
-        </span>
-        <span className="flex items-center gap-1 text-xs text-success">
-          <span className="w-3 h-0.5 bg-success inline-block" /> Lean
-        </span>
-        <span className="flex items-center gap-1 text-xs text-danger">
-          <span className="w-3 h-0.5 bg-danger inline-block" /> Fat
-        </span>
-        {goals?.targetWeight && (
-          <span className="flex items-center gap-1 text-xs text-brand">
-            <span className="w-3 h-0.5 bg-brand inline-block border-dashed" /> Goal
-          </span>
-        )}
+      <div className="flex flex-wrap justify-center gap-4 mt-2">
+        <LegendItem color={CHART_COLORS[0]} label="Weight" />
+        <LegendItem color={CHART_COLORS[4]} label="Lean" />
+        <LegendItem color="var(--cj-danger)" label="Fat" />
+        {goals?.targetWeight && <LegendItem color="var(--cj-brand)" label="Goal" dashed />}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -164,24 +162,22 @@ function VolumeHistoryChart({ sessions }) {
     }))
 
   return (
-    <div className="bg-surface rounded-xl p-4 border border-gray-800">
-      <h3 className="text-sm font-semibold text-gray-300 mb-3">Weekly Volume (lbs)</h3>
+    <Card>
+      <CardHeader title="Weekly Volume (lbs)" icon={BarChart3} />
       <ResponsiveContainer width="100%" height={140}>
         <BarChart data={data}>
-          <XAxis dataKey="week" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
+          <CartesianGrid {...chartGrid} />
+          <XAxis dataKey="week" {...chartAxis} />
           <YAxis
-            tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} width={40}
+            {...chartAxis}
+            width={40}
             tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
           />
-          <Tooltip
-            contentStyle={CHART_TOOLTIP_STYLE}
-            labelStyle={{ color: '#9CA3AF' }}
-            formatter={(v) => [`${v.toLocaleString()} lbs`, 'Volume']}
-          />
-          <Bar dataKey="volume" fill="#C2410C" radius={[4, 4, 0, 0]} />
+          <Tooltip {...chartTooltip} formatter={(v) => [`${v.toLocaleString()} lbs`, 'Volume']} />
+          <Bar dataKey="volume" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
-    </div>
+    </Card>
   )
 }
 
@@ -216,21 +212,18 @@ function MileageChart({ mileageLogs, dailyMileage }) {
     })
 
   return (
-    <div className="bg-surface rounded-xl p-4 border border-gray-800">
-      <h3 className="text-sm font-semibold text-gray-300 mb-3">Weekly Mileage</h3>
+    <Card>
+      <CardHeader title="Weekly Mileage" icon={Footprints} />
       <ResponsiveContainer width="100%" height={140}>
         <BarChart data={data}>
-          <XAxis dataKey="week" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} width={30} />
-          <Tooltip
-            contentStyle={CHART_TOOLTIP_STYLE}
-            labelStyle={{ color: '#9CA3AF' }}
-            formatter={(v) => [`${v} miles`, 'Mileage']}
-          />
-          <Bar dataKey="miles" fill="#F59E0B" radius={[4, 4, 0, 0]} />
+          <CartesianGrid {...chartGrid} />
+          <XAxis dataKey="week" {...chartAxis} />
+          <YAxis {...chartAxis} width={32} />
+          <Tooltip {...chartTooltip} formatter={(v) => [`${v} miles`, 'Mileage']} />
+          <Bar dataKey="miles" fill={CHART_COLORS[3]} radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
-    </div>
+    </Card>
   )
 }
 
@@ -256,22 +249,22 @@ function PRList({ exerciseHistory }) {
   if (allPRs.length === 0) return null
 
   return (
-    <div className="bg-surface rounded-xl p-4 border border-gray-800">
-      <h3 className="text-sm font-semibold text-gray-300 mb-3">Personal Records</h3>
+    <Card>
+      <CardHeader title="Personal Records" icon={Trophy} />
       <div className="space-y-2">
         {allPRs.slice(0, 10).map((pr, i) => (
-          <div key={i} className="flex items-center justify-between py-1">
-            <div>
-              <span className="text-sm text-gray-200">{pr.exerciseName}</span>
-              <span className="text-xs text-gray-500 ml-2">{pr.pr}</span>
+          <div key={i} className="flex items-center justify-between gap-2 py-1">
+            <div className="min-w-0">
+              <span className="text-sm text-text">{pr.exerciseName}</span>
+              <span className="text-xs text-muted ml-2">{pr.pr}</span>
             </div>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-muted shrink-0 tabular-nums">
               {new Date(pr.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
             </span>
           </div>
         ))}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -339,13 +332,13 @@ export default function Progress() {
     return filtered
   }, [exerciseProgress, timeRange])
 
-  if (loading) return <LoadingSpinner className="min-h-[60vh]" />
+  if (loading) return <SkeletonPage cards={3} />
 
   const tabs = [
-    { id: 'strength', label: 'Strength' },
-    { id: 'body', label: 'Body Comp' },
-    { id: 'volume', label: 'Volume' },
-    { id: 'mileage', label: 'Mileage' },
+    { id: 'strength', label: 'Strength', icon: Dumbbell },
+    { id: 'body', label: 'Body Comp', icon: Scale },
+    { id: 'volume', label: 'Volume', icon: BarChart3 },
+    { id: 'mileage', label: 'Mileage', icon: Footprints },
   ]
 
   // Get exercises that have history
@@ -359,27 +352,19 @@ export default function Progress() {
 
   return (
     <div className="space-y-4 pb-6">
-      <div className="flex items-center justify-between pt-2">
-        <h1 className="text-xl font-bold text-gray-100">Progress</h1>
-        <TimeRangeFilter value={timeRange} onChange={setTimeRange} />
+      <div className="pt-2">
+        <h1 className="text-xl font-bold text-text">Progress</h1>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 bg-gray-900 rounded-lg p-1">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`flex-1 py-2 text-xs font-medium rounded-md transition-colors ${
-              tab === t.id ? 'bg-brand text-white' : 'text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={tabs} value={tab} onChange={setTab} ariaLabel="Progress view" />
 
-      {/* Strength tab */}
+      <SegmentedControl
+        options={RANGE_OPTIONS}
+        value={timeRange}
+        onChange={setTimeRange}
+        ariaLabel="Time range"
+      />
+
       {tab === 'strength' && (
         <div className="space-y-3">
           {exercisesWithHistory.length > 0 ? (
@@ -394,52 +379,56 @@ export default function Progress() {
               ))}
             </>
           ) : (
-            <EmptyState message="Complete a few sessions to see your strength progress." />
+            <EmptyState
+              icon={Dumbbell}
+              title="No strength data yet"
+              message="Complete a few sessions to see your strength progress."
+            />
           )}
         </div>
       )}
 
-      {/* Body Comp tab */}
       {tab === 'body' && (
         <div className="space-y-3">
           {filteredMetrics.length >= 2 ? (
             <BodyCompChart entries={filteredMetrics} goals={userProfile?.goals} />
           ) : (
-            <EmptyState message="Log at least 2 body metric entries to see trends." />
+            <EmptyState
+              icon={Scale}
+              title="Not enough readings"
+              message="Log at least 2 body metric entries to see trends."
+            />
           )}
         </div>
       )}
 
-      {/* Volume tab */}
       {tab === 'volume' && (
         <div className="space-y-3">
           {filteredSessions.length >= 2 ? (
             <VolumeHistoryChart sessions={filteredSessions} />
           ) : (
-            <EmptyState message="Complete a few sessions to see your volume trends." />
+            <EmptyState
+              icon={BarChart3}
+              title="No volume data yet"
+              message="Complete a few sessions to see your volume trends."
+            />
           )}
         </div>
       )}
 
-      {/* Mileage tab */}
       {tab === 'mileage' && (
         <div className="space-y-3">
           {filteredMileage.length >= 2 ? (
             <MileageChart mileageLogs={filteredMileage} dailyMileage={dailyMileage} />
           ) : (
-            <EmptyState message="Log at least 2 weeks of mileage to see trends." />
+            <EmptyState
+              icon={Footprints}
+              title="Not enough mileage logged"
+              message="Log at least 2 weeks of mileage to see trends."
+            />
           )}
         </div>
       )}
-    </div>
-  )
-}
-
-function EmptyState({ message }) {
-  return (
-    <div className="text-center py-12">
-      <p className="text-4xl mb-3">📊</p>
-      <p className="text-gray-400 text-sm">{message}</p>
     </div>
   )
 }

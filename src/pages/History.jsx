@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
+import { ChevronDown, ClipboardList } from 'lucide-react'
 import { useFirestore } from '../hooks/useFirestore'
 import { EXERCISES, DAY_LABELS } from '../lib/program'
-import LoadingSpinner from '../components/common/LoadingSpinner'
+import { Badge, Card, EmptyState, SkeletonPage } from '../components/ui'
 
 function SessionCard({ session, isExpanded, onToggle }) {
   const date = new Date(session.date)
@@ -9,30 +10,34 @@ function SessionCard({ session, isExpanded, onToggle }) {
   const exerciseCount = session.exercises?.length || 0
 
   return (
-    <div className="bg-surface rounded-xl border border-gray-800 overflow-hidden">
+    <Card padded={false} className="overflow-hidden">
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between p-4 text-left"
+        aria-expanded={isExpanded}
+        className="w-full flex items-center justify-between gap-3 p-4 min-h-11 text-left"
       >
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="w-7 h-7 rounded-full bg-brand/20 text-brand flex items-center justify-center text-xs font-bold">
-              {session.dayType}
-            </span>
-            <div>
-              <p className="text-sm font-semibold text-gray-200">{dayLabel}</p>
-              <p className="text-xs text-gray-500">
-                {date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                {session.duration && ` — ${session.duration} min`}
-              </p>
-            </div>
+        <div className="flex items-center gap-2 min-w-0">
+          <Badge tone="brand" className="font-bold">
+            {session.dayType}
+          </Badge>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-text truncate">{dayLabel}</p>
+            <p className="text-xs text-muted">
+              {date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+              {session.duration && ` — ${session.duration} min`}
+            </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           {session.totalVolume > 0 && (
-            <span className="text-xs text-gray-500">{session.totalVolume.toLocaleString()} lbs</span>
+            <span className="text-xs text-muted tabular-nums">
+              {session.totalVolume.toLocaleString()} lbs
+            </span>
           )}
-          <span className={`text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}>▾</span>
+          <ChevronDown
+            className={`w-4 h-4 text-subtle transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+            aria-hidden="true"
+          />
         </div>
       </button>
 
@@ -41,13 +46,16 @@ function SessionCard({ session, isExpanded, onToggle }) {
           {session.exercises.map((ex, i) => {
             const exerciseDef = EXERCISES[ex.id]
             return (
-              <div key={i} className="flex items-center justify-between py-1.5 border-t border-gray-800/50">
-                <span className="text-xs text-gray-300">
+              <div key={i} className="flex items-center justify-between gap-2 py-1.5 border-t border-border-default">
+                <span className="text-xs text-text">
                   {exerciseDef?.shortName || ex.id}
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap justify-end">
                   {ex.sets?.map((set, j) => (
-                    <span key={j} className="text-xs text-gray-500 bg-gray-800/50 px-1.5 py-0.5 rounded">
+                    <span
+                      key={j}
+                      className="text-xs text-muted bg-surface-2 px-1.5 py-0.5 rounded tabular-nums"
+                    >
                       {set.weight > 0 ? `${set.weight}x${set.reps}` : `${set.reps} reps`}
                     </span>
                   ))}
@@ -56,34 +64,33 @@ function SessionCard({ session, isExpanded, onToggle }) {
             )
           })}
 
-          {/* Session stats */}
-          <div className="flex gap-4 pt-2 mt-2 border-t border-gray-800">
+          <div className="flex gap-4 pt-2 mt-2 border-t border-border-strong">
             <div>
-              <p className="text-xs text-gray-600">Exercises</p>
-              <p className="text-sm font-medium text-gray-300">{exerciseCount}</p>
+              <p className="text-xs text-subtle">Exercises</p>
+              <p className="text-sm font-medium text-text tabular-nums">{exerciseCount}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-600">Total Volume</p>
-              <p className="text-sm font-medium text-gray-300">
+              <p className="text-xs text-subtle">Total Volume</p>
+              <p className="text-sm font-medium text-text tabular-nums">
                 {(session.totalVolume || 0).toLocaleString()} lbs
               </p>
             </div>
             {session.duration && (
               <div>
-                <p className="text-xs text-gray-600">Duration</p>
-                <p className="text-sm font-medium text-gray-300">{session.duration} min</p>
+                <p className="text-xs text-subtle">Duration</p>
+                <p className="text-sm font-medium text-text tabular-nums">{session.duration} min</p>
               </div>
             )}
             {session.weekType && (
               <div>
-                <p className="text-xs text-gray-600">Phase</p>
-                <p className="text-sm font-medium text-gray-300 capitalize">{session.weekType}</p>
+                <p className="text-xs text-subtle">Phase</p>
+                <p className="text-sm font-medium text-text capitalize">{session.weekType}</p>
               </div>
             )}
           </div>
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -108,7 +115,7 @@ export default function History() {
     }
   }
 
-  if (loading) return <LoadingSpinner className="min-h-[60vh]" />
+  if (loading) return <SkeletonPage cards={4} />
 
   // Group sessions by week
   const weeks = {}
@@ -127,8 +134,8 @@ export default function History() {
   return (
     <div className="space-y-4 pb-6">
       <div className="pt-2">
-        <h1 className="text-xl font-bold text-gray-100">History</h1>
-        <p className="text-xs text-gray-500">
+        <h1 className="text-xl font-bold text-text">History</h1>
+        <p className="text-xs text-muted">
           {sessions.length} session{sessions.length !== 1 ? 's' : ''} logged
         </p>
       </div>
@@ -141,11 +148,13 @@ export default function History() {
           return (
             <div key={weekKey} className="space-y-2">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                <p className="text-xs font-medium text-subtle uppercase tracking-wide">
                   Week of {weekLabel}
                 </p>
                 {weekVolume > 0 && (
-                  <p className="text-xs text-gray-600">{weekVolume.toLocaleString()} lbs total</p>
+                  <p className="text-xs text-muted tabular-nums">
+                    {weekVolume.toLocaleString()} lbs total
+                  </p>
                 )}
               </div>
               {week.sessions.map((session) => (
@@ -160,11 +169,11 @@ export default function History() {
           )
         })
       ) : (
-        <div className="text-center py-12">
-          <p className="text-4xl mb-3">📋</p>
-          <p className="text-gray-400 text-sm">No workouts logged yet</p>
-          <p className="text-gray-600 text-xs mt-1">Complete your first session to see it here</p>
-        </div>
+        <EmptyState
+          icon={ClipboardList}
+          title="No workouts logged yet"
+          message="Complete your first session to see it here."
+        />
       )}
     </div>
   )

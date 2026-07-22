@@ -1,198 +1,58 @@
-import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { Settings as SettingsIcon } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { useWorkout } from '../hooks/useWorkout'
-import { useFirestore, getWeekStart } from '../hooks/useFirestore'
-import { calculateAge } from '../lib/bodyMetrics'
-import RaceCountdown from '../components/dashboard/RaceCountdown'
-import WeekOverview from '../components/dashboard/WeekOverview'
-import MileageBadge from '../components/dashboard/MileageBadge'
-import MetricsSummary from '../components/dashboard/MetricsSummary'
-import NutritionPanel from '../components/dashboard/NutritionPanel'
-import VolumeChart from '../components/dashboard/VolumeChart'
-import LoadingSpinner from '../components/common/LoadingSpinner'
+import { useAppMode } from '../hooks/useAppMode'
+import { SkeletonPage } from '../components/ui'
+import StrengthDashboard from '../components/dashboard/StrengthDashboard'
+import RunningDashboard from '../components/dashboard/RunningDashboard'
 import NotificationPrompt from '../components/common/NotificationPrompt'
 
-function WeeklyReminder({ to, message }) {
-  return (
-    <Link
-      to={to}
-      className="block bg-yellow-900/15 border border-yellow-800/40 rounded-xl px-4 py-3 hover:bg-yellow-900/25 transition-colors"
-    >
-      <p className="text-xs text-warning font-medium">{message}</p>
-    </Link>
-  )
-}
-
+/**
+ * The dashboard is a thin shell: a greeting, a settings link, and whichever
+ * mode's dashboard is active. Each mode owns its own widget set rather than one
+ * component branching per-widget — that is what keeps running mode intact.
+ */
 export default function Dashboard() {
-  const { user, userProfile } = useAuth()
-  const {
-    loading,
-    activeRace,
-    raceDate,
-    programStart,
-    raceDaysLeft,
-    weekInfo,
-    weekModifiers,
-    scalingTier,
-    currentMileage,
-    todayMiles,
-    allDailyMiles,
-    weekDailySum,
-    weekDailyMiles,
-    isStrengthDay,
-    todayLiftStats,
-    todayRuns,
-    trainingDays,
-    saveMileage,
-    addRun,
-    deleteRun,
-  } = useWorkout()
-  const { getCollection, getDocument } = useFirestore()
-  const [metricsLoggedThisWeek, setMetricsLoggedThisWeek] = useState(true)
-  const [latestWeight, setLatestWeight] = useState(null)
-  const [latestBodyFatPct, setLatestBodyFatPct] = useState(null)
-  const [todayNutritionLog, setTodayNutritionLog] = useState(null)
+  const { user, userProfile, loading } = useAuth()
+  const { isStrength } = useAppMode()
 
-  useEffect(() => {
-    if (!user) return
-    loadLatestMetrics()
-  }, [user])
+  if (loading) return <SkeletonPage cards={4} />
 
-  async function loadLatestMetrics() {
-    try {
-      const metrics = await getCollection('bodyMetrics', 'date', 'desc', 1)
-      if (metrics.length > 0) {
-        const lastDate = new Date(metrics[0].date)
-        const weekStart = getWeekStart()
-        setMetricsLoggedThisWeek(lastDate >= weekStart)
-        setLatestWeight(metrics[0].weight)
-        setLatestBodyFatPct(metrics[0].bodyFatPct)
-      } else {
-        setMetricsLoggedThisWeek(false)
-        setLatestWeight(userProfile?.onboarding?.initialWeight || null)
-        setLatestBodyFatPct(userProfile?.onboarding?.initialBodyFat || null)
-      }
-    } catch {
-      // Silently fail
-    }
-
-    // Load today's nutrition log
-    try {
-      const today = new Date()
-      const todayId = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-      const log = await getDocument(`nutritionLogs/${todayId}`)
-      setTodayNutritionLog(log)
-    } catch {
-      // Silently fail
-    }
-  }
-
-  if (loading) return <LoadingSpinner className="min-h-[60vh]" />
-
-  const firstName = (user?.displayName || 'Runner').split(' ')[0]
-  const mileageNotEntered = currentMileage == null
+  const firstName = (user?.displayName || 'there').split(' ')[0]
   const hasProfile = !!userProfile?.profile?.birthday
 
-  // Nutrition panel inputs
-  const ageYears = calculateAge(userProfile?.profile?.birthday)
-  const sex = userProfile?.profile?.biologicalSex || 'male'
-  const heightInches = userProfile?.profile?.heightInches || 0
-  const targetBF = userProfile?.goals?.targetBodyFatPct
-  const isCutting = !!(targetBF && latestBodyFatPct && latestBodyFatPct > targetBF)
-
   return (
-    <div className="space-y-4 pb-6">
-      {/* Header */}
-      <div className="flex items-center justify-between pt-2">
-        <div>
-          <h1 className="text-xl font-bold text-gray-100">Hey, {firstName}</h1>
-          <p className="text-xs text-gray-500">{weekModifiers.label}</p>
+    <div className="space-y-4">
+      <header className="flex items-start justify-between gap-3 pt-1">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold text-text tracking-tight">Hey, {firstName}</h1>
+          <p className="text-sm text-muted mt-0.5">
+            {isStrength ? 'Strength block' : 'Endurance training'}
+          </p>
         </div>
         <Link
           to="/settings"
-          className="text-gray-500 hover:text-gray-300 transition-colors p-1"
           aria-label="Settings"
+          className="shrink-0 p-2.5 -mr-2 rounded-xl text-muted hover:text-text hover:bg-surface transition-colors"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
+          <SettingsIcon className="w-5 h-5" />
         </Link>
-      </div>
+      </header>
 
-      {/* Prompt to complete profile if missing data */}
       {!hasProfile && (
-        <WeeklyReminder
+        <Link
           to="/settings"
-          message="Complete your profile — add your birthday, race details, and body comp goals in Settings →"
-        />
+          className="block bg-warning-subtle border border-warning-border rounded-2xl px-4 py-3 hover:bg-bg transition-colors"
+        >
+          <p className="text-sm font-medium text-warning-strong">Finish your profile</p>
+          <p className="text-xs text-muted mt-0.5">
+            Birthday, height and body-comp goal drive every target the app shows.
+          </p>
+        </Link>
       )}
 
-      {/* Weekly reminders */}
-      {mileageNotEntered && (
-        <WeeklyReminder
-          to="/"
-          message="You haven't entered this week's mileage yet — tap the mileage card below to update."
-        />
-      )}
-      {!metricsLoggedThisWeek && (
-        <WeeklyReminder
-          to="/metrics"
-          message="No body metrics logged this week. Tap here to log your weigh-in →"
-        />
-      )}
+      {isStrength ? <StrengthDashboard /> : <RunningDashboard />}
 
-      {/* Race countdown */}
-      <RaceCountdown race={activeRace} />
-
-      {/* Mileage badge with scaling tier + daily entry */}
-      <MileageBadge
-        currentMileage={currentMileage}
-        scalingTier={scalingTier}
-        onSaveMileage={saveMileage}
-        todayMiles={todayMiles}
-        onAddRun={addRun}
-        onDeleteRun={deleteRun}
-        weekDailySum={weekDailySum}
-        weekDailyMiles={weekDailyMiles}
-        allDailyMiles={allDailyMiles}
-      />
-
-      {/* Week overview - training schedule */}
-      <WeekOverview
-        weekInfo={weekInfo}
-        weekModifiers={weekModifiers}
-        trainingDays={trainingDays}
-        raceDate={raceDate}
-        programStart={programStart}
-      />
-
-      {/* Body metrics summary */}
-      <MetricsSummary />
-
-      {/* Weekly volume chart */}
-      <VolumeChart />
-
-      {/* Nutrition advice */}
-      <NutritionPanel
-        weightLbs={latestWeight}
-        heightInches={heightInches}
-        ageYears={ageYears}
-        sex={sex}
-        dailyMiles={todayMiles || 0}
-        weeklyMiles={currentMileage}
-        todayLiftStats={todayLiftStats}
-        trainingPhase={weekInfo?.type || 'build'}
-        isCutting={isCutting}
-        currentBodyFatPct={latestBodyFatPct}
-        targetBodyFatPct={targetBF}
-        todayNutritionLog={todayNutritionLog}
-        todayRuns={todayRuns}
-        vo2max={userProfile?.profile?.vo2max || null}
-      />
-
-      {/* Push notification permission prompt */}
       <NotificationPrompt />
     </div>
   )

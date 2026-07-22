@@ -1,10 +1,37 @@
 import { useState, useEffect } from 'react'
+import { AlertTriangle, CheckCircle2, Plus, Scale, ShieldAlert, X } from 'lucide-react'
 import { useFirestore } from '../hooks/useFirestore'
 import { useAuth } from '../contexts/AuthContext'
 import { calculateComposition, analyzeMetricsChange, calculateDeltas, formatDelta, calculateBMI } from '../lib/bodyMetrics'
 import { assessREDSRisk, getRecommendedBodyFatRange } from '../lib/bodyCompGoals'
 import { getActiveRace } from '../lib/periodization'
-import LoadingSpinner from '../components/common/LoadingSpinner'
+import {
+  Button, Card, CardHeader, EmptyState, Field, Input, ProgressBar, SkeletonPage, StatTile,
+} from '../components/ui'
+
+const ALERT_TONES = {
+  danger: { card: 'bg-danger-subtle border-danger-border', text: 'text-danger-strong', icon: AlertTriangle },
+  warning: { card: 'bg-warning-subtle border-warning-border', text: 'text-warning-strong', icon: AlertTriangle },
+  success: { card: 'bg-success-subtle border-success-border', text: 'text-success-strong', icon: CheckCircle2 },
+}
+
+/**
+ * formatDelta bakes an arrow glyph and a colour class into one string, but
+ * StatTile wants the arrow (`direction`) and the good/bad judgement (`tone`)
+ * as separate props — so re-derive both from the raw number and hand StatTile
+ * the bare text.
+ */
+function deltaProps(value, unit, lowerIsBetter) {
+  if (value == null) return {}
+  const { text } = formatDelta(value, unit, lowerIsBetter)
+  const flat = Math.abs(value) < 0.1
+  const isGood = lowerIsBetter ? value <= 0 : value >= 0
+  return {
+    delta: text.replace(/^[↑↓→]\s*/, ''),
+    direction: flat ? 'flat' : value > 0 ? 'up' : 'down',
+    tone: flat ? 'neutral' : isGood ? 'positive' : 'negative',
+  }
+}
 
 export default function Metrics() {
   const { getCollection, addDocument } = useFirestore()
@@ -55,7 +82,7 @@ export default function Metrics() {
     await loadEntries()
   }
 
-  if (loading) return <LoadingSpinner className="min-h-[60vh]" />
+  if (loading) return <SkeletonPage cards={3} />
 
   const latest = entries[0] || null
   const previous = entries[1] || null
@@ -79,107 +106,106 @@ export default function Metrics() {
 
   return (
     <div className="space-y-4 pb-6">
-      {/* Header */}
-      <div className="flex items-center justify-between pt-2">
-        <h1 className="text-xl font-bold text-gray-100">Body Metrics</h1>
-        <button
+      <div className="flex items-center justify-between gap-3 pt-2">
+        <h1 className="text-xl font-bold text-text">Body Metrics</h1>
+        <Button
+          variant={showForm ? 'secondary' : 'primary'}
+          size="sm"
+          icon={showForm ? X : Plus}
           onClick={() => setShowForm(!showForm)}
-          className="bg-brand hover:bg-brand-light text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
         >
-          {showForm ? 'Cancel' : '+ Log Entry'}
-        </button>
+          {showForm ? 'Cancel' : 'Log Entry'}
+        </Button>
       </div>
 
-      {/* Entry Form */}
       {showForm && (
-        <form onSubmit={handleSave} className="bg-surface rounded-xl p-4 border border-gray-800 space-y-3">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Bodyweight (lbs)</label>
-            <input
-              type="number"
-              step="0.1"
-              value={form.weight}
-              onChange={(e) => setForm({ ...form, weight: e.target.value })}
-              required
-              placeholder="175.0"
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-brand"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Body Fat (%)</label>
-            <input
-              type="number"
-              step="0.1"
-              value={form.bodyFatPct}
-              onChange={(e) => setForm({ ...form, bodyFatPct: e.target.value })}
-              placeholder="18.5"
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-brand"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={saving || !form.weight}
-            className="w-full bg-brand hover:bg-brand-light text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
-          >
+        <Card as="form" onSubmit={handleSave} className="space-y-3">
+          <Field label="Bodyweight (lbs)" required>
+            {({ id, ...a11y }) => (
+              <Input
+                id={id}
+                {...a11y}
+                type="number"
+                step="0.1"
+                inputMode="decimal"
+                value={form.weight}
+                onChange={(e) => setForm({ ...form, weight: e.target.value })}
+                required
+                placeholder="175.0"
+              />
+            )}
+          </Field>
+          <Field label="Body Fat (%)">
+            {({ id, ...a11y }) => (
+              <Input
+                id={id}
+                {...a11y}
+                type="number"
+                step="0.1"
+                inputMode="decimal"
+                value={form.bodyFatPct}
+                onChange={(e) => setForm({ ...form, bodyFatPct: e.target.value })}
+                placeholder="18.5"
+              />
+            )}
+          </Field>
+          <Button type="submit" size="lg" fullWidth disabled={saving || !form.weight}>
             {saving ? 'Saving...' : 'Save Entry'}
-          </button>
-        </form>
+          </Button>
+        </Card>
       )}
 
-      {/* Current Snapshot */}
       {latest && (
-        <div className="bg-surface rounded-xl p-4 border border-gray-800">
-          <h3 className="text-sm font-semibold text-gray-300 mb-3">Latest Reading</h3>
+        <Card>
+          <CardHeader title="Latest Reading" />
           <div className="grid grid-cols-2 gap-4">
-            <StatBox
+            <StatTile
               label="Weight"
-              value={`${latest.weight} lbs`}
-              delta={deltas ? formatDelta(deltas.weight, 'lbs', true) : null}
+              value={latest.weight}
+              unit="lbs"
+              {...(deltas ? deltaProps(deltas.weight, 'lbs', true) : {})}
             />
-            <StatBox
+            <StatTile
               label="Body Fat"
-              value={latest.bodyFatPct ? `${latest.bodyFatPct}%` : '--'}
-              delta={deltas ? formatDelta(deltas.bodyFatPct, '%', true) : null}
+              value={latest.bodyFatPct || '--'}
+              unit={latest.bodyFatPct ? '%' : undefined}
+              {...(deltas ? deltaProps(deltas.bodyFatPct, '%', true) : {})}
             />
-            <StatBox
+            <StatTile
               label="Fat Mass"
-              value={latest.fatMass ? `${latest.fatMass.toFixed(1)} lbs` : '--'}
-              delta={deltas ? formatDelta(deltas.fatMass, 'lbs', true) : null}
+              value={latest.fatMass ? latest.fatMass.toFixed(1) : '--'}
+              unit={latest.fatMass ? 'lbs' : undefined}
+              {...(deltas ? deltaProps(deltas.fatMass, 'lbs', true) : {})}
             />
-            <StatBox
+            <StatTile
               label="Lean Mass"
-              value={latest.leanMass ? `${latest.leanMass.toFixed(1)} lbs` : '--'}
-              delta={deltas ? formatDelta(deltas.leanMass, 'lbs', false) : null}
+              value={latest.leanMass ? latest.leanMass.toFixed(1) : '--'}
+              unit={latest.leanMass ? 'lbs' : undefined}
+              {...(deltas ? deltaProps(deltas.leanMass, 'lbs', false) : {})}
             />
           </div>
-          <p className="text-xs text-gray-600 mt-3">
+          <p className="text-xs text-subtle mt-3">
             {new Date(latest.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
           </p>
-        </div>
+        </Card>
       )}
 
-      {/* Alerts */}
-      {alerts.map((alert, i) => (
-        <div
-          key={i}
-          className={`rounded-xl p-3 border ${
-            alert.type === 'danger'
-              ? 'bg-red-900/20 border-red-800'
-              : alert.type === 'warning'
-              ? 'bg-yellow-900/20 border-yellow-800'
-              : 'bg-green-900/20 border-green-800'
-          }`}
-        >
-          <p className={`text-xs font-semibold ${
-            alert.type === 'danger' ? 'text-danger' : alert.type === 'warning' ? 'text-warning' : 'text-success'
-          }`}>
-            {alert.title}
-          </p>
-          <p className="text-xs text-gray-400 mt-1">{alert.message}</p>
-        </div>
-      ))}
+      {alerts.map((alert, i) => {
+        const tone = ALERT_TONES[alert.type] || ALERT_TONES.success
+        const Icon = tone.icon
+        return (
+          <Card key={i} padded={false} className={`p-3 ${tone.card}`}>
+            <div className="flex gap-2">
+              <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${tone.text}`} aria-hidden="true" />
+              <div className="min-w-0">
+                <p className={`text-xs font-semibold ${tone.text}`}>{alert.title}</p>
+                <p className="text-xs text-muted mt-1">{alert.message}</p>
+              </div>
+            </div>
+          </Card>
+        )
+      })}
 
-      {/* Goal Progress */}
       {goals?.targetWeight && latest && (
         <GoalProgressCard
           currentWeight={latest.weight}
@@ -191,33 +217,30 @@ export default function Metrics() {
         />
       )}
 
-      {/* RED-S Warnings */}
-      {redsAssessment && redsAssessment.riskLevel !== 'low' && redsAssessment.warnings.map((warning, i) => (
-        <div
-          key={`reds-${i}`}
-          className={`rounded-xl p-3 border ${
-            redsAssessment.riskLevel === 'high'
-              ? 'bg-red-900/20 border-red-800'
-              : 'bg-yellow-900/20 border-yellow-800'
-          }`}
-        >
-          <p className={`text-xs font-semibold ${
-            redsAssessment.riskLevel === 'high' ? 'text-danger' : 'text-warning'
-          }`}>
-            RED-S Risk: {redsAssessment.riskLevel.charAt(0).toUpperCase() + redsAssessment.riskLevel.slice(1)}
-          </p>
-          <p className="text-xs text-gray-400 mt-1">{warning}</p>
-        </div>
-      ))}
+      {redsAssessment && redsAssessment.riskLevel !== 'low' && redsAssessment.warnings.map((warning, i) => {
+        const tone = redsAssessment.riskLevel === 'high' ? ALERT_TONES.danger : ALERT_TONES.warning
+        return (
+          <Card key={`reds-${i}`} padded={false} className={`p-3 ${tone.card}`}>
+            <div className="flex gap-2">
+              <ShieldAlert className={`w-4 h-4 shrink-0 mt-0.5 ${tone.text}`} aria-hidden="true" />
+              <div className="min-w-0">
+                <p className={`text-xs font-semibold ${tone.text}`}>
+                  RED-S Risk: {redsAssessment.riskLevel.charAt(0).toUpperCase() + redsAssessment.riskLevel.slice(1)}
+                </p>
+                <p className="text-xs text-muted mt-1">{warning}</p>
+              </div>
+            </div>
+          </Card>
+        )
+      })}
 
-      {/* History Table */}
       {entries.length > 0 && (
-        <div className="bg-surface rounded-xl border border-gray-800 overflow-hidden">
-          <h3 className="text-sm font-semibold text-gray-300 p-4 pb-2">History</h3>
+        <Card padded={false} className="overflow-hidden">
+          <h3 className="text-sm font-semibold text-text p-4 pb-2">History</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="text-gray-500 border-b border-gray-800">
+                <tr className="text-subtle border-b border-border-default">
                   <th className="text-left px-4 py-2 font-medium">Date</th>
                   <th className="text-right px-4 py-2 font-medium">Weight</th>
                   <th className="text-right px-4 py-2 font-medium">BF%</th>
@@ -227,40 +250,30 @@ export default function Metrics() {
               </thead>
               <tbody>
                 {entries.map((entry) => (
-                  <tr key={entry.id} className="border-b border-gray-800/50">
-                    <td className="px-4 py-2 text-gray-400">
+                  <tr key={entry.id} className="border-b border-border-default last:border-b-0">
+                    <td className="px-4 py-2 text-muted">
                       {new Date(entry.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </td>
-                    <td className="px-4 py-2 text-right text-gray-200">{entry.weight}</td>
-                    <td className="px-4 py-2 text-right text-gray-400">{entry.bodyFatPct || '--'}</td>
-                    <td className="px-4 py-2 text-right text-gray-400">{entry.fatMass?.toFixed(1) || '--'}</td>
-                    <td className="px-4 py-2 text-right text-gray-400">{entry.leanMass?.toFixed(1) || '--'}</td>
+                    <td className="px-4 py-2 text-right text-text tabular-nums">{entry.weight}</td>
+                    <td className="px-4 py-2 text-right text-muted tabular-nums">{entry.bodyFatPct || '--'}</td>
+                    <td className="px-4 py-2 text-right text-muted tabular-nums">{entry.fatMass?.toFixed(1) || '--'}</td>
+                    <td className="px-4 py-2 text-right text-muted tabular-nums">{entry.leanMass?.toFixed(1) || '--'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
+        </Card>
       )}
 
-      {/* Empty state */}
       {entries.length === 0 && !showForm && (
-        <div className="text-center py-12">
-          <p className="text-4xl mb-3">⚖</p>
-          <p className="text-gray-400 text-sm">No metrics logged yet</p>
-          <p className="text-gray-600 text-xs mt-1">Tap "+ Log Entry" to get started</p>
-        </div>
+        <EmptyState
+          icon={Scale}
+          title="No metrics logged yet"
+          message="Log your first weigh-in to start tracking body composition."
+          action={<Button size="sm" icon={Plus} onClick={() => setShowForm(true)}>Log Entry</Button>}
+        />
       )}
-    </div>
-  )
-}
-
-function StatBox({ label, value, delta }) {
-  return (
-    <div>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className="text-lg font-semibold text-gray-100">{value}</p>
-      {delta && <p className={`text-xs ${delta.color}`}>{delta.text}</p>}
     </div>
   )
 }
@@ -280,46 +293,38 @@ function GoalProgressCard({ currentWeight, targetWeight, currentBodyFat, targetB
   const nextMilestone = milestones?.find((m) => currentWeight > m.targetWeight)
 
   return (
-    <div className="bg-surface rounded-xl p-4 border border-gray-800">
-      <h3 className="text-sm font-semibold text-gray-300 mb-3">Goal Progress</h3>
+    <Card>
+      <CardHeader title="Goal Progress" />
       <div className="space-y-3">
-        <div className="flex justify-between text-xs text-gray-400">
+        <div className="flex justify-between text-xs text-muted tabular-nums">
           <span>Current: {currentWeight} lbs</span>
           <span>Goal: {targetWeight} lbs</span>
         </div>
-        {/* Progress bar */}
-        <div className="w-full bg-gray-800 rounded-full h-2">
-          <div
-            className="bg-brand h-2 rounded-full transition-all"
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
-        <p className="text-xs text-gray-500 text-center">
+        <ProgressBar value={progressPct} max={100} label="Weight goal progress" />
+        <p className="text-xs text-muted text-center tabular-nums">
           {remaining > 0 ? `${remaining.toFixed(1)} lbs to go` : 'Goal reached!'}
         </p>
 
-        {/* Body fat row */}
         {targetBodyFat > 0 && (
-          <div className="flex justify-between text-xs">
-            <span className="text-gray-400">
+          <div className="flex justify-between gap-2 text-xs">
+            <span className="text-muted">
               Body Fat: {currentBodyFat > 0 ? `${currentBodyFat}%` : '--'}
             </span>
-            <span className="text-gray-500">
+            <span className="text-subtle text-right">
               Target: {targetBodyFat}% (range: {bfRange.optimal.min}-{bfRange.optimal.max}%)
             </span>
           </div>
         )}
 
-        {/* Next milestone */}
         {nextMilestone && (
-          <div className="bg-gray-900 rounded-lg p-2.5">
-            <p className="text-xs text-gray-500">Next Milestone ({nextMilestone.pctComplete}%)</p>
-            <p className="text-sm text-gray-200 mt-0.5">
+          <div className="bg-surface rounded-xl p-2.5">
+            <p className="text-xs text-subtle">Next Milestone ({nextMilestone.pctComplete}%)</p>
+            <p className="text-sm text-text mt-0.5">
               {nextMilestone.targetWeight} lbs by {nextMilestone.targetDate}
             </p>
           </div>
         )}
       </div>
-    </div>
+    </Card>
   )
 }

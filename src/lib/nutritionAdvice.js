@@ -15,7 +15,7 @@
  * - Mujika & Burke (2010) — periodized nutrition for endurance athletes
  */
 
-import { calculateDailyMacros } from './macroCalculator'
+import { calculateDailyMacros } from './macroCalculator.js'
 
 /**
  * Main entry point. Returns a complete nutrition snapshot for display.

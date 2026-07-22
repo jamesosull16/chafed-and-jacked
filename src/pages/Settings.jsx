@@ -1,10 +1,41 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  ChevronDown,
+  Dumbbell,
+  Footprints,
+  User,
+  Target,
+  CalendarRange,
+  ShieldAlert,
+  Flag,
+  LogOut,
+} from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { useAppMode } from '../hooks/useAppMode'
 import { useFirestore } from '../hooks/useFirestore'
 import { calculateProgramStart } from '../lib/periodization'
-import { getRecommendedBodyFatRange, calculateTimeGatedGoal, getSafeWeightLossRate } from '../lib/bodyCompGoals'
+import { getRecommendedBodyFatRange, calculateTimeGatedGoal } from '../lib/bodyCompGoals'
 import { calculateAge } from '../lib/bodyMetrics'
+import {
+  BODY_COMP_GOALS,
+  EQUIPMENT_LEVELS,
+  INJURY_FLAGS,
+  MODES,
+  defaultStrengthSettings,
+} from '../lib/appMode'
+import { getSplitLabels } from '../lib/strength/strengthProgram'
+import { getBlockStatus } from '../lib/strength/strengthPeriodization'
+import {
+  Card,
+  Button,
+  Badge,
+  Field,
+  Input,
+  SegmentedControl,
+  ProgressBar,
+} from '../components/ui'
+import { cn } from '../components/ui/cn'
 
 const RACE_DISTANCES = [
   { value: '26.2', label: 'Marathon' },
@@ -15,513 +46,700 @@ const RACE_DISTANCES = [
   { value: 'custom', label: 'Custom' },
 ]
 
-function Section({ title, children, defaultOpen = false }) {
+const WEEKDAYS = [
+  { value: 1, label: 'M' },
+  { value: 2, label: 'T' },
+  { value: 3, label: 'W' },
+  { value: 4, label: 'T' },
+  { value: 5, label: 'F' },
+  { value: 6, label: 'S' },
+  { value: 0, label: 'S' },
+]
+
+function Section({ title, icon: Icon, defaultOpen = false, badge, children }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="bg-surface rounded-xl border border-gray-800 overflow-hidden">
+    <Card padded={false}>
       <button
+        type="button"
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between p-4 text-left"
+        aria-expanded={open}
+        className="w-full flex items-center gap-3 p-4 text-left min-h-14"
       >
-        <h3 className="text-sm font-semibold text-gray-200">{title}</h3>
-        <span className={`text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`}>▾</span>
+        {Icon && <Icon className="w-4 h-4 text-subtle shrink-0" aria-hidden="true" />}
+        <h2 className="text-sm font-semibold text-text flex-1">{title}</h2>
+        {badge}
+        <ChevronDown
+          className={cn('w-4 h-4 text-subtle transition-transform', open && 'rotate-180')}
+          aria-hidden="true"
+        />
       </button>
       {open && <div className="px-4 pb-4 space-y-3">{children}</div>}
-    </div>
+    </Card>
   )
 }
 
 export default function Settings() {
-  const { user, userProfile, updateUserProfile, logout } = useAuth()
-  const { getCollection } = useFirestore()
   const navigate = useNavigate()
+  const { user, userProfile, updateUserProfile, updateStrengthSettings, setMode, logout } = useAuth()
+  const { mode, isStrength, strength, goal } = useAppMode()
+  const { getCollection } = useFirestore()
 
-  // Profile fields
-  const [birthday, setBirthday] = useState(userProfile?.profile?.birthday || '')
-  const [sex, setSex] = useState(userProfile?.profile?.biologicalSex || '')
-  const heightTotal = userProfile?.profile?.heightInches || 0
-  const [heightFeet, setHeightFeet] = useState(heightTotal ? Math.floor(heightTotal / 12) : '')
-  const [heightInches, setHeightInches] = useState(heightTotal ? heightTotal % 12 : '')
-  const [vo2max, setVo2max] = useState(userProfile?.profile?.vo2max || '')
+  // Profile
+  const [birthday, setBirthday] = useState('')
+  const [sex, setSex] = useState('')
+  const [heightFeet, setHeightFeet] = useState('')
+  const [heightInches, setHeightInches] = useState('')
+  const [vo2max, setVo2max] = useState('')
   const [profileSaving, setProfileSaving] = useState(false)
 
-  // Race fields
-  const [races, setRaces] = useState(userProfile?.races || [])
-  const [showAddRace, setShowAddRace] = useState(false)
-  const [newRace, setNewRace] = useState({ name: '', distance: '', distanceCustom: '', date: '', isARace: false })
-  const [raceSaving, setRaceSaving] = useState(false)
+  // Strength block
+  const [blockDraft, setBlockDraft] = useState(strength)
+  const [blockSaving, setBlockSaving] = useState(false)
 
-  // Goals fields
-  const [targetBF, setTargetBF] = useState(userProfile?.goals?.targetBodyFatPct || '')
+  // Races (running mode)
+  const [races, setRaces] = useState([])
+  const [showAddRace, setShowAddRace] = useState(false)
+  const [newRace, setNewRace] = useState({ name: '', distance: '', distanceCustom: '', date: '' })
+
+  // Body comp goals (running mode)
+  const [targetBF, setTargetBF] = useState('')
   const [goalResult, setGoalResult] = useState(null)
   const [goalSaving, setGoalSaving] = useState(false)
 
-  // Training preferences
-  const [trainingDays, setTrainingDays] = useState(userProfile?.onboarding?.trainingDays || 'mon-wed-fri')
-  const [prefSaving, setPrefSaving] = useState(false)
-
-  const inputClass = 'w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand'
-
-  // Sync state when userProfile changes
   useEffect(() => {
-    if (userProfile) {
-      setBirthday(userProfile.profile?.birthday || '')
-      setSex(userProfile.profile?.biologicalSex || '')
-      const ht = userProfile.profile?.heightInches || 0
-      setHeightFeet(ht ? Math.floor(ht / 12) : '')
-      setHeightInches(ht ? ht % 12 : '')
-      setRaces(userProfile.races || [])
-      setTrainingDays(userProfile.onboarding?.trainingDays || 'mon-wed-fri')
-      setTargetBF(userProfile.goals?.targetBodyFatPct || '')
-      setVo2max(userProfile.profile?.vo2max || '')
-    }
+    if (!userProfile) return
+    setBirthday(userProfile.profile?.birthday || '')
+    setSex(userProfile.profile?.biologicalSex || '')
+    const ht = userProfile.profile?.heightInches || 0
+    setHeightFeet(ht ? Math.floor(ht / 12) : '')
+    setHeightInches(ht ? ht % 12 : '')
+    setVo2max(userProfile.profile?.vo2max || '')
+    setRaces(userProfile.races || [])
+    setTargetBF(userProfile.goals?.targetBodyFatPct || '')
+    setBlockDraft({ ...defaultStrengthSettings(), ...(userProfile.strength || {}) })
   }, [userProfile])
 
-  // --- Profile handlers ---
   async function saveProfile() {
     setProfileSaving(true)
-    const totalInches = ((parseInt(heightFeet) || 0) * 12) + (parseInt(heightInches) || 0)
-    const profileData = { birthday, biologicalSex: sex, heightInches: totalInches }
-    if (vo2max) profileData.vo2max = parseFloat(vo2max)
+    const totalInches = (parseInt(heightFeet, 10) || 0) * 12 + (parseInt(heightInches, 10) || 0)
     await updateUserProfile({
-      profile: profileData,
+      profile: {
+        birthday,
+        biologicalSex: sex,
+        heightInches: totalInches,
+        ...(vo2max && { vo2max: parseFloat(vo2max) }),
+      },
     })
     setProfileSaving(false)
   }
 
-  // --- Race handlers ---
-  async function addRace() {
-    setRaceSaving(true)
-    const distance = parseFloat(newRace.distance === 'custom' ? newRace.distanceCustom : newRace.distance) || 0
-    const raceDate = new Date(newRace.date + 'T00:00:00')
-    const programStart = calculateProgramStart(raceDate)
+  async function saveBlock() {
+    setBlockSaving(true)
+    await updateStrengthSettings({
+      ...blockDraft,
+      calorieSurplus: Number(blockDraft.calorieSurplus),
+      sessionMinutes: Number(blockDraft.sessionMinutes),
+      trainingDaysPerWeek: blockDraft.trainingDayIndices.length,
+    })
+    setBlockSaving(false)
+  }
 
+  function toggleInjury(flagId) {
+    setBlockDraft((prev) => ({
+      ...prev,
+      injuryFlags: prev.injuryFlags.includes(flagId)
+        ? prev.injuryFlags.filter((f) => f !== flagId)
+        : [...prev.injuryFlags, flagId],
+    }))
+  }
+
+  function toggleTrainingDay(day) {
+    setBlockDraft((prev) => {
+      const next = prev.trainingDayIndices.includes(day)
+        ? prev.trainingDayIndices.filter((d) => d !== day)
+        : [...prev.trainingDayIndices, day].sort((a, b) => a - b)
+      // A split needs at least two days to be meaningful.
+      if (next.length < 2) return prev
+      return { ...prev, trainingDayIndices: next, trainingDaysPerWeek: next.length }
+    })
+  }
+
+  async function addRace() {
+    const distance =
+      parseFloat(newRace.distance === 'custom' ? newRace.distanceCustom : newRace.distance) || 0
     const race = {
       id: crypto.randomUUID(),
       name: newRace.name || 'Untitled Race',
       distance,
       distanceUnit: 'miles',
       date: newRace.date,
-      isARace: newRace.isARace || races.length === 0,
-      programStart: programStart.toISOString().slice(0, 10),
+      isARace: races.length === 0,
+      programStart: calculateProgramStart(new Date(`${newRace.date}T00:00:00`))
+        .toISOString()
+        .slice(0, 10),
     }
-
     const updated = [...races, race]
     setRaces(updated)
     await updateUserProfile({ races: updated })
-    setNewRace({ name: '', distance: '', distanceCustom: '', date: '', isARace: false })
+    setNewRace({ name: '', distance: '', distanceCustom: '', date: '' })
     setShowAddRace(false)
-    setRaceSaving(false)
   }
 
-  async function removeRace(raceId) {
-    const updated = races.filter((r) => r.id !== raceId)
-    setRaces(updated)
-    await updateUserProfile({ races: updated })
-  }
-
-  async function toggleARace(raceId) {
-    const updated = races.map((r) => ({
-      ...r,
-      isARace: r.id === raceId ? !r.isARace : r.isARace,
-    }))
-    setRaces(updated)
-    await updateUserProfile({ races: updated })
-  }
-
-  // --- Goals handlers ---
   async function calculateGoals() {
     if (!targetBF || !sex) return
     setGoalSaving(true)
-
-    // Get latest body metrics
     let currentWeight = userProfile?.onboarding?.initialWeight || 0
     let currentBF = userProfile?.onboarding?.initialBodyFat || 0
-    let mileage = userProfile?.onboarding?.baselineMileage || 30
-
     try {
-      const latestMetrics = await getCollection('bodyMetrics', 'date', 'desc', 1)
-      if (latestMetrics.length > 0) {
-        currentWeight = latestMetrics[0].weight || currentWeight
-        currentBF = latestMetrics[0].bodyFatPct || currentBF
+      const latest = await getCollection('bodyMetrics', 'date', 'desc', 1)
+      if (latest.length > 0) {
+        currentWeight = latest[0].weight || currentWeight
+        currentBF = latest[0].bodyFatPct || currentBF
       }
-    } catch { /* use onboarding values */ }
+    } catch {
+      // Fall back to onboarding values.
+    }
 
-    const activeRace = races.find((r) => r.isARace && new Date(r.date + 'T00:00:00') > new Date())
-      || races.find((r) => new Date(r.date + 'T00:00:00') > new Date())
+    const activeRace =
+      races.find((r) => r.isARace && new Date(`${r.date}T00:00:00`) > new Date()) ||
+      races.find((r) => new Date(`${r.date}T00:00:00`) > new Date())
 
     if (!activeRace) {
-      setGoalResult({ error: 'Add an upcoming race first to calculate time-gated goals.' })
+      setGoalResult({ error: 'Add an upcoming race first to calculate a time-gated goal.' })
       setGoalSaving(false)
       return
     }
 
-    const profileHeightInches = userProfile?.profile?.heightInches || 0
-    const result = calculateTimeGatedGoal(currentWeight, currentBF, parseFloat(targetBF), activeRace.date, mileage, profileHeightInches, sex)
-
-    const goals = {
-      targetBodyFatPct: parseFloat(targetBF),
-      targetWeight: result.targetWeight,
-      achievableTargetWeight: result.achievableTargetWeight,
-      targetDate: activeRace.date,
-      weeklyRate: result.weeklyRate,
-      milestones: result.milestones,
-      isFullyAchievable: result.isFullyAchievable,
-      ffmi: result.ffmi,
-      ffmiLabel: result.ffmiLabel,
-      projectedLeanMass: result.projectedLeanMass,
-      projectedBFPct: result.projectedBFPct,
-      floorApplied: result.floorApplied,
-      minWeight: result.minWeight,
-      calculatedAt: new Date().toISOString(),
-    }
-
-    await updateUserProfile({ goals })
+    const result = calculateTimeGatedGoal(
+      currentWeight,
+      currentBF,
+      parseFloat(targetBF),
+      activeRace.date,
+      userProfile?.onboarding?.baselineMileage || 30,
+      userProfile?.profile?.heightInches || 0,
+      sex
+    )
+    await updateUserProfile({
+      goals: {
+        targetBodyFatPct: parseFloat(targetBF),
+        targetWeight: result.targetWeight,
+        achievableTargetWeight: result.achievableTargetWeight,
+        targetDate: activeRace.date,
+        weeklyRate: result.weeklyRate,
+        milestones: result.milestones,
+        calculatedAt: new Date().toISOString(),
+      },
+    })
     setGoalResult(result)
     setGoalSaving(false)
   }
 
-  // --- Preferences handlers ---
-  async function savePreferences() {
-    setPrefSaving(true)
-    await updateUserProfile({
-      onboarding: { ...userProfile?.onboarding, trainingDays },
-    })
-    setPrefSaving(false)
-  }
-
-  // Body fat range recommendation
   const bfRange = sex
     ? getRecommendedBodyFatRange(sex, races.find((r) => r.isARace)?.distance || 50)
     : null
 
+  const draftBlock = getBlockStatus(blockDraft.blockStart, blockDraft.blockEnd)
+  const splitLabels = getSplitLabels(blockDraft.trainingDayIndices.length)
+
   return (
-    <div className="space-y-4 pb-6">
-      <div className="flex items-center justify-between pt-2">
-        <h1 className="text-xl font-bold text-gray-100">Settings</h1>
-        <button
-          onClick={() => navigate('/')}
-          className="text-sm text-gray-500 hover:text-gray-300"
-        >
+    <div className="space-y-4">
+      <div className="flex items-center justify-between pt-1">
+        <h1 className="text-2xl font-semibold text-text tracking-tight">Settings</h1>
+        <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
           Done
-        </button>
+        </Button>
       </div>
 
-      {/* Profile */}
-      <Section title="Profile" defaultOpen={!userProfile?.profile?.birthday}>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Birthday</label>
-          <input
-            type="date"
-            value={birthday}
-            onChange={(e) => setBirthday(e.target.value)}
-            className={inputClass}
-          />
-          {birthday && (
-            <p className="text-xs text-gray-500 mt-1">Age: {calculateAge(birthday)}</p>
-          )}
+      {/* Mode — the switch the whole app pivots on. */}
+      <Card>
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h2 className="text-sm font-semibold text-text">Training Mode</h2>
+            <p className="text-xs text-muted mt-0.5">
+              Switching swaps the programme, targets and dashboard. Nothing is deleted either way.
+            </p>
+          </div>
         </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Height</label>
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <input
+        <SegmentedControl
+          ariaLabel="Training mode"
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: MODES.STRENGTH, label: 'Strength', icon: Dumbbell },
+            { value: MODES.RUNNING, label: 'Running', icon: Footprints },
+          ]}
+        />
+        <p className="text-xs text-muted mt-3">
+          {isStrength
+            ? `Hypertrophy block — week ${draftBlock.blockWeek} of ${draftBlock.totalWeeks}.`
+            : 'Endurance programme with race periodisation and mileage-scaled lifting.'}
+        </p>
+      </Card>
+
+      <Section title="Profile" icon={User} defaultOpen={!userProfile?.profile?.birthday}>
+        <Field label="Birthday" hint={birthday ? `Age ${calculateAge(birthday)}` : undefined}>
+          {({ id, ...a11y }) => (
+            <Input
+              id={id}
+              {...a11y}
+              type="date"
+              value={birthday}
+              onChange={(e) => setBirthday(e.target.value)}
+            />
+          )}
+        </Field>
+
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Height (ft)">
+            {({ id }) => (
+              <Input
+                id={id}
                 type="number"
                 value={heightFeet}
                 onChange={(e) => setHeightFeet(e.target.value)}
                 placeholder="5"
-                className={inputClass}
               />
-              <span className="text-xs text-gray-600 mt-0.5 block">ft</span>
-            </div>
-            <div className="flex-1">
-              <input
+            )}
+          </Field>
+          <Field label="Height (in)">
+            {({ id }) => (
+              <Input
+                id={id}
                 type="number"
                 value={heightInches}
                 onChange={(e) => setHeightInches(e.target.value)}
                 placeholder="10"
-                className={inputClass}
               />
-              <span className="text-xs text-gray-600 mt-0.5 block">in</span>
-            </div>
-          </div>
+            )}
+          </Field>
         </div>
+
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Biological Sex</label>
-          <div className="grid grid-cols-2 gap-2">
-            {['male', 'female'].map((val) => (
-              <button
-                key={val}
-                onClick={() => setSex(val)}
-                className={`py-2 rounded-lg border text-xs font-medium transition-colors ${
-                  sex === val ? 'border-brand bg-brand/10 text-brand' : 'border-gray-700 text-gray-400 hover:bg-gray-900'
-                }`}
-              >
-                {val.charAt(0).toUpperCase() + val.slice(1)}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">VO2max <span className="text-gray-600">(optional — improves run calorie accuracy)</span></label>
-          <input
-            type="number"
-            step="0.1"
-            value={vo2max}
-            onChange={(e) => setVo2max(e.target.value)}
-            placeholder="e.g. 52"
-            className={inputClass}
+          <p className="text-xs font-medium text-muted mb-1.5">Biological sex</p>
+          <SegmentedControl
+            ariaLabel="Biological sex"
+            value={sex}
+            onChange={setSex}
+            options={[
+              { value: 'male', label: 'Male' },
+              { value: 'female', label: 'Female' },
+            ]}
           />
+          <p className="text-xs text-subtle mt-1.5">
+            Affects BMR and body-fat range recommendations.
+          </p>
         </div>
-        <button
-          onClick={saveProfile}
-          disabled={profileSaving}
-          className="w-full bg-brand/20 text-brand py-2 rounded-lg text-xs font-medium hover:bg-brand/30 disabled:opacity-50 transition-colors"
-        >
-          {profileSaving ? 'Saving...' : 'Save Profile'}
-        </button>
-      </Section>
 
-      {/* Race Calendar */}
-      <Section title="Race Calendar" defaultOpen={races.length === 0}>
-        {races.length === 0 && (
-          <p className="text-xs text-gray-500">No races added yet. Add your A-race to unlock periodized training.</p>
-        )}
-        {races.map((race) => (
-          <div key={race.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-gray-800/50">
-            <div>
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-medium text-gray-200">{race.name}</p>
-                {race.isARace && <span className="text-xs bg-brand/20 text-brand px-1.5 py-0.5 rounded">A</span>}
-              </div>
-              <p className="text-xs text-gray-500">
-                {race.distance} mi · {new Date(race.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => toggleARace(race.id)}
-                className="text-xs text-gray-500 hover:text-brand"
-                title={race.isARace ? 'Remove A-race' : 'Set as A-race'}
-              >
-                {race.isARace ? 'A' : 'Set A'}
-              </button>
-              <button
-                onClick={() => removeRace(race.id)}
-                className="text-xs text-gray-500 hover:text-danger"
-              >
-                Remove
-              </button>
-            </div>
-          </div>
-        ))}
-
-        {showAddRace ? (
-          <div className="space-y-2 pt-2 border-t border-gray-800">
-            <input
-              type="text"
-              value={newRace.name}
-              onChange={(e) => setNewRace({ ...newRace, name: e.target.value })}
-              placeholder="Race name"
-              className={inputClass}
-            />
-            <div className="grid grid-cols-3 gap-1.5">
-              {RACE_DISTANCES.map(({ value, label }) => (
-                <button
-                  key={value}
-                  onClick={() => setNewRace({ ...newRace, distance: value })}
-                  className={`py-1.5 rounded-lg border text-xs transition-colors ${
-                    newRace.distance === value ? 'border-brand bg-brand/10 text-brand' : 'border-gray-700 text-gray-500 hover:bg-gray-900'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {newRace.distance === 'custom' && (
-              <input
+        {!isStrength && (
+          <Field label="VO₂max" hint="Optional — improves run calorie accuracy.">
+            {({ id, ...a11y }) => (
+              <Input
+                id={id}
+                {...a11y}
                 type="number"
                 step="0.1"
-                value={newRace.distanceCustom}
-                onChange={(e) => setNewRace({ ...newRace, distanceCustom: e.target.value })}
-                placeholder="Distance (miles)"
-                className={inputClass}
+                value={vo2max}
+                onChange={(e) => setVo2max(e.target.value)}
+                placeholder="e.g. 52"
               />
             )}
-            <input
-              type="date"
-              value={newRace.date}
-              onChange={(e) => setNewRace({ ...newRace, date: e.target.value })}
-              className={inputClass}
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowAddRace(false)}
-                className="flex-1 border border-gray-700 text-gray-400 py-2 rounded-lg text-xs hover:bg-gray-900"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={addRace}
-                disabled={raceSaving || !newRace.date || !newRace.distance}
-                className="flex-1 bg-brand/20 text-brand py-2 rounded-lg text-xs font-medium hover:bg-brand/30 disabled:opacity-50"
-              >
-                {raceSaving ? 'Adding...' : 'Add Race'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={() => setShowAddRace(true)}
-            className="w-full border border-dashed border-gray-700 text-gray-500 py-2 rounded-lg text-xs hover:border-brand hover:text-brand transition-colors"
+          </Field>
+        )}
+
+        <Button variant="subtle" fullWidth onClick={saveProfile} disabled={profileSaving}>
+          {profileSaving ? 'Saving…' : 'Save profile'}
+        </Button>
+      </Section>
+
+      {isStrength && (
+        <>
+          <Section
+            title="Strength Block"
+            icon={CalendarRange}
+            defaultOpen
+            badge={<Badge tone="brand">Week {draftBlock.blockWeek}</Badge>}
           >
-            + Add Race
-          </button>
-        )}
-      </Section>
-
-      {/* Body Comp Goals */}
-      <Section title="Body Composition Goals">
-        {bfRange && (
-          <div className="bg-gray-800/50 rounded-lg px-3 py-2 text-xs text-gray-400">
-            <p className="font-medium text-gray-300 mb-1">Recommended BF% Range ({bfRange.label})</p>
-            <p>Healthy: {bfRange.min}–{bfRange.max}% · Optimal: {bfRange.optimal.min}–{bfRange.optimal.max}%</p>
-          </div>
-        )}
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Target Body Fat (%)</label>
-          <input
-            type="number"
-            step="0.5"
-            value={targetBF}
-            onChange={(e) => setTargetBF(e.target.value)}
-            placeholder={bfRange ? `${bfRange.optimal.min}–${bfRange.optimal.max}` : '12'}
-            className={inputClass}
-          />
-        </div>
-        <button
-          onClick={calculateGoals}
-          disabled={goalSaving || !targetBF || !sex}
-          className="w-full bg-brand/20 text-brand py-2 rounded-lg text-xs font-medium hover:bg-brand/30 disabled:opacity-50 transition-colors"
-        >
-          {goalSaving ? 'Calculating...' : 'Calculate Goal'}
-        </button>
-
-        {goalResult?.error && (
-          <p className="text-xs text-warning">{goalResult.error}</p>
-        )}
-
-        {goalResult && !goalResult.error && (
-          <div className="space-y-2">
-            <div className={`text-xs px-3 py-2 rounded-lg ${goalResult.isAlreadyAtGoal ? 'bg-green-900/20 text-green-400' : goalResult.isFullyAchievable ? 'bg-green-900/20 text-green-400' : 'bg-yellow-900/20 text-yellow-400'}`}>
-              {goalResult.message}
+            <ProgressBar
+              value={draftBlock.blockWeek}
+              max={draftBlock.totalWeeks}
+              label={`Week ${draftBlock.blockWeek} of ${draftBlock.totalWeeks}`}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Block starts">
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    type="date"
+                    value={blockDraft.blockStart}
+                    onChange={(e) => setBlockDraft({ ...blockDraft, blockStart: e.target.value })}
+                  />
+                )}
+              </Field>
+              <Field label="Block ends">
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    type="date"
+                    value={blockDraft.blockEnd}
+                    onChange={(e) => setBlockDraft({ ...blockDraft, blockEnd: e.target.value })}
+                  />
+                )}
+              </Field>
             </div>
 
-            {!goalResult.isAlreadyAtGoal && (
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-gray-800/50 rounded-lg px-3 py-2">
-                  <p className="text-gray-500">Target Weight</p>
-                  <p className="text-gray-200 font-medium">{goalResult.achievableTargetWeight} lbs</p>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg px-3 py-2">
-                  <p className="text-gray-500">Weekly Rate</p>
-                  <p className="text-gray-200 font-medium">{goalResult.weeklyRate} lbs/wk</p>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg px-3 py-2">
-                  <p className="text-gray-500">Cutting Weeks</p>
-                  <p className="text-gray-200 font-medium">{goalResult.cuttingWeeks} weeks</p>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg px-3 py-2">
-                  <p className="text-gray-500">Total Loss</p>
-                  <p className="text-gray-200 font-medium">{Math.min(goalResult.totalLossNeeded, goalResult.maxAchievableLoss)} lbs</p>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg px-3 py-2">
-                  <p className="text-gray-500">Projected Body Fat</p>
-                  <p className="text-gray-200 font-medium">{goalResult.projectedBFPct}%</p>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg px-3 py-2">
-                  <p className="text-gray-500">Projected Lean Mass</p>
-                  <p className="text-gray-200 font-medium">{goalResult.projectedLeanMass} lbs</p>
-                </div>
+            <div>
+              <p className="text-xs font-medium text-muted mb-1.5">Training days</p>
+              <div className="flex gap-1.5">
+                {WEEKDAYS.map((d) => {
+                  const active = blockDraft.trainingDayIndices.includes(d.value)
+                  return (
+                    <button
+                      key={d.value}
+                      type="button"
+                      aria-pressed={active}
+                      aria-label={`Toggle training on day ${d.value}`}
+                      onClick={() => toggleTrainingDay(d.value)}
+                      className={cn(
+                        'flex-1 min-h-11 rounded-xl text-sm font-medium transition-colors border',
+                        active
+                          ? 'bg-brand text-inverse border-brand'
+                          : 'bg-bg text-muted border-border-strong hover:bg-surface'
+                      )}
+                    >
+                      {d.label}
+                    </button>
+                  )
+                })}
               </div>
-            )}
+              <p className="text-xs text-subtle mt-1.5">
+                {splitLabels.map((s) => s.name).join(' · ')}
+              </p>
+            </div>
 
-            {/* FFMI assessment */}
-            {goalResult.ffmi > 0 && !goalResult.isAlreadyAtGoal && (
-              <div className="bg-gray-800/50 rounded-lg px-3 py-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-500">FFMI at Target</span>
-                  <span className="text-gray-200 font-medium">{goalResult.ffmi}</span>
-                </div>
-                <p className="text-gray-500 mt-0.5">{goalResult.ffmiLabel}</p>
-              </div>
-            )}
+            <Field label="Session length (minutes)">
+              {({ id }) => (
+                <Input
+                  id={id}
+                  type="number"
+                  value={blockDraft.sessionMinutes}
+                  onChange={(e) =>
+                    setBlockDraft({ ...blockDraft, sessionMinutes: e.target.value })
+                  }
+                />
+              )}
+            </Field>
 
-            {/* Floor warning */}
-            {goalResult.floorApplied && (
-              <div className="text-xs px-3 py-2 rounded-lg bg-yellow-900/20 text-yellow-400">
-                Height-based minimum weight ({goalResult.minWeight} lbs) applied. Target BF% was adjusted to {goalResult.projectedBFPct}% to stay above the safe weight floor.
-              </div>
-            )}
+            <div>
+              <p className="text-xs font-medium text-muted mb-1.5">Equipment</p>
+              <SegmentedControl
+                ariaLabel="Equipment level"
+                size="sm"
+                value={blockDraft.equipment}
+                onChange={(v) => setBlockDraft({ ...blockDraft, equipment: v })}
+                options={Object.values(EQUIPMENT_LEVELS).map((e) => ({
+                  value: e.id,
+                  label: e.id === 'fullGym' ? 'Full gym' : e.id === 'homeGym' ? 'Home' : 'Minimal',
+                }))}
+              />
+              <p className="text-xs text-subtle mt-1.5">
+                {EQUIPMENT_LEVELS[blockDraft.equipment]?.description}
+              </p>
+            </div>
 
-            {goalResult.milestones?.length > 0 && (
-              <div className="space-y-1">
-                <p className="text-xs text-gray-500 font-medium">Milestones</p>
-                {goalResult.milestones.map((m) => (
-                  <div key={m.pctComplete} className="flex items-center justify-between text-xs py-1 px-2 rounded bg-gray-800/30">
-                    <span className="text-gray-400">{m.pctComplete}% — {m.targetWeight} lbs</span>
-                    <span className="text-gray-600">{new Date(m.targetDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+            <Button variant="subtle" fullWidth onClick={saveBlock} disabled={blockSaving}>
+              {blockSaving ? 'Saving…' : 'Save block settings'}
+            </Button>
+          </Section>
+
+          <Section
+            title="Injury Guardrails"
+            icon={ShieldAlert}
+            badge={
+              blockDraft.injuryFlags.length > 0 ? (
+                <Badge tone="warning">{blockDraft.injuryFlags.length}</Badge>
+              ) : null
+            }
+          >
+            <p className="text-xs text-muted">
+              These are hard filters on exercise selection, not notes. A flagged movement cannot be
+              programmed.
+            </p>
+            {Object.values(INJURY_FLAGS).map((flag) => {
+              const active = blockDraft.injuryFlags.includes(flag.id)
+              return (
+                <button
+                  key={flag.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => toggleInjury(flag.id)}
+                  className={cn(
+                    'w-full text-left p-3 rounded-xl border transition-colors',
+                    active
+                      ? 'bg-warning-subtle border-warning-border'
+                      : 'bg-bg border-border-default hover:bg-surface'
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        'w-4 h-4 rounded border-2 shrink-0',
+                        active ? 'bg-warning border-warning' : 'border-border-strong'
+                      )}
+                      aria-hidden="true"
+                    />
+                    <span className="text-sm font-medium text-text">{flag.label}</span>
                   </div>
-                ))}
+                  {active && <p className="text-xs text-muted mt-1.5 ml-6">{flag.guidance}</p>}
+                </button>
+              )
+            })}
+            <Button variant="subtle" fullWidth onClick={saveBlock} disabled={blockSaving}>
+              {blockSaving ? 'Saving…' : 'Save guardrails'}
+            </Button>
+          </Section>
+
+          <Section
+            title="Body Composition"
+            icon={Target}
+            defaultOpen
+            badge={<Badge tone="brand">{goal.label}</Badge>}
+          >
+            <div>
+              <p className="text-xs font-medium text-muted mb-1.5">Goal</p>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.values(BODY_COMP_GOALS).map((g) => {
+                  const active = blockDraft.bodyCompGoal === g.id
+                  return (
+                    <button
+                      key={g.id}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() =>
+                        setBlockDraft({
+                          ...blockDraft,
+                          bodyCompGoal: g.id,
+                          calorieSurplus: g.kcalDelta,
+                        })
+                      }
+                      className={cn(
+                        'p-3 rounded-xl border text-left transition-colors min-h-14',
+                        active
+                          ? 'bg-brand-subtle border-brand-border'
+                          : 'bg-bg border-border-default hover:bg-surface'
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'block text-sm font-medium',
+                          active ? 'text-brand' : 'text-text'
+                        )}
+                      >
+                        {g.label}
+                      </span>
+                      <span className="block text-xs text-muted tabular-nums mt-0.5">
+                        {g.kcalDelta > 0 ? '+' : ''}
+                        {g.kcalDelta} kcal
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-subtle mt-2">
+                {BODY_COMP_GOALS[blockDraft.bodyCompGoal]?.description}
+              </p>
+            </div>
+
+            <Field
+              label="Calorie adjustment"
+              hint="The rate-of-gain guardrail nudges this as your weight trend comes in."
+            >
+              {({ id, ...a11y }) => (
+                <Input
+                  id={id}
+                  {...a11y}
+                  type="number"
+                  step="50"
+                  value={blockDraft.calorieSurplus}
+                  onChange={(e) =>
+                    setBlockDraft({ ...blockDraft, calorieSurplus: e.target.value })
+                  }
+                />
+              )}
+            </Field>
+
+            <Button variant="subtle" fullWidth onClick={saveBlock} disabled={blockSaving}>
+              {blockSaving ? 'Saving…' : 'Save goal'}
+            </Button>
+          </Section>
+        </>
+      )}
+
+      {!isStrength && (
+        <>
+          <Section title="Race Calendar" icon={Flag} defaultOpen={races.length === 0}>
+            {races.length === 0 && (
+              <p className="text-xs text-muted">
+                No races yet. Add your A-race to unlock periodised training.
+              </p>
+            )}
+            {races.map((race) => (
+              <div
+                key={race.id}
+                className="flex items-center justify-between gap-2 p-3 rounded-xl bg-surface"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-text truncate">{race.name}</p>
+                    {race.isARace && <Badge tone="brand" size="xs">A</Badge>}
+                  </div>
+                  <p className="text-xs text-muted">
+                    {race.distance} mi ·{' '}
+                    {new Date(`${race.date}T00:00:00`).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={async () => {
+                    const updated = races.filter((r) => r.id !== race.id)
+                    setRaces(updated)
+                    await updateUserProfile({ races: updated })
+                  }}
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+
+            {showAddRace ? (
+              <div className="space-y-2 pt-2 border-t border-border-default">
+                <Input
+                  aria-label="Race name"
+                  value={newRace.name}
+                  onChange={(e) => setNewRace({ ...newRace, name: e.target.value })}
+                  placeholder="Race name"
+                />
+                <div className="grid grid-cols-3 gap-1.5">
+                  {RACE_DISTANCES.map((d) => (
+                    <button
+                      key={d.value}
+                      type="button"
+                      onClick={() => setNewRace({ ...newRace, distance: d.value })}
+                      className={cn(
+                        'py-2 min-h-11 rounded-xl border text-xs font-medium transition-colors',
+                        newRace.distance === d.value
+                          ? 'bg-brand-subtle border-brand-border text-brand'
+                          : 'bg-bg border-border-strong text-muted hover:bg-surface'
+                      )}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+                {newRace.distance === 'custom' && (
+                  <Input
+                    type="number"
+                    aria-label="Custom distance in miles"
+                    value={newRace.distanceCustom}
+                    onChange={(e) => setNewRace({ ...newRace, distanceCustom: e.target.value })}
+                    placeholder="Distance (miles)"
+                  />
+                )}
+                <Input
+                  type="date"
+                  aria-label="Race date"
+                  value={newRace.date}
+                  onChange={(e) => setNewRace({ ...newRace, date: e.target.value })}
+                />
+                <div className="flex gap-2">
+                  <Button variant="secondary" fullWidth onClick={() => setShowAddRace(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    fullWidth
+                    onClick={addRace}
+                    disabled={!newRace.date || !newRace.distance}
+                  >
+                    Add race
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button variant="secondary" fullWidth onClick={() => setShowAddRace(true)}>
+                + Add race
+              </Button>
+            )}
+          </Section>
+
+          <Section title="Body Composition Goals" icon={Target}>
+            {bfRange && (
+              <div className="p-3 rounded-xl bg-surface text-xs text-muted">
+                <p className="font-medium text-text mb-0.5">
+                  Recommended range ({bfRange.label})
+                </p>
+                <p>
+                  Healthy {bfRange.min}–{bfRange.max}% · Optimal {bfRange.optimal.min}–
+                  {bfRange.optimal.max}%
+                </p>
               </div>
             )}
-          </div>
-        )}
-
-        {!sex && (
-          <p className="text-xs text-gray-600">Set your biological sex in Profile above to get personalized recommendations.</p>
-        )}
-      </Section>
-
-      {/* Training Preferences */}
-      <Section title="Training Preferences">
-        <div>
-          <label className="block text-xs text-gray-500 mb-2">Training Days</label>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              ['mon-wed-fri', 'Mon / Wed / Fri'],
-              ['tue-thu-sat', 'Tue / Thu / Sat'],
-            ].map(([val, label]) => (
-              <button
-                key={val}
-                onClick={() => setTrainingDays(val)}
-                className={`py-2 rounded-lg border text-xs font-medium transition-colors ${
-                  trainingDays === val ? 'border-brand bg-brand/10 text-brand' : 'border-gray-700 text-gray-400 hover:bg-gray-900'
-                }`}
+            <Field label="Target body fat (%)">
+              {({ id }) => (
+                <Input
+                  id={id}
+                  type="number"
+                  step="0.5"
+                  value={targetBF}
+                  onChange={(e) => setTargetBF(e.target.value)}
+                  placeholder={bfRange ? `${bfRange.optimal.min}–${bfRange.optimal.max}` : '12'}
+                />
+              )}
+            </Field>
+            <Button
+              variant="subtle"
+              fullWidth
+              onClick={calculateGoals}
+              disabled={goalSaving || !targetBF || !sex}
+            >
+              {goalSaving ? 'Calculating…' : 'Calculate goal'}
+            </Button>
+            {goalResult?.error && (
+              <p className="text-xs text-warning-strong">{goalResult.error}</p>
+            )}
+            {goalResult && !goalResult.error && (
+              <div
+                className={cn(
+                  'p-3 rounded-xl text-xs',
+                  goalResult.isFullyAchievable || goalResult.isAlreadyAtGoal
+                    ? 'bg-success-subtle text-success-strong'
+                    : 'bg-warning-subtle text-warning-strong'
+                )}
               >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <button
-          onClick={savePreferences}
-          disabled={prefSaving}
-          className="w-full bg-brand/20 text-brand py-2 rounded-lg text-xs font-medium hover:bg-brand/30 disabled:opacity-50 transition-colors"
-        >
-          {prefSaving ? 'Saving...' : 'Save Preferences'}
-        </button>
-      </Section>
+                {goalResult.message}
+              </div>
+            )}
+          </Section>
+        </>
+      )}
 
-      {/* Account */}
-      <Section title="Account">
-        <p className="text-xs text-gray-500">{user?.email}</p>
-        <button
-          onClick={async () => { await logout(); navigate('/login') }}
-          className="w-full border border-danger/30 text-danger py-2 rounded-lg text-xs font-medium hover:bg-danger/10 transition-colors"
+      <Section title="Account" icon={User}>
+        <p className="text-xs text-muted">{user?.email}</p>
+        <Button
+          variant="dangerGhost"
+          fullWidth
+          icon={LogOut}
+          onClick={async () => {
+            await logout()
+            navigate('/login')
+          }}
         >
-          Sign Out
-        </button>
+          Sign out
+        </Button>
       </Section>
     </div>
   )

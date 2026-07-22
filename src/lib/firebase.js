@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, GoogleAuthProvider } from 'firebase/auth'
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore'
+import { getFunctions } from 'firebase/functions'
 import { getAnalytics, isSupported } from 'firebase/analytics'
 
 const firebaseConfig = {
@@ -21,6 +22,9 @@ export const googleProvider = new GoogleAuthProvider()
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
 })
+
+// Callable functions — meal estimation. Region must match the function's.
+export const functions = getFunctions(app, 'us-central1')
 
 // Initialize Analytics (only in supported environments — not SSR or some browsers)
 isSupported().then((supported) => {

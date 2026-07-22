@@ -11,7 +11,7 @@
  * Load scaling from mileage is applied ON TOP of the base progression recommendation.
  */
 
-import { EXERCISES } from './program'
+import { EXERCISES } from './program.js'
 
 /**
  * Evaluate performance from the last session and recommend next weight.

@@ -1,59 +1,30 @@
-import { Link } from 'react-router-dom'
+import { UtensilsCrossed, ChevronRight } from 'lucide-react'
 import { getNutritionAdvice } from '../../lib/nutritionAdvice'
-import MacroRings from '../common/MacroRings'
+import { Card, CardLabel, Badge, ProgressRing, CHART_COLORS } from '../ui'
+import { cn } from '../ui/cn'
 
-export default function NutritionPanel({
-  weightLbs,
-  heightInches,
-  ageYears,
-  sex,
-  dailyMiles,
-  weeklyMiles,
-  todayLiftStats,
-  trainingPhase,
-  isCutting,
-  currentBodyFatPct,
-  targetBodyFatPct,
-  todayNutritionLog,
-  todayRuns = null,
-  vo2max = null,
-}) {
+const RING_COLORS = [CHART_COLORS[0], CHART_COLORS[4], CHART_COLORS[1], CHART_COLORS[2]]
+
+/**
+ * Today's macro targets against what's been logged.
+ *
+ * Mode-aware: strength mode reports a surplus and a training/rest-day basis;
+ * running mode keeps its run-calorie source indicator. Both render the same
+ * rings so the visual language is shared.
+ */
+export default function NutritionPanel({ mode = 'running', weightLbs, todayNutritionLog, ...rest }) {
   if (!weightLbs) {
     return (
-      <div className="bg-surface rounded-xl p-4 border border-gray-800 text-center">
-        <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Fuel Guide</p>
-        <p className="text-sm text-gray-400">Log your weight to get nutrition advice</p>
-        <Link to="/metrics" className="text-xs text-brand hover:text-brand-light mt-1 inline-block">
-          Go to Metrics →
-        </Link>
-      </div>
+      <Card to="/metrics">
+        <CardLabel>Fuel</CardLabel>
+        <p className="text-sm text-muted mt-2">Log your weight to get macro targets →</p>
+      </Card>
     )
   }
 
-  const didLift = !!todayLiftStats
-
-  const advice = getNutritionAdvice({
-    weightLbs,
-    heightInches,
-    ageYears,
-    sex,
-    dailyMiles: dailyMiles || 0,
-    weeklyMiles: weeklyMiles || 0,
-    todayLiftStats,
-    trainingPhase,
-    isCutting,
-    currentBodyFatPct,
-    targetBodyFatPct,
-    todayRuns,
-    vo2max,
-  })
-
+  const advice = getNutritionAdvice({ mode, weightLbs, ...rest })
   if (!advice) return null
 
-  // Fat target from calculator (balanced to TDEE, floored at 0.8 g/kg)
-  const fatTarget = advice.fat?.grams || Math.round((advice.calories.target * 0.275) / 9)
-
-  // Consumed totals from today's nutrition log
   const entries = todayNutritionLog?.entries || []
   const consumed = entries.reduce(
     (acc, e) => ({
@@ -64,98 +35,99 @@ export default function NutritionPanel({
     }),
     { kcal: 0, protein: 0, carbs: 0, fat: 0 }
   )
-  const hasLogged = entries.length > 0
 
-  // Activity badge
-  let activityLabel, activityStyle
-  if (advice.isRestDay) {
-    activityLabel = 'Rest'
-    activityStyle = 'text-gray-400 bg-gray-800 border-gray-700'
-  } else if (dailyMiles > 0 && didLift) {
-    activityLabel = 'Run + Lift'
-    activityStyle = 'text-yellow-400 bg-yellow-900/30 border-yellow-700'
-  } else if (dailyMiles > 0) {
-    activityLabel = 'Run'
-    activityStyle = 'text-yellow-400 bg-yellow-900/30 border-yellow-700'
-  } else {
-    activityLabel = 'Lift'
-    activityStyle = 'text-brand bg-orange-900/30 border-brand'
-  }
+  const carbTarget = Math.round((advice.carbs.lowGrams + advice.carbs.highGrams) / 2)
+  const rows = [
+    { key: 'kcal', label: 'Calories', consumed: consumed.kcal, target: advice.calories.target, unit: '' },
+    { key: 'protein', label: 'Protein', consumed: consumed.protein, target: advice.protein.grams, unit: 'g' },
+    { key: 'carbs', label: 'Carbs', consumed: consumed.carbs, target: carbTarget, unit: 'g' },
+    { key: 'fat', label: 'Fat', consumed: consumed.fat, target: advice.fat.grams, unit: 'g' },
+  ]
+
+  const badge =
+    mode === 'strength'
+      ? advice.isTrainingDay
+        ? { tone: 'brand', text: 'Training day' }
+        : { tone: 'neutral', text: 'Rest day' }
+      : advice.isRestDay
+        ? { tone: 'neutral', text: 'Rest' }
+        : { tone: 'warning', text: advice.calories.breakdown }
 
   return (
-    <Link
-      to="/nutrition"
-      className="block bg-surface rounded-xl p-4 border border-gray-800 hover:border-gray-700 transition-colors"
-    >
-      {/* Header */}
+    <Card to="/nutrition" interactive>
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs text-gray-500 uppercase tracking-wide">Fuel Guide</p>
-        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${activityStyle}`}>
-          {activityLabel}
-        </span>
+        <div className="flex items-center gap-2">
+          <UtensilsCrossed className="w-4 h-4 text-subtle" aria-hidden="true" />
+          <h3 className="text-sm font-semibold text-text">Fuel</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge tone={badge.tone}>{badge.text}</Badge>
+          <ChevronRight className="w-4 h-4 text-subtle" aria-hidden="true" />
+        </div>
       </div>
 
-      {/* Macro rings + legend */}
-      <div className="flex items-center gap-4 mb-3">
-        <MacroRings
-          size={110}
-          macros={[
-            { key: 'kcal', consumed: consumed.kcal, target: advice.calories.target },
-            { key: 'protein', consumed: consumed.protein, target: advice.protein.grams },
-            { key: 'carbs', consumed: consumed.carbs, target: Math.round((advice.carbs.lowGrams + advice.carbs.highGrams) / 2) },
-            { key: 'fat', consumed: consumed.fat, target: fatTarget },
-          ]}
+      <div className="flex items-center gap-4">
+        <ProgressRing
+          size={104}
+          rings={rows.map((r, i) => ({
+            key: r.key,
+            label: r.label,
+            consumed: r.consumed,
+            target: r.target,
+            color: RING_COLORS[i],
+          }))}
         />
-        <div className="flex-1 space-y-2">
-          {[
-            { label: 'Calories', color: 'bg-orange-500', consumed: consumed.kcal, target: advice.calories.target, unit: '', warn: consumed.kcal > advice.calories.target },
-            { label: 'Protein', color: 'bg-emerald-500', consumed: consumed.protein, target: advice.protein.grams, unit: 'g', warn: consumed.protein > advice.protein.grams },
-            { label: 'Carbs', color: 'bg-sky-400', consumed: consumed.carbs, target: Math.round((advice.carbs.lowGrams + advice.carbs.highGrams) / 2), unit: 'g', warn: consumed.carbs > advice.carbs.highGrams },
-            { label: 'Fat', color: 'bg-violet-400', consumed: consumed.fat, target: fatTarget, unit: 'g', warn: consumed.fat > fatTarget },
-          ].map(({ label, color, consumed: c, target: t, unit, warn }) => (
-            <div key={label} className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${warn ? 'bg-yellow-400' : color}`} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline justify-between">
-                  <span className="text-xs text-gray-400">{label}</span>
-                  <span className={`text-xs font-medium ${warn ? 'text-yellow-400' : 'text-gray-200'}`}>
-                    {hasLogged ? `${Math.round(c)}` : '0'} <span className="text-gray-500">/ {Math.round(t)}{unit}</span>
+
+        <div className="flex-1 min-w-0 space-y-1.5">
+          {rows.map((row, i) => {
+            const over = row.consumed > row.target
+            return (
+              <div key={row.key} className="flex items-center gap-2">
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ background: over ? 'var(--cj-warning)' : RING_COLORS[i] }}
+                  aria-hidden="true"
+                />
+                <span className="text-xs text-muted flex-1">{row.label}</span>
+                <span
+                  className={cn(
+                    'text-xs font-medium tabular-nums',
+                    over ? 'text-warning-strong' : 'text-text'
+                  )}
+                >
+                  {Math.round(row.consumed)}
+                  <span className="text-subtle font-normal">
+                    {' '}
+                    / {Math.round(row.target)}
+                    {row.unit}
                   </span>
-                </div>
+                </span>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
-      {/* Hydration */}
-      <div className="flex items-center gap-1.5 mb-3 text-xs text-gray-400">
-        <span>Hydration: {advice.hydration.oz} oz ({advice.hydration.liters}L)</span>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-xs text-muted">
+        {advice.surplus ? (
+          <span>+{advice.surplus} kcal surplus</span>
+        ) : advice.deficit ? (
+          <span>−{advice.deficit} kcal deficit</span>
+        ) : null}
+        <span>{advice.hydration.oz} oz water</span>
+        {mode === 'running' && advice.runKcal > 0 && (
+          <span>
+            Run ~{advice.runKcal} kcal
+            <span className="text-subtle">
+              {advice.runSource === 'distance' ? ' · distance estimate' : ' · HR-based'}
+            </span>
+          </span>
+        )}
       </div>
 
-      {/* Deficit note */}
-      {advice.deficit && (
-        <p className="text-xs text-yellow-400/80 mb-3">
-          Includes {advice.deficit} kcal deficit ({trainingPhase} phase)
-        </p>
-      )}
-
-      {/* Run calorie source indicator */}
-      {advice.runKcal > 0 && (
-        <div className="flex items-center gap-1.5 mb-3 text-xs">
-          <span className="text-gray-500">Run: ~{advice.runKcal} kcal</span>
-          {advice.runSource === 'distance' ? (
-            <span className="text-yellow-500/70">· distance estimate</span>
-          ) : (
-            <span className="text-emerald-500/70">· HR-based ({advice.runSource === 'keytel_vo2' ? 'Keytel+VO2' : 'Keytel'})</span>
-          )}
-        </div>
-      )}
-
-      {/* Contextual tip */}
-      <div className="border-t border-gray-800 pt-3">
-        <p className="text-sm text-gray-300 italic leading-relaxed">{advice.tip}</p>
-      </div>
-    </Link>
+      <p className="text-sm text-muted italic mt-3 pt-3 border-t border-border-default leading-relaxed">
+        {advice.tip}
+      </p>
+    </Card>
   )
 }

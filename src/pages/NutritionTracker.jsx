@@ -1,159 +1,43 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { ChevronLeft, Camera, Sparkles, Trash2, Plus, X, ImageOff } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { useAppMode } from '../hooks/useAppMode'
 import { useWorkout } from '../hooks/useWorkout'
-import { useFirestore, getWeekStart } from '../hooks/useFirestore'
+import { useStrengthBlock } from '../hooks/useStrengthBlock'
+import { useFirestore, formatLocalDate } from '../hooks/useFirestore'
 import { getNutritionAdvice } from '../lib/nutritionAdvice'
 import { calculateAge } from '../lib/bodyMetrics'
-import LoadingSpinner from '../components/common/LoadingSpinner'
+import {
+  prepareImage,
+  estimateMeal,
+  estimateToEntry,
+  CONFIDENCE_COPY,
+} from '../lib/mealEstimation'
+import {
+  Card,
+  CardLabel,
+  Button,
+  Badge,
+  Field,
+  Input,
+  Textarea,
+  ProgressBar,
+  SkeletonPage,
+  Sheet,
+  EmptyState,
+} from '../components/ui'
+import { cn } from '../components/ui/cn'
 
-function formatDateId(date) {
-  const d = new Date(date)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
+const MACROS = [
+  { key: 'kcal', label: 'Calories', unit: '' },
+  { key: 'protein', label: 'Protein', unit: 'g' },
+  { key: 'carbs', label: 'Carbs', unit: 'g' },
+  { key: 'fat', label: 'Fat', unit: 'g' },
+]
 
-function getDayLabel(date) {
-  return new Date(date).toLocaleDateString('en-US', { weekday: 'short' })
-}
-
-function getLast7Days() {
-  const days = []
-  const today = new Date()
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(today)
-    d.setDate(d.getDate() - i)
-    d.setHours(0, 0, 0, 0)
-    days.push(d)
-  }
-  return days
-}
-
-export default function NutritionTracker() {
-  const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-  const viewDate = searchParams.get('date')
-
-  const { user, userProfile } = useAuth()
-  const {
-    loading: workoutLoading,
-    todayMiles,
-    currentMileage,
-    todayLiftStats,
-    todayRuns,
-    weekInfo,
-  } = useWorkout()
-  const { getDocument, setDocument, getCollection } = useFirestore()
-
-  const [latestWeight, setLatestWeight] = useState(null)
-  const [latestBodyFatPct, setLatestBodyFatPct] = useState(null)
-  const [todayLog, setTodayLog] = useState(null)
-  const [historyDays, setHistoryDays] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [viewingDay, setViewingDay] = useState(null)
-
-  // Form state
-  const [label, setLabel] = useState('')
-  const [kcal, setKcal] = useState('')
-  const [protein, setProtein] = useState('')
-  const [carbs, setCarbs] = useState('')
-  const [fat, setFat] = useState('')
-
-  const todayId = formatDateId(new Date())
-  const isViewingPast = !!viewDate && viewDate !== todayId
-
-  // Load metrics + today's log + 7-day history
-  useEffect(() => {
-    if (!user) return
-    loadData()
-  }, [user])
-
-  const loadData = useCallback(async () => {
-    setLoading(true)
-    try {
-      // Load latest weight
-      const metrics = await getCollection('bodyMetrics', 'date', 'desc', 1)
-      if (metrics.length > 0) {
-        setLatestWeight(metrics[0].weight)
-        setLatestBodyFatPct(metrics[0].bodyFatPct)
-      } else {
-        setLatestWeight(userProfile?.onboarding?.initialWeight || null)
-        setLatestBodyFatPct(userProfile?.onboarding?.initialBodyFat || null)
-      }
-
-      // Load today's nutrition log
-      const log = await getDocument(`nutritionLogs/${todayId}`)
-      setTodayLog(log)
-
-      // Load 7-day history
-      const days = getLast7Days()
-      const historyPromises = days.map(async (d) => {
-        const dateId = formatDateId(d)
-        const dayLog = await getDocument(`nutritionLogs/${dateId}`)
-        return { date: d, dateId, log: dayLog }
-      })
-      const history = await Promise.all(historyPromises)
-      setHistoryDays(history)
-    } catch {
-      // Silently fail
-    }
-    setLoading(false)
-  }, [user, getCollection, getDocument, todayId, userProfile])
-
-  // Load a past day for read-only viewing
-  useEffect(() => {
-    if (viewDate && viewDate !== todayId) {
-      getDocument(`nutritionLogs/${viewDate}`).then((log) => {
-        setViewingDay(log)
-      })
-    } else {
-      setViewingDay(null)
-    }
-  }, [viewDate, todayId, getDocument])
-
-  // Compute targets from the same advice engine
-  const weightLbs = latestWeight
-  const heightInches = userProfile?.profile?.heightInches || 0
-  const ageYears = calculateAge(userProfile?.profile?.birthday)
-  const sex = userProfile?.profile?.biologicalSex || 'male'
-  const targetBF = userProfile?.goals?.targetBodyFatPct
-  const isCutting = !!(targetBF && latestBodyFatPct && latestBodyFatPct > targetBF)
-  const trainingPhase = weekInfo?.type || 'build'
-
-  const advice = weightLbs
-    ? getNutritionAdvice({
-        weightLbs,
-        heightInches,
-        ageYears,
-        sex,
-        dailyMiles: todayMiles || 0,
-        weeklyMiles: currentMileage || 0,
-        todayLiftStats,
-        trainingPhase,
-        isCutting,
-        currentBodyFatPct: latestBodyFatPct,
-        targetBodyFatPct: targetBF,
-        todayRuns: todayRuns || null,
-        vo2max: userProfile?.profile?.vo2max || null,
-      })
-    : null
-
-  // Derive targets including fat (now from calculator when available)
-  const targets = advice
-    ? {
-        kcal: advice.calories.target,
-        protein: advice.protein.grams,
-        carbs: Math.round((advice.carbs.lowGrams + advice.carbs.highGrams) / 2),
-        fat: advice.fat?.grams || Math.round((advice.calories.target * 0.275) / 9),
-      }
-    : null
-
-  // Protein floor: 1.8g × bodyweight in kg
-  const weightKg = weightLbs ? weightLbs / 2.205 : 0
-  const proteinFloor = Math.round(weightKg * 1.8)
-
-  // Consumed totals
-  const entries = todayLog?.entries || []
-  const consumed = entries.reduce(
+function sumEntries(entries = []) {
+  return entries.reduce(
     (acc, e) => ({
       kcal: acc.kcal + (e.kcal || 0),
       protein: acc.protein + (e.protein || 0),
@@ -162,92 +46,423 @@ export default function NutritionTracker() {
     }),
     { kcal: 0, protein: 0, carbs: 0, fat: 0 }
   )
+}
 
-  async function handleAdd() {
-    const kcalVal = Number(kcal)
-    const proteinVal = Number(protein)
-    const carbsVal = Number(carbs)
-    const fatVal = Number(fat)
-    if (kcal === '' || protein === '' || carbs === '' || fat === '') return
+function last7Days() {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date()
+    d.setDate(d.getDate() - (6 - i))
+    d.setHours(0, 0, 0, 0)
+    return d
+  })
+}
 
-    const entry = {
+/**
+ * The camera / describe flow.
+ *
+ * Deliberately two-step: estimate, then confirm. Portion estimation from a
+ * photo is genuinely uncertain, and silently writing a guess into the day's
+ * totals would quietly corrupt the data the whole block is steered by. The
+ * itemised breakdown and stated assumptions are what make the number
+ * reviewable rather than magic.
+ */
+function EstimateSheet({ open, onClose, onSave }) {
+  const fileRef = useRef(null)
+  const [description, setDescription] = useState('')
+  const [image, setImage] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [estimate, setEstimate] = useState(null)
+  const [edited, setEdited] = useState(null)
+
+  function reset() {
+    setDescription('')
+    setImage(null)
+    setEstimate(null)
+    setEdited(null)
+    setError('')
+    setBusy(false)
+  }
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setError('')
+    try {
+      setImage(await prepareImage(file))
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleEstimate() {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await estimateMeal({
+        description: description.trim() || undefined,
+        imageBase64: image?.base64,
+        mediaType: image?.mediaType,
+      })
+      setEstimate(result)
+      setEdited({
+        kcal: result.kcal,
+        protein: result.protein_g,
+        carbs: result.carbs_g,
+        fat: result.fat_g,
+      })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function handleConfirm() {
+    const entry = estimateToEntry(
+      {
+        ...estimate,
+        kcal: Number(edited.kcal) || 0,
+        protein_g: Number(edited.protein) || 0,
+        carbs_g: Number(edited.carbs) || 0,
+        fat_g: Number(edited.fat) || 0,
+      },
+      { description, source: image ? 'photo' : 'text' }
+    )
+    onSave(entry)
+    reset()
+    onClose()
+  }
+
+  const confidence = estimate ? CONFIDENCE_COPY[estimate.confidence] : null
+
+  return (
+    <Sheet
+      open={open}
+      onClose={() => {
+        reset()
+        onClose()
+      }}
+      title={estimate ? 'Check the estimate' : 'Log a meal'}
+      description={
+        estimate
+          ? 'Adjust anything that looks off before saving.'
+          : 'Describe it, photograph it, or both.'
+      }
+      footer={
+        estimate ? (
+          <div className="flex gap-2">
+            <Button variant="secondary" fullWidth onClick={() => setEstimate(null)}>
+              Back
+            </Button>
+            <Button fullWidth onClick={handleConfirm}>
+              Save meal
+            </Button>
+          </div>
+        ) : (
+          <Button
+            fullWidth
+            size="lg"
+            icon={Sparkles}
+            onClick={handleEstimate}
+            disabled={busy || (!description.trim() && !image)}
+          >
+            {busy ? 'Estimating…' : 'Estimate macros'}
+          </Button>
+        )
+      }
+    >
+      {!estimate ? (
+        <div className="space-y-3">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleFile}
+            className="sr-only"
+          />
+
+          {image ? (
+            <div className="relative">
+              <img
+                src={image.previewUrl}
+                alt="The meal you are logging"
+                className="w-full rounded-2xl border border-border-default"
+              />
+              <button
+                type="button"
+                onClick={() => setImage(null)}
+                aria-label="Remove photo"
+                className="absolute top-2 right-2 p-2 rounded-xl bg-text/60 text-inverse hover:bg-text/80"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="w-full flex flex-col items-center justify-center gap-2 py-8 rounded-2xl border-2 border-dashed border-border-strong text-muted hover:border-brand hover:text-brand transition-colors"
+            >
+              <Camera className="w-6 h-6" aria-hidden="true" />
+              <span className="text-sm font-medium">Take or choose a photo</span>
+              <span className="text-xs text-subtle">Optional — text alone works too</span>
+            </button>
+          )}
+
+          <Field
+            label="What did you eat?"
+            hint="Portions help most — “two eggs and 100g oats” beats “breakfast”."
+          >
+            {({ id, ...a11y }) => (
+              <Textarea
+                id={id}
+                {...a11y}
+                rows={3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="e.g. chicken thigh, rice, and a big spoon of peanut butter"
+              />
+            )}
+          </Field>
+
+          {error && (
+            <div className="flex gap-2 p-3 rounded-xl bg-danger-subtle border border-danger-border">
+              <ImageOff className="w-4 h-4 text-danger-strong shrink-0 mt-0.5" aria-hidden="true" />
+              <p className="text-xs text-danger-strong">{error}</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Badge tone={confidence.tone}>{confidence.label}</Badge>
+            {estimate.grounded && <Badge tone="neutral">USDA-matched</Badge>}
+          </div>
+
+          <div className="grid grid-cols-4 gap-2">
+            {MACROS.map((m) => (
+              <Field key={m.key} label={m.label}>
+                {({ id, ...a11y }) => (
+                  <Input
+                    id={id}
+                    {...a11y}
+                    type="number"
+                    inputMode="decimal"
+                    value={edited[m.key]}
+                    onChange={(e) => setEdited({ ...edited, [m.key]: e.target.value })}
+                    className="text-center px-1"
+                  />
+                )}
+              </Field>
+            ))}
+          </div>
+
+          <div>
+            <CardLabel>Breakdown</CardLabel>
+            <ul className="mt-2 space-y-1.5">
+              {estimate.items.map((item, i) => (
+                <li key={`${item.name}-${i}`} className="flex items-baseline justify-between gap-3">
+                  <span className="text-sm text-text min-w-0">
+                    {item.name}
+                    <span className="text-subtle"> · {item.quantity || `${item.grams}g`}</span>
+                    {item.source === 'usda' && (
+                      <span className="text-subtle text-xs"> · USDA</span>
+                    )}
+                  </span>
+                  <span className="text-xs text-muted tabular-nums shrink-0">
+                    {Math.round(item.kcal)} kcal
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {estimate.assumptions.length > 0 && (
+            <div>
+              <CardLabel>Assumptions</CardLabel>
+              <ul className="mt-2 space-y-1 list-disc list-inside">
+                {estimate.assumptions.map((a) => (
+                  <li key={a} className="text-xs text-muted">
+                    {a}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </Sheet>
+  )
+}
+
+function ManualEntryCard({ onAdd }) {
+  const [fields, setFields] = useState({ label: '', kcal: '', protein: '', carbs: '', fat: '' })
+  const complete = ['kcal', 'protein', 'carbs', 'fat'].every((k) => fields[k] !== '')
+
+  function submit() {
+    onAdd({
       id: crypto.randomUUID(),
-      label: label.trim() || null,
-      kcal: kcalVal,
-      protein: proteinVal,
-      carbs: carbsVal,
-      fat: fatVal,
+      label: fields.label.trim() || 'Meal',
+      kcal: Number(fields.kcal) || 0,
+      protein: Number(fields.protein) || 0,
+      carbs: Number(fields.carbs) || 0,
+      fat: Number(fields.fat) || 0,
       loggedAt: new Date().toISOString(),
-    }
-
-    const updatedEntries = [...entries, entry]
-    const docData = {
-      date: todayId,
-      targets,
-      entries: updatedEntries,
-    }
-
-    await setDocument(`nutritionLogs/${todayId}`, docData)
-    setTodayLog(docData)
-
-    // Update history for today
-    setHistoryDays((prev) =>
-      prev.map((d) => (d.dateId === todayId ? { ...d, log: docData } : d))
-    )
-
-    // Clear form
-    setLabel('')
-    setKcal('')
-    setProtein('')
-    setCarbs('')
-    setFat('')
+      source: 'manual',
+    })
+    setFields({ label: '', kcal: '', protein: '', carbs: '', fat: '' })
   }
 
-  async function handleDelete(entryId) {
-    const updatedEntries = entries.filter((e) => e.id !== entryId)
-    const docData = {
-      date: todayId,
-      targets,
-      entries: updatedEntries,
+  return (
+    <Card>
+      <CardLabel>Or enter it manually</CardLabel>
+      <div className="mt-3 space-y-2">
+        <Input
+          aria-label="Meal label"
+          placeholder="Label (optional)"
+          value={fields.label}
+          onChange={(e) => setFields({ ...fields, label: e.target.value })}
+        />
+        <div className="grid grid-cols-4 gap-2">
+          {MACROS.map((m) => (
+            <Input
+              key={m.key}
+              type="number"
+              inputMode="decimal"
+              aria-label={m.label}
+              placeholder={m.label === 'Calories' ? 'kcal' : m.label}
+              value={fields[m.key]}
+              onChange={(e) => setFields({ ...fields, [m.key]: e.target.value })}
+              className="text-center px-1"
+            />
+          ))}
+        </div>
+        <Button variant="secondary" fullWidth icon={Plus} onClick={submit} disabled={!complete}>
+          Add
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
+export default function NutritionTracker() {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const viewDate = searchParams.get('date')
+
+  const { user, userProfile } = useAuth()
+  const { isStrength, strength } = useAppMode()
+  const { getDocument, setDocument, getCollection } = useFirestore()
+
+  // Both hooks run; only the active mode's numbers are used. They read
+  // different collections, so there is no wasted duplicate work.
+  const running = useWorkout()
+  const block = useStrengthBlock()
+
+  const [latest, setLatest] = useState({ weight: null, bodyFatPct: null })
+  const [todayLog, setTodayLog] = useState(null)
+  const [history, setHistory] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [viewingDay, setViewingDay] = useState(null)
+
+  const todayId = formatLocalDate()
+  const isViewingPast = !!viewDate && viewDate !== todayId
+
+  const load = useCallback(async () => {
+    if (!user) return
+    setLoading(true)
+    try {
+      const metrics = await getCollection('bodyMetrics', 'date', 'desc', 1)
+      setLatest({
+        weight: metrics[0]?.weight ?? userProfile?.onboarding?.initialWeight ?? null,
+        bodyFatPct: metrics[0]?.bodyFatPct ?? userProfile?.onboarding?.initialBodyFat ?? null,
+      })
+
+      setTodayLog(await getDocument(`nutritionLogs/${todayId}`))
+
+      const days = await Promise.all(
+        last7Days().map(async (d) => {
+          const dateId = formatLocalDate(d)
+          return { date: d, dateId, log: await getDocument(`nutritionLogs/${dateId}`) }
+        })
+      )
+      setHistory(days)
+    } catch {
+      // Panels degrade to their empty states.
     }
+    setLoading(false)
+  }, [user, getCollection, getDocument, todayId, userProfile])
 
-    await setDocument(`nutritionLogs/${todayId}`, docData)
-    setTodayLog(docData)
+  useEffect(() => {
+    load()
+  }, [load])
 
-    setHistoryDays((prev) =>
-      prev.map((d) => (d.dateId === todayId ? { ...d, log: docData } : d))
-    )
+  useEffect(() => {
+    if (!isViewingPast) {
+      setViewingDay(null)
+      return
+    }
+    getDocument(`nutritionLogs/${viewDate}`).then(setViewingDay)
+  }, [isViewingPast, viewDate, getDocument])
+
+  const advice = latest.weight
+    ? getNutritionAdvice({
+        mode: isStrength ? 'strength' : 'running',
+        weightLbs: latest.weight,
+        heightInches: userProfile?.profile?.heightInches || 0,
+        ageYears: calculateAge(userProfile?.profile?.birthday),
+        sex: userProfile?.profile?.biologicalSex || 'male',
+        currentBodyFatPct: latest.bodyFatPct,
+        todayLiftStats: isStrength ? block.todayLiftStats : running.todayLiftStats,
+        strength: { ...strength, isTrainingDay: block.isTrainingDay },
+        dailyMiles: running.todayMiles || 0,
+        weeklyMiles: running.currentMileage || 0,
+        trainingPhase: running.weekInfo?.type || 'build',
+        todayRuns: running.todayRuns,
+        vo2max: userProfile?.profile?.vo2max || null,
+      })
+    : null
+
+  const targets = advice
+    ? {
+        kcal: advice.calories.target,
+        protein: advice.protein.grams,
+        carbs: Math.round((advice.carbs.lowGrams + advice.carbs.highGrams) / 2),
+        fat: advice.fat.grams,
+      }
+    : null
+
+  const entries = todayLog?.entries || []
+  const consumed = sumEntries(entries)
+
+  async function persist(nextEntries) {
+    const doc = { date: todayId, targets, entries: nextEntries }
+    await setDocument(`nutritionLogs/${todayId}`, doc)
+    setTodayLog(doc)
+    setHistory((prev) => prev.map((d) => (d.dateId === todayId ? { ...d, log: doc } : d)))
   }
 
-  if (loading || workoutLoading) return <LoadingSpinner className="min-h-[60vh]" />
+  if (loading) return <SkeletonPage cards={3} />
 
-  // Read-only view of a past day
   if (isViewingPast) {
     const pastEntries = viewingDay?.entries || []
-    const pastTargets = viewingDay?.targets
-    const pastConsumed = pastEntries.reduce(
-      (acc, e) => ({
-        kcal: acc.kcal + (e.kcal || 0),
-        protein: acc.protein + (e.protein || 0),
-        carbs: acc.carbs + (e.carbs || 0),
-        fat: acc.fat + (e.fat || 0),
-      }),
-      { kcal: 0, protein: 0, carbs: 0, fat: 0 }
-    )
-
+    const pastConsumed = sumEntries(pastEntries)
     return (
-      <div className="space-y-4 pb-6">
-        <div className="flex items-center gap-3 pt-2">
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 pt-1">
           <button
+            type="button"
             onClick={() => navigate('/nutrition')}
-            className="text-gray-400 hover:text-gray-200"
+            aria-label="Back to today"
+            className="p-2 -ml-2 rounded-xl text-muted hover:text-text hover:bg-surface"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
+            <ChevronLeft className="w-5 h-5" />
           </button>
-          <h1 className="text-xl font-bold text-gray-100">
-            {new Date(viewDate + 'T12:00:00').toLocaleDateString('en-US', {
+          <h1 className="text-xl font-semibold text-text tracking-tight">
+            {new Date(`${viewDate}T12:00:00`).toLocaleDateString('en-US', {
               weekday: 'long',
               month: 'short',
               day: 'numeric',
@@ -255,239 +470,221 @@ export default function NutritionTracker() {
           </h1>
         </div>
 
-        {pastTargets && (
-          <div className="bg-surface rounded-xl p-4 border border-gray-800">
+        {viewingDay?.targets && (
+          <Card>
             <div className="grid grid-cols-4 gap-3">
-              {['kcal', 'protein', 'carbs', 'fat'].map((key) => {
-                const t = pastTargets[key] || 0
-                const c = pastConsumed[key] || 0
-                const pct = t > 0 ? Math.min((c / t) * 100, 100) : 0
-                const over = c > t
-                const unit = key === 'kcal' ? '' : 'g'
-                return (
-                  <div key={key}>
-                    <p className="text-xs text-gray-500 mb-1 capitalize">{key}</p>
-                    <p className={`text-sm font-semibold ${over ? 'text-yellow-400' : 'text-gray-100'}`}>
-                      {Math.round(c)}{unit}
-                    </p>
-                    <p className="text-xs text-gray-500">/ {Math.round(t)}{unit}</p>
-                    <div className="w-full bg-gray-800 rounded-full h-1.5 mt-1">
-                      <div
-                        className={`h-1.5 rounded-full transition-all ${over ? 'bg-yellow-400' : 'bg-brand'}`}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
+              {MACROS.map((m) => (
+                <div key={m.key}>
+                  <p className="text-xs text-muted">{m.label}</p>
+                  <p className="text-base font-semibold text-text tabular-nums">
+                    {Math.round(pastConsumed[m.key])}
+                    {m.unit}
+                  </p>
+                  <p className="text-xs text-subtle tabular-nums">
+                    / {Math.round(viewingDay.targets[m.key] || 0)}
+                    {m.unit}
+                  </p>
+                </div>
+              ))}
             </div>
-          </div>
+          </Card>
         )}
 
         {pastEntries.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-8">No entries logged</p>
+          <EmptyState title="Nothing logged" message="No meals recorded on this day." />
         ) : (
-          <div className="space-y-2">
-            {pastEntries.map((e) => (
-              <div key={e.id} className="bg-surface rounded-xl px-4 py-3 border border-gray-800">
-                {e.label && <p className="text-sm text-gray-200 mb-1">{e.label}</p>}
-                <div className="flex gap-4 text-xs text-gray-400">
-                  <span>{e.kcal} kcal</span>
-                  <span>{e.protein}g P</span>
-                  <span>{e.carbs}g C</span>
-                  <span>{e.fat}g F</span>
-                </div>
-              </div>
-            ))}
-          </div>
+          pastEntries.map((e) => <EntryCard key={e.id} entry={e} />)
         )}
       </div>
     )
   }
 
   return (
-    <div className="space-y-4 pb-6">
-      {/* Header */}
-      <div className="flex items-center gap-3 pt-2">
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 pt-1">
         <button
+          type="button"
           onClick={() => navigate('/')}
-          className="text-gray-400 hover:text-gray-200"
+          aria-label="Back to dashboard"
+          className="p-2 -ml-2 rounded-xl text-muted hover:text-text hover:bg-surface"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
+          <ChevronLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-xl font-bold text-gray-100">Macro Tracker</h1>
+        <h1 className="text-xl font-semibold text-text tracking-tight">Fuel</h1>
+        {advice?.surplus ? (
+          <Badge tone="brand" className="ml-auto">
+            +{advice.surplus} kcal
+          </Badge>
+        ) : advice?.deficit ? (
+          <Badge tone="warning" className="ml-auto">
+            −{advice.deficit} kcal
+          </Badge>
+        ) : null}
       </div>
 
-      {/* Targets + Progress */}
-      {targets && (
-        <div className="bg-surface rounded-xl p-4 border border-gray-800">
-          <p className="text-xs text-gray-500 uppercase tracking-wide mb-3">Daily Targets</p>
-          <div className="grid grid-cols-4 gap-3">
-            {[
-              { key: 'kcal', label: 'Calories', unit: '' },
-              { key: 'protein', label: 'Protein', unit: 'g' },
-              { key: 'carbs', label: 'Carbs', unit: 'g' },
-              { key: 'fat', label: 'Fat', unit: 'g' },
-            ].map(({ key, label: macroLabel, unit }) => {
-              const target = targets[key]
-              const current = consumed[key]
-              const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0
+      {targets ? (
+        <Card>
+          <CardLabel>Today</CardLabel>
+          <div className="grid grid-cols-4 gap-3 mt-3">
+            {MACROS.map((m) => {
+              const target = targets[m.key]
+              const current = consumed[m.key]
               const over = current > target
-              const proteinLow = key === 'protein' && current < proteinFloor
-
               return (
-                <div key={key}>
-                  <p className="text-xs text-gray-500 mb-1">{macroLabel}</p>
-                  <p className={`text-lg font-semibold ${over || proteinLow ? 'text-yellow-400' : 'text-gray-100'}`}>
-                    {Math.round(current)}{unit}
+                <div key={m.key}>
+                  <p className="text-xs text-muted truncate">{m.label}</p>
+                  <p
+                    className={cn(
+                      'text-lg font-semibold tabular-nums mt-0.5',
+                      over ? 'text-warning-strong' : 'text-text'
+                    )}
+                  >
+                    {Math.round(current)}
+                    {m.unit}
                   </p>
-                  <p className="text-xs text-gray-500">/ {Math.round(target)}{unit}</p>
-                  <div className="w-full bg-gray-800 rounded-full h-2 mt-1.5">
-                    <div
-                      className={`h-2 rounded-full transition-all ${over || proteinLow ? 'bg-yellow-400' : 'bg-brand'}`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
+                  <p className="text-xs text-subtle tabular-nums">
+                    / {Math.round(target)}
+                    {m.unit}
+                  </p>
+                  <ProgressBar
+                    value={current}
+                    max={target}
+                    size="sm"
+                    className="mt-1.5"
+                    label={`${m.label}: ${Math.round(current)} of ${Math.round(target)}`}
+                  />
                 </div>
               )
             })}
           </div>
-        </div>
+          {advice?.calories.breakdown && (
+            <p className="text-xs text-muted mt-3 pt-3 border-t border-border-default">
+              {advice.calories.breakdown} · {advice.carbs.guidance}
+            </p>
+          )}
+        </Card>
+      ) : (
+        <Card to="/metrics">
+          <p className="text-sm text-muted">Log your weight to get macro targets →</p>
+        </Card>
       )}
 
-      {/* Quick add form */}
-      <div className="bg-surface rounded-xl p-4 border border-gray-800">
-        <p className="text-xs text-gray-500 uppercase tracking-wide mb-3">Log Entry</p>
-        <input
-          type="text"
-          placeholder="Label (optional)"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand mb-2"
-        />
-        <div className="grid grid-cols-4 gap-2 mb-3">
-          <input
-            type="number"
-            inputMode="numeric"
-            placeholder="kcal"
-            value={kcal}
-            onChange={(e) => setKcal(e.target.value)}
-            className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand"
-          />
-          <input
-            type="number"
-            inputMode="decimal"
-            placeholder="Protein"
-            value={protein}
-            onChange={(e) => setProtein(e.target.value)}
-            className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand"
-          />
-          <input
-            type="number"
-            inputMode="decimal"
-            placeholder="Carbs"
-            value={carbs}
-            onChange={(e) => setCarbs(e.target.value)}
-            className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand"
-          />
-          <input
-            type="number"
-            inputMode="decimal"
-            placeholder="Fat"
-            value={fat}
-            onChange={(e) => setFat(e.target.value)}
-            className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-brand"
-          />
-        </div>
-        <button
-          onClick={handleAdd}
-          disabled={kcal === '' || protein === '' || carbs === '' || fat === ''}
-          className="w-full bg-brand text-white font-semibold rounded-lg py-2.5 text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-brand-light transition-colors"
-        >
-          + Add
-        </button>
-      </div>
+      <Button size="lg" fullWidth icon={Camera} onClick={() => setSheetOpen(true)}>
+        Log a meal
+      </Button>
 
-      {/* Logged entries */}
+      <EstimateSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        onSave={(entry) => persist([...entries, entry])}
+      />
+
       {entries.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs text-gray-500 uppercase tracking-wide px-1">Today's Entries</p>
+          <CardLabel className="px-1">Today&apos;s meals</CardLabel>
           {entries.map((e) => (
-            <div key={e.id} className="bg-surface rounded-xl px-4 py-3 border border-gray-800 flex items-center justify-between">
-              <div>
-                {e.label && <p className="text-sm text-gray-200 mb-1">{e.label}</p>}
-                <div className="flex gap-4 text-xs text-gray-400">
-                  <span>{e.kcal} kcal</span>
-                  <span>{e.protein}g P</span>
-                  <span>{e.carbs}g C</span>
-                  <span>{e.fat}g F</span>
-                </div>
-              </div>
-              <button
-                onClick={() => handleDelete(e.id)}
-                className="text-gray-600 hover:text-red-400 transition-colors ml-3 p-1"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            </div>
+            <EntryCard
+              key={e.id}
+              entry={e}
+              onDelete={() => persist(entries.filter((x) => x.id !== e.id))}
+            />
           ))}
         </div>
       )}
 
-      {/* 7-day history strip */}
-      <div className="bg-surface rounded-xl p-4 border border-gray-800">
-        <p className="text-xs text-gray-500 uppercase tracking-wide mb-3">Last 7 Days</p>
-        <div className="grid grid-cols-7 gap-1">
-          {historyDays.map((day) => {
-            const isToday = day.dateId === todayId
+      <ManualEntryCard onAdd={(entry) => persist([...entries, entry])} />
+
+      <Card>
+        <CardLabel>Last 7 days</CardLabel>
+        <div className="grid grid-cols-7 gap-1 mt-3">
+          {history.map((day) => {
             const dayEntries = day.log?.entries || []
-            const dayTargets = day.log?.targets
-            const dayConsumed = dayEntries.reduce((acc, e) => acc + (e.kcal || 0), 0)
-            const dayProtein = dayEntries.reduce((acc, e) => acc + (e.protein || 0), 0)
-            const dayTarget = dayTargets?.kcal || 0
-            const proteinMissed = dayEntries.length > 0 && dayProtein < proteinFloor
+            const kcal = dayEntries.reduce((a, e) => a + (e.kcal || 0), 0)
+            const target = day.log?.targets?.kcal || 0
+            const isToday = day.dateId === todayId
             const hasData = dayEntries.length > 0
 
             return (
               <button
                 key={day.dateId}
-                onClick={() => {
-                  if (!isToday && hasData) {
-                    navigate(`/nutrition?date=${day.dateId}`)
-                  }
-                }}
+                type="button"
                 disabled={isToday || !hasData}
-                className={`flex flex-col items-center py-2 rounded-lg transition-colors ${
+                onClick={() => navigate(`/nutrition?date=${day.dateId}`)}
+                className={cn(
+                  'flex flex-col items-center py-2 rounded-xl transition-colors min-h-14',
                   isToday
-                    ? 'bg-brand/20 border border-brand/40'
+                    ? 'bg-brand-subtle border border-brand-border'
                     : hasData
-                      ? 'hover:bg-gray-800 cursor-pointer'
+                      ? 'hover:bg-surface'
                       : 'opacity-40'
-                }`}
-              >
-                <span className={`text-xs font-medium ${isToday ? 'text-brand' : 'text-gray-400'}`}>
-                  {getDayLabel(day.date)}
-                </span>
-                <span className="text-xs text-gray-500 mt-0.5">
-                  {hasData ? `${Math.round(dayConsumed)}` : '—'}
-                </span>
-                {dayTarget > 0 && hasData && (
-                  <span className="text-[10px] text-gray-600">
-                    /{Math.round(dayTarget)}
-                  </span>
                 )}
-                {proteinMissed && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 mt-1" />
+              >
+                <span
+                  className={cn(
+                    'text-xs font-medium',
+                    isToday ? 'text-brand' : 'text-muted'
+                  )}
+                >
+                  {day.date.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2)}
+                </span>
+                <span className="text-xs text-text tabular-nums mt-0.5">
+                  {hasData ? Math.round(kcal) : '—'}
+                </span>
+                {target > 0 && hasData && (
+                  <span className="text-[10px] text-subtle tabular-nums">
+                    /{Math.round(target)}
+                  </span>
                 )}
               </button>
             )
           })}
         </div>
-      </div>
+      </Card>
     </div>
+  )
+}
+
+function EntryCard({ entry, onDelete }) {
+  const confidence = entry.confidence ? CONFIDENCE_COPY[entry.confidence] : null
+
+  return (
+    <Card className="flex items-start gap-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-sm font-medium text-text">{entry.label}</p>
+          {entry.source === 'photo' && (
+            <Badge tone="neutral" size="xs" icon={Camera}>
+              Photo
+            </Badge>
+          )}
+          {confidence && entry.confidence !== 'high' && (
+            <Badge tone={confidence.tone} size="xs">
+              {confidence.label}
+            </Badge>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs text-muted tabular-nums">
+          <span>{Math.round(entry.kcal)} kcal</span>
+          <span>{Math.round(entry.protein)}g P</span>
+          <span>{Math.round(entry.carbs)}g C</span>
+          <span>{Math.round(entry.fat)}g F</span>
+        </div>
+        {entry.items?.length > 1 && (
+          <p className="text-xs text-subtle mt-1 truncate">
+            {entry.items.map((i) => i.name).join(' · ')}
+          </p>
+        )}
+      </div>
+      {onDelete && (
+        <Button
+          variant="ghost"
+          size="xs"
+          icon={Trash2}
+          aria-label={`Delete ${entry.label}`}
+          onClick={onDelete}
+          className="shrink-0 text-subtle hover:text-danger-strong"
+        />
+      )}
+    </Card>
   )
 }

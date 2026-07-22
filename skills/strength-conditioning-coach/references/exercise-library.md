@@ -187,3 +187,76 @@ it doesn't compete with lifting recovery.
 | Cat-cow / segmental rolling | spine | 8 reps | Warm-up filler |
 
 Front-load 6-8 min every session. Ankle and hip drills are mandatory; the rest rotate.
+
+---
+
+## Exercise ID reference (generated from the app catalogue)
+
+`get_training_summary` returns each logged movement as an `exerciseId`. These
+are the exact identifiers in `src/lib/strength/exercises.js` — use this table to
+decode a training summary, and use these IDs when you want the athlete to log
+something specific.
+
+The three risk columns are the same values the app's guardrail filter reads, so
+your recommendations and the app's exercise selection agree by construction.
+
+| exerciseId | Movement | Chain | Pattern | Primary | Ham. stretch | Knee flexion | Ankle DF |
+|---|---|---|---|---|---|---|---|
+| `barbellHipThrust` | Barbell Hip Thrust | posterior | hinge | glutes | low | low | low |
+| `singleLegHipThrust` | Single-Leg Hip Thrust | posterior | hinge | glutes | low | low | low |
+| `gluteBridge` | Barbell Glute Bridge | posterior | hinge | glutes | low | low | low |
+| `cableKickback` | Cable Glute Kickback | posterior | isolation | glutes | low | low | low |
+| `hipAbductionMachine` | Hip Abduction Machine | posterior | isolation | glutes | low | low | low |
+| `bulgarianSplitSquat` | Bulgarian Split Squat | anterior | lunge | quads, glutes | low | moderate | moderate |
+| `hamstringBridgeIsometric` | Long-Lever Hamstring Bridge (Isometric) | posterior | isolation | hamstrings | low | low | low |
+| `lyingLegCurl` | Lying Leg Curl | posterior | isolation | hamstrings | low | moderate | low |
+| `seatedLegCurl` | Seated Leg Curl | posterior | isolation | hamstrings | moderate | moderate | low |
+| `romanianDeadlift` | Romanian Deadlift | posterior | hinge | hamstrings, glutes | high | low | low |
+| `staggeredStanceRDL` | Staggered Stance RDL | posterior | hinge | hamstrings, glutes | moderate | low | low |
+| `backExtension45` | 45° Back Extension | posterior | hinge | glutes, hamstrings | moderate | low | low |
+| `nordicCurl` | Nordic Hamstring Curl | posterior | isolation | hamstrings | moderate | high | low |
+| `goodMorning` | Good Morning | posterior | hinge | hamstrings, glutes | high | low | low |
+| `legPress` | Leg Press | anterior | squat | quads | low | moderate | low |
+| `hackSquat` | Hack Squat | anterior | squat | quads | low | moderate | low |
+| `barbellBackSquat` | Barbell Back Squat | anterior | squat | quads, glutes | low | high | high |
+| `gobletSquat` | Heel-Elevated Goblet Squat | anterior | squat | quads | low | moderate | moderate |
+| `legExtension` | Leg Extension | anterior | isolation | quads | low | moderate | low |
+| `spanishSquat` | Spanish Squat | anterior | squat | quads | low | low | low |
+| `reverseLunge` | Reverse Lunge | anterior | lunge | quads, glutes | low | moderate | low |
+| `stepUp` | Weighted Step-Up | anterior | lunge | quads, glutes | low | moderate | moderate |
+| `standingCalfRaise` | Standing Calf Raise | posterior | calf | calves | low | low | low |
+| `seatedCalfRaise` | Seated Calf Raise | posterior | calf | calves | low | low | low |
+| `singleLegCalfRaise` | Single-Leg Calf Raise | posterior | calf | calves | low | low | low |
+| `barbellBenchPress` | Barbell Bench Press | anterior | horizontalPush | chest | low | low | low |
+| `inclineDbPress` | Incline Dumbbell Press | anterior | horizontalPush | chest | low | low | low |
+| `machineChestPress` | Machine Chest Press | anterior | horizontalPush | chest | low | low | low |
+| `cableFly` | Cable Fly | anterior | isolation | chest | low | low | low |
+| `pullUp` | Weighted Pull-Up | posterior | verticalPull | back | low | low | low |
+| `latPulldown` | Lat Pulldown | posterior | verticalPull | back | low | low | low |
+| `barbellRow` | Barbell Row | posterior | horizontalPull | back | moderate | low | low |
+| `chestSupportedRow` | Chest-Supported Row | posterior | horizontalPull | back | low | low | low |
+| `singleArmRow` | Single-Arm Dumbbell Row | posterior | horizontalPull | back | low | low | low |
+| `seatedCableRow` | Seated Cable Row | posterior | horizontalPull | back | moderate | low | low |
+| `facePull` | Face Pull | posterior | isolation | rearDelts | low | low | low |
+| `rearDeltFly` | Reverse Pec Deck | posterior | isolation | rearDelts | low | low | low |
+| `straightArmPulldown` | Straight-Arm Pulldown | posterior | isolation | back | low | low | low |
+| `overheadPress` | Overhead Press | anterior | verticalPush | sideDelts | low | low | low |
+| `dbShoulderPress` | Seated Dumbbell Shoulder Press | anterior | verticalPush | sideDelts | low | low | low |
+| `lateralRaise` | Cable Lateral Raise | neutral | isolation | sideDelts | low | low | low |
+| `barbellCurl` | EZ-Bar Curl | neutral | isolation | biceps | low | low | low |
+| `inclineDbCurl` | Incline Dumbbell Curl | neutral | isolation | biceps | low | low | low |
+| `hammerCurl` | Hammer Curl | neutral | isolation | biceps | low | low | low |
+| `triceptPushdown` | Cable Triceps Pushdown | neutral | isolation | triceps | low | low | low |
+| `overheadCableExtension` | Overhead Cable Triceps Extension | neutral | isolation | triceps | low | low | low |
+| `cableCrunch` | Cable Crunch | anterior | core | core | low | low | low |
+| `hangingLegRaise` | Hanging Leg Raise | anterior | core | core | moderate | low | low |
+| `pallofPress` | Pallof Press | neutral | core | core | low | low | low |
+| `farmersCarry` | Farmer's Carry | neutral | carry | traps, core | low | low | low |
+
+**Reading the risk columns.** `Ham. stretch` is loaded lengthening of the
+*proximal* hamstring: `high` is blocked until block week 13, `moderate` until
+week 5, `low` is available from week 1. `Knee flexion` `high` is blocked
+outright while the knee flag is set; `moderate` is permitted with a capped ROM
+and a 3-second eccentric. `Ankle DF` never blocks — anything above `low` gets
+heel elevation.
+

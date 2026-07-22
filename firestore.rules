@@ -1,17 +1,27 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users can only read/write their own data
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
 
-      match /{subcollection}/{docId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+    // A user's profile document and everything beneath it.
+    //
+    // The nested wildcard covers every per-user collection — bodyMetrics,
+    // workoutSessions, exerciseProgress, mileageLogs, dailyMileage,
+    // nutritionLogs — so adding a collection needs no rules change, and no
+    // collection is ever accidentally left world-readable.
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      match /{document=**} {
+        allow read, write: if isOwner(userId);
       }
     }
 
-    // Program data is read-only for authenticated users
+    // Shared program definitions are read-only reference data.
     match /program/{docId} {
       allow read: if request.auth != null;
       allow write: if false;

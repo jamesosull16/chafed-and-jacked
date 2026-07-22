@@ -16,7 +16,7 @@
  * Pure module. Sessions are passed in; nothing is read from Firestore here.
  */
 
-import { STRENGTH_EXERCISES } from './exercises'
+import { STRENGTH_EXERCISES } from './exercises.js'
 
 /** Weekly set landmarks, tuned for this block's priorities. */
 export const VOLUME_LANDMARKS = {
