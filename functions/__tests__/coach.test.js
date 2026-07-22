@@ -286,6 +286,115 @@ describe('tool handlers', () => {
       })
     ).rejects.toThrow(/implausibly high/)
   })
+
+  // A card is applied in one tap, so a movement named in one has to clear the
+  // same bar as one the session generator picked. CONTEXT is week 3 with the
+  // hamstring flag set, i.e. rehab stage 1.
+  describe('propose_adjustment movement screening', () => {
+    it('refuses a card naming a movement the current stage excludes', async () => {
+      const tooling = build()
+      await expect(
+        tooling.handlers.propose_adjustment({
+          title: 'Thursday · adjust',
+          changes: [{ label: 'Add Romanian Deadlift', detail: 'light, 3x10' }],
+        })
+      ).rejects.toThrow(/RDL/)
+      expect(tooling.cards).toHaveLength(0)
+    })
+
+    it('refuses the 45° back extension the live model reached for', async () => {
+      const tooling = build()
+      await expect(
+        tooling.handlers.propose_adjustment({
+          title: 'Thursday · posterior',
+          changes: [{ label: 'Add Back Extension (isometric hold)', detail: 'mid-range, glute-focused' }],
+        })
+      ).rejects.toThrow(/Back Ext/)
+      expect(tooling.cards).toHaveLength(0)
+    })
+
+    it('is not fooled by a qualifier that claims the movement is safe', async () => {
+      const tooling = build()
+      await expect(
+        tooling.handlers.propose_adjustment({
+          title: 'x',
+          changes: [{ label: 'Glute-focused 45° Back Ext', detail: 'round-back, hips only — no hamstring stretch' }],
+        })
+      ).rejects.toThrow(/Cannot propose this/)
+    })
+
+    it('screens the detail field, not just the label', async () => {
+      const tooling = build()
+      await expect(
+        tooling.handlers.propose_adjustment({
+          title: 'x',
+          changes: [{ label: 'Swap the hinge', detail: 'use a good morning instead' }],
+        })
+      ).rejects.toThrow(/Good AM/)
+    })
+
+    it('rejects the whole card when any one change is blocked', async () => {
+      const tooling = build()
+      await expect(
+        tooling.handlers.propose_adjustment({
+          title: 'x',
+          changes: [
+            { label: 'Barbell Hip Thrust', detail: '4x8-12' },
+            { label: 'Seated Leg Curl', detail: '3x12' },
+          ],
+        })
+      ).rejects.toThrow(/Seated Curl/)
+      expect(tooling.cards).toHaveLength(0)
+    })
+
+    it('tells the model a qualifier will not help, so it re-proposes properly', async () => {
+      const tooling = build()
+      const err = await tooling.handlers
+        .propose_adjustment({ title: 'x', changes: [{ label: 'RDLs' }] })
+        .catch((e) => e)
+      expect(err.message).toMatch(/isometric hold/)
+      expect(err.message).toMatch(/stage 1/)
+    })
+
+    it('still allows a card built from stage-1-legal movements', async () => {
+      const tooling = build()
+      const result = await tooling.handlers.propose_adjustment({
+        title: 'Thursday · posterior',
+        subtitle: 'Glute-led',
+        changes: [
+          { label: 'Barbell Hip Thrust', detail: 'primary glute driver', value: '4×8-12' },
+          { label: 'Lying Leg Curl', detail: 'mid-range only', value: '3×10-15' },
+        ],
+      })
+      expect(result.shown).toBe(true)
+      expect(tooling.cards[0].type).toBe('adjustment')
+      expect(tooling.cards[0].changes).toHaveLength(2)
+    })
+
+    it('still allows changes that name no movement at all', async () => {
+      const tooling = build()
+      await tooling.handlers.propose_adjustment({
+        title: 'x',
+        changes: [{ label: 'Drop to 3 sets', detail: 'RIR 3 this week', value: '-1 set' }],
+      })
+      expect(tooling.cards).toHaveLength(1)
+    })
+
+    it('permits the same movement once the block reaches a stage that allows it', async () => {
+      const tooling = createHandlers({
+        store: fakeStore(),
+        estimate: vi.fn(),
+        photo: null,
+        dateId: '2026-07-22',
+        context: { ...CONTEXT, block: { ...CONTEXT.block, blockWeek: 13 } },
+      })
+      await tooling.handlers.propose_adjustment({
+        title: 'x',
+        changes: [{ label: 'Reintroduce Romanian Deadlift', detail: '~60% of previous load' }],
+      })
+      expect(tooling.cards).toHaveLength(1)
+    })
+  })
 })
 
 // ── Orchestration and routing ────────────────────────────────────────

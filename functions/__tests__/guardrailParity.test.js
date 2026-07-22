@@ -13,14 +13,19 @@ import {
   getBlockWeek as serverBlockWeek,
   deriveGuardrails,
   DEFAULT_INJURY_FLAGS,
+  BLOCKABLE_MOVEMENTS,
+  isMovementAllowed,
+  findBlockedMovements,
 } from '../src/coach/guardrails.js'
 
 import {
   HAMSTRING_STAGES as CLIENT_STAGES,
   hamstringStageFor as clientStageFor,
+  isExerciseAllowed,
 } from '../../src/lib/strength/injuryGuardrails.js'
 import { getBlockWeek as clientBlockWeek } from '../../src/lib/strength/strengthPeriodization.js'
 import { defaultStrengthSettings } from '../../src/lib/appMode.js'
+import { STRENGTH_EXERCISES } from '../../src/lib/strength/exercises.js'
 
 describe('hamstring staging parity', () => {
   it('has identical stage boundaries', () => {
@@ -61,6 +66,118 @@ describe('block week parity', () => {
 describe('default injury flags parity', () => {
   it('matches the client defaults', () => {
     expect(DEFAULT_INJURY_FLAGS).toEqual(defaultStrengthSettings().injuryFlags)
+  })
+})
+
+describe('blockable movement parity', () => {
+  /** Every flag combination that can actually refuse a movement. */
+  const FLAG_SETS = [
+    [],
+    ['highHamstring'],
+    ['knee'],
+    ['lowBack'],
+    ['highHamstring', 'knee'],
+    ['highHamstring', 'knee', 'tightHips', 'ankleMobility'],
+    ['highHamstring', 'knee', 'lowBack', 'shoulder', 'tightHips', 'ankleMobility'],
+  ]
+
+  const isBlockable = (e) => {
+    const d = e.demands || {}
+    return ['moderate', 'high'].includes(d.hamstringStretch) || d.kneeFlexion === 'high' || d.axialLoad === 'high'
+  }
+
+  it('vendors exactly the catalogue entries that some flag can refuse', () => {
+    const fromCatalogue = Object.values(STRENGTH_EXERCISES).filter(isBlockable).map((e) => e.id).sort()
+    const vendored = BLOCKABLE_MOVEMENTS.map((m) => m.id).sort()
+    expect(vendored).toEqual(fromCatalogue)
+  })
+
+  it('copies each entry\'s blocking demands verbatim from the catalogue', () => {
+    for (const m of BLOCKABLE_MOVEMENTS) {
+      const e = STRENGTH_EXERCISES[m.id]
+      expect(e, `${m.id} missing from catalogue`).toBeTruthy()
+      expect(m.shortName).toBe(e.shortName)
+      expect(m.demands.hamstringStretch).toBe(e.demands.hamstringStretch ?? 'low')
+      expect(m.demands.kneeFlexion).toBe(e.demands.kneeFlexion ?? 'low')
+      expect(m.demands.axialLoad).toBe(e.demands.axialLoad ?? 'low')
+    }
+  })
+
+  it('reaches the same verdict as the client engine at every week, for every flag set', () => {
+    for (const injuryFlags of FLAG_SETS) {
+      for (let blockWeek = 1; blockWeek <= 22; blockWeek++) {
+        for (const m of BLOCKABLE_MOVEMENTS) {
+          const client = isExerciseAllowed(STRENGTH_EXERCISES[m.id], { injuryFlags, blockWeek })
+          const server = isMovementAllowed({ ...m.demands, shortName: m.shortName }, { injuryFlags, blockWeek })
+          expect(
+            server.allowed,
+            `${m.id} @ week ${blockWeek} flags=[${injuryFlags}] — server ${server.allowed}, client ${client.allowed}`
+          ).toBe(client.allowed)
+        }
+      }
+    }
+  })
+
+  it('never refuses a movement the client engine permits', () => {
+    for (const injuryFlags of FLAG_SETS) {
+      for (let blockWeek = 1; blockWeek <= 22; blockWeek++) {
+        for (const e of Object.values(STRENGTH_EXERCISES)) {
+          if (isExerciseAllowed(e, { injuryFlags, blockWeek }).allowed === false) continue
+          const hits = findBlockedMovements(e.name, { injuryFlags, blockWeek })
+          expect(hits, `${e.name} @ week ${blockWeek} flags=[${injuryFlags}]`).toEqual([])
+        }
+      }
+    }
+  })
+})
+
+describe('findBlockedMovements', () => {
+  const STAGE_1 = { injuryFlags: ['highHamstring', 'knee'], blockWeek: 1 }
+
+  it('catches the movements the live model actually reached for', () => {
+    for (const text of [
+      'Add Back Extension (isometric hold)',
+      'Glute-focused 45° Back Ext — round-back, hips only',
+      'Romanian Deadlift, light',
+      'program RDLs back in',
+      'seated leg curls, partial range',
+      'Good Mornings 3x10',
+    ]) {
+      expect(findBlockedMovements(text, STAGE_1), text).not.toEqual([])
+    }
+  })
+
+  it('leaves stage-1-legal movements alone', () => {
+    for (const text of [
+      'Barbell Hip Thrust 4x8-12',
+      'Lying Leg Curl — mid-range only',
+      'Single-leg Glute Bridge',
+      'Standing Calf Raise',
+      'add a set of leg press',
+      '+1 set, reduce load 10%',
+    ]) {
+      expect(findBlockedMovements(text, STAGE_1), text).toEqual([])
+    }
+  })
+
+  it('does not let a longer name trip the rule for a shorter one nested in it', () => {
+    // Staggered Stance RDL is moderate-stretch: legal from week 5, when a plain
+    // RDL (high) is still excluded. Naive substring matching would block it.
+    const atWeek5 = { injuryFlags: ['highHamstring'], blockWeek: 5 }
+    expect(findBlockedMovements('Staggered Stance RDL', atWeek5)).toEqual([])
+    expect(findBlockedMovements('Romanian Deadlift', atWeek5)).not.toEqual([])
+  })
+
+  it('releases movements as the stage advances, matching the engine', () => {
+    const flags = ['highHamstring']
+    expect(findBlockedMovements('45° Back Extension', { injuryFlags: flags, blockWeek: 1 })).not.toEqual([])
+    expect(findBlockedMovements('45° Back Extension', { injuryFlags: flags, blockWeek: 5 })).toEqual([])
+    expect(findBlockedMovements('Romanian Deadlift', { injuryFlags: flags, blockWeek: 5 })).not.toEqual([])
+    expect(findBlockedMovements('Romanian Deadlift', { injuryFlags: flags, blockWeek: 13 })).toEqual([])
+  })
+
+  it('blocks nothing when no injury flags are set', () => {
+    expect(findBlockedMovements('Romanian Deadlift and Good Mornings', { injuryFlags: [], blockWeek: 1 })).toEqual([])
   })
 })
 

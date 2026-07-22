@@ -21,6 +21,7 @@
  */
 
 import { validateEstimate, toLogEntry, totalsFor } from '../schema.js'
+import { findBlockedMovements } from './guardrails.js'
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack', 'preWorkout', 'postWorkout']
 
@@ -331,6 +332,24 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
       if (!Array.isArray(changes) || changes.length === 0) {
         throw new ToolError('Provide at least one change.')
       }
+
+      // A card is an action, not prose — James can apply it in one tap. The
+      // model authors these movement names freely, so screen them against the
+      // same rules the session generator uses before the card can exist. This
+      // comes back to the model as a tool error, so it re-proposes rather than
+      // the turn dying.
+      const guardrails = { injuryFlags: context?.injuryFlags || [], blockWeek: context?.block?.blockWeek || 1 }
+      const blocked = changes.flatMap((c) => findBlockedMovements(`${c?.label || ''} ${c?.detail || ''}`, guardrails))
+      if (blocked.length) {
+        const unique = [...new Map(blocked.map((b) => [b.id, b])).values()]
+        const detail = unique.map((b) => `${b.shortName} — ${b.reason}`).join(' ')
+        throw new ToolError(
+          `Cannot propose this: ${detail} ` +
+            'Re-propose using only movements the current stage permits. A qualifier like ' +
+            '"isometric hold" or "partial range" does not make an excluded movement permitted.'
+        )
+      }
+
       cards.push({
         type: 'adjustment',
         title: String(title).slice(0, 80),
