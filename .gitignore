@@ -29,3 +29,9 @@ dist-ssr
 # Local briefs and mockups (not part of the app)
 CHAT_FEATURE_PROMPT.md
 chat-mockup.html
+
+# Secrets — local only, never commit.
+# (Already matched by the broad *.local rule above; listed explicitly so the
+#  intent is obvious. Holds ANTHROPIC_API_KEY, USDA_API_KEY, MCP_SHARED_SECRET
+#  for the Functions emulator.)
+functions/.secret.local
