@@ -223,6 +223,7 @@ export default function Settings() {
     await updateUserProfile({
       goals: {
         targetBodyFatPct: parseFloat(targetBF),
+        startWeight: result.startWeight,
         targetWeight: result.targetWeight,
         achievableTargetWeight: result.achievableTargetWeight,
         targetDate: activeRace.date,

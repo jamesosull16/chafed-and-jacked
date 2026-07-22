@@ -162,6 +162,7 @@ export function calculateTimeGatedGoal(currentWeight, currentBodyFatPct, targetB
     return {
       isAlreadyAtGoal: true,
       message: 'You are already at or below your target body fat percentage.',
+      startWeight: round(currentWeight, 1),
       targetWeight: round(currentWeight, 1),
       achievableTargetWeight: round(currentWeight, 1),
       totalLossNeeded: 0,
@@ -212,6 +213,9 @@ export function calculateTimeGatedGoal(currentWeight, currentBodyFatPct, targetB
     isAlreadyAtGoal: false,
     isFullyAchievable,
     currentWeight: round(currentWeight, 1),
+    // The weight this plan was calculated from. Progress is meaningless
+    // without it — see GoalProgressCard.
+    startWeight: round(currentWeight, 1),
     targetWeight: round(targetWeight, 1),
     achievableTargetWeight: round(achievableTargetWeight, 1),
     totalLossNeeded: round(totalLossNeeded, 1),
@@ -229,6 +233,35 @@ export function calculateTimeGatedGoal(currentWeight, currentBodyFatPct, targetB
     leanLoss: round(leanLostAtTarget, 1),
     message,
   }
+}
+
+/**
+ * Recover the weight a goal plan was built from.
+ *
+ * Newer plans record `startWeight` directly. Plans saved before that field
+ * existed can still be recovered from their milestones, which sit at 25%, 50%
+ * and 75% of the planned loss:
+ *
+ *   m0 = S − 0.25L      m1 = S − 0.50L
+ *   ⇒ L = 4(m0 − m1)  and  S = m0 + 0.25L = 2·m0 − m1
+ *
+ * Falling back to the current weight (the last resort) makes progress read as
+ * 0%, which is honest — it means we genuinely don't know where the athlete
+ * started.
+ */
+export function resolveStartWeight({ startWeight, milestones, currentWeight }) {
+  if (typeof startWeight === 'number' && startWeight > 0) return startWeight
+
+  if (Array.isArray(milestones) && milestones.length >= 2) {
+    const [first, second] = milestones
+    const derived = 2 * first.targetWeight - second.targetWeight
+    // Only trust the derivation if it produces a start at or above where the
+    // athlete is now; anything else means the milestones aren't the shape we
+    // assumed.
+    if (Number.isFinite(derived) && derived >= currentWeight) return derived
+  }
+
+  return currentWeight
 }
 
 /**

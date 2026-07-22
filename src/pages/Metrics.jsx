@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, Plus, Scale, ShieldAlert, X } from 'lucide
 import { useFirestore } from '../hooks/useFirestore'
 import { useAuth } from '../contexts/AuthContext'
 import { calculateComposition, analyzeMetricsChange, calculateDeltas, formatDelta, calculateBMI } from '../lib/bodyMetrics'
-import { assessREDSRisk, getRecommendedBodyFatRange } from '../lib/bodyCompGoals'
+import { assessREDSRisk, getRecommendedBodyFatRange, resolveStartWeight } from '../lib/bodyCompGoals'
 import { getActiveRace } from '../lib/periodization'
 import {
   Button, Card, CardHeader, EmptyState, Field, Input, ProgressBar, SkeletonPage, StatTile,
@@ -209,6 +209,7 @@ export default function Metrics() {
       {goals?.targetWeight && latest && (
         <GoalProgressCard
           currentWeight={latest.weight}
+          startWeight={goals.startWeight}
           targetWeight={goals.targetWeight}
           currentBodyFat={latest.bodyFatPct}
           targetBodyFat={goals.targetBodyFatPct}
@@ -278,18 +279,24 @@ export default function Metrics() {
   )
 }
 
-function GoalProgressCard({ currentWeight, targetWeight, currentBodyFat, targetBodyFat, milestones, bfRange }) {
-  const totalLoss = currentWeight - targetWeight
+function GoalProgressCard({
+  currentWeight,
+  startWeight,
+  targetWeight,
+  currentBodyFat,
+  targetBodyFat,
+  milestones,
+  bfRange,
+}) {
   const remaining = currentWeight - targetWeight
-  const startWeight = milestones?.length > 0
-    ? targetWeight + (milestones[milestones.length - 1]?.targetWeight - targetWeight) + remaining
-    : currentWeight
-  // Progress as percentage of original goal
-  const lost = startWeight - currentWeight
-  const totalGoal = startWeight - targetWeight
+  const origin = resolveStartWeight({ startWeight, milestones, currentWeight })
+
+  const lost = origin - currentWeight
+  const totalGoal = origin - targetWeight
   const progressPct = totalGoal > 0 ? Math.min(100, Math.max(0, (lost / totalGoal) * 100)) : 0
 
-  // Find next milestone
+  // Milestones descend, so the first one still above the current weight is the
+  // nearest unreached checkpoint.
   const nextMilestone = milestones?.find((m) => currentWeight > m.targetWeight)
 
   return (
@@ -302,7 +309,9 @@ function GoalProgressCard({ currentWeight, targetWeight, currentBodyFat, targetB
         </div>
         <ProgressBar value={progressPct} max={100} label="Weight goal progress" />
         <p className="text-xs text-muted text-center tabular-nums">
-          {remaining > 0 ? `${remaining.toFixed(1)} lbs to go` : 'Goal reached!'}
+          {remaining > 0
+            ? `${lost > 0 ? `${lost.toFixed(1)} lbs down · ` : ''}${remaining.toFixed(1)} lbs to go`
+            : 'Goal reached!'}
         </p>
 
         {targetBodyFat > 0 && (
