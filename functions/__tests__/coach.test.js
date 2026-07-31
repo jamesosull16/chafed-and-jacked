@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-import { runCoachTurn, CoachError, MAX_ITERATIONS } from '../src/coach/orchestrator.js'
+import {
+  runCoachTurn,
+  classifyTurn,
+  CoachError,
+  MAX_ITERATIONS,
+} from '../src/coach/orchestrator.js'
 import { createHandlers, TOOL_DEFINITIONS, ToolError } from '../src/coach/tools.js'
 import { buildTurnContext } from '../src/coach/context.js'
 import { buildContextBlock, buildSystemPrompt, COACH_MODES } from '../src/coach/prompt.js'
@@ -780,6 +785,105 @@ describe('runCoachTurn', () => {
     const { messages } = anthropic.messages.create.mock.calls[0][0]
     expect(messages).toHaveLength(3)
     expect(messages[0].content).toBe('chicken and rice')
+  })
+})
+
+// ── Reasoning effort ─────────────────────────────────────────────────
+//
+// The tiers are asserted by value rather than by comparing against the
+// constant, because the point of these tests is that a coaching turn gets
+// *more* than a log entry — reading both sides from TURN_TIERS would pass
+// happily if someone flattened them to the same thing.
+
+describe('classifyTurn', () => {
+  it('treats a bare meal description as a logging turn', () => {
+    expect(classifyTurn({ message: '2 eggs, toast and a flat white' })).toBe('logging')
+  })
+
+  it('treats a photo with no text as a logging turn', () => {
+    expect(classifyTurn({ message: '', photo: { base64: 'AAAA' } })).toBe('logging')
+  })
+
+  it('treats anything with a question in it as a coaching turn', () => {
+    expect(classifyTurn({ message: 'what do I eat now?' })).toBe('coaching')
+  })
+
+  it('treats a long message as a coaching turn even without a question mark', () => {
+    const message =
+      'my hamstring felt tight on the last two long runs and I want to move tomorrow'
+    expect(classifyTurn({ message })).toBe('coaching')
+  })
+
+  it('always treats the post-workout trigger as a coaching turn', () => {
+    // Deciding whether to stay silent is the hardest call the Coach makes,
+    // and the restraint rules are what low effort would reason away first.
+    expect(classifyTurn({ trigger: 'A run was just logged.' })).toBe('coaching')
+  })
+})
+
+describe('reasoning effort', () => {
+  const effortOf = (anthropic, call = 0) =>
+    anthropic.messages.create.mock.calls[call][0].output_config.effort
+
+  const tokensOf = (anthropic, call = 0) =>
+    anthropic.messages.create.mock.calls[call][0].max_tokens
+
+  it('runs a logging turn cheaply', async () => {
+    const anthropic = scriptedModel([{ text: 'Logged ✓' }])
+    const result = await runCoachTurn({ message: 'chicken and rice' }, deps({ anthropic }))
+
+    expect(effortOf(anthropic)).toBe('low')
+    expect(tokensOf(anthropic)).toBe(2048)
+    expect(result.tier).toBe('logging')
+  })
+
+  it('gives a coaching turn depth and room to answer', async () => {
+    const anthropic = scriptedModel([{ text: 'Move it to Saturday.' }])
+    const result = await runCoachTurn(
+      { message: 'should I move my long run because of the forecast?' },
+      deps({ anthropic })
+    )
+
+    expect(effortOf(anthropic)).toBe('high')
+    // 2048 was the old blanket ceiling; a real coaching answer needs more.
+    expect(tokensOf(anthropic)).toBeGreaterThan(2048)
+    expect(result.tier).toBe('coaching')
+  })
+
+  it('escalates mid-turn when a logging turn reaches for training data', async () => {
+    // "post run fuel" classifies as a log entry on shape alone. The model
+    // reading the run is the correction — it has seen the turn and the
+    // classifier has not.
+    const anthropic = scriptedModel([
+      { tools: [{ name: 'get_workout', input: { which: 'today' } }] },
+      { text: '90g carbs in the next 45 min.' },
+    ])
+    const result = await runCoachTurn({ message: 'post run fuel' }, deps({ anthropic }))
+
+    expect(effortOf(anthropic, 0)).toBe('low')
+    expect(effortOf(anthropic, 1)).toBe('high')
+    expect(result.tier).toBe('coaching')
+  })
+
+  it('does not escalate when the tools used are only nutrition writes', async () => {
+    const anthropic = scriptedModel([
+      { tools: [{ name: 'estimate_meal', input: { description: 'chicken and rice' } }] },
+      { text: 'Logged ✓' },
+    ])
+    const result = await runCoachTurn({ message: 'chicken and rice' }, deps({ anthropic }))
+
+    expect(effortOf(anthropic, 1)).toBe('low')
+    expect(result.tier).toBe('logging')
+  })
+
+  it('runs the post-workout trigger at coaching effort', async () => {
+    const anthropic = scriptedModel([{ text: '' }])
+    await runCoachTurn(
+      { trigger: buildWorkoutTrigger({ kind: 'run', summary: '13.1 mi, 115 min' }) },
+      deps({ anthropic })
+    )
+
+    expect(effortOf(anthropic)).toBe('high')
   })
 })
 

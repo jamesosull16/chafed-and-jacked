@@ -24,6 +24,72 @@ export const MAX_ITERATIONS = 8
 /** How many prior messages of history to replay. */
 export const HISTORY_TURNS = 20
 
+// ── Reasoning effort ──────────────────────────────────────────
+//
+// A blanket `effort: 'low'` was right when the Coach only logged food: those
+// turns are a transcription and a lookup, and latency is the whole experience.
+// It is wrong for a coaching turn, where the answer is a judgement across
+// training, fuelling and injury state, and 2048 tokens doesn't hold one.
+//
+// Two tiers rather than five, because the interesting distinction is binary —
+// "transcribe this" versus "decide something" — and a middle tier would only
+// invite arguing about which side a turn falls on.
+
+export const TURN_TIERS = Object.freeze({
+  logging: { effort: 'low', maxTokens: 2048 },
+  coaching: { effort: 'high', maxTokens: 4096 },
+})
+
+/**
+ * Tools whose use means the turn is a coaching turn, whatever it looked like
+ * on the way in. Reading training history or authoring a plan card is not
+ * something a meal log does — so the model reaching for one of these is
+ * evidence the classifier was wrong, and better evidence than the shape of
+ * the text, because the model has read the turn and the classifier hasn't.
+ */
+const COACHING_TOOLS = new Set([
+  'get_workout',
+  'get_training_history',
+  'get_exercise_progress',
+  'get_body_metrics',
+  'estimate_session_cost',
+  'propose_fuelling',
+  'propose_adjustment',
+  'show_session',
+])
+
+/**
+ * Longest message still treated as a bare log entry. "2 eggs, toast and a
+ * flat white" is nine words; anything materially longer is a person talking,
+ * not itemising. Deliberately a shape heuristic and not a keyword match —
+ * matching on words like "should" or "why" is the brittle routing this
+ * design already rejected once, and it fails on the turns that matter most.
+ */
+const LOG_ENTRY_WORDS = 12
+
+/**
+ * Which tier a turn starts in.
+ *
+ * Wrong in the cheap direction on purpose: a misjudged coaching turn is
+ * caught mid-loop by the tool escalation above, whereas a misjudged logging
+ * turn only costs latency on the app's most frequent interaction.
+ */
+export function classifyTurn({ message, photo, trigger }) {
+  // The post-workout message is the hardest call the Coach makes — it decides
+  // whether to speak at all, and the restraint rules are the thing most likely
+  // to be reasoned away at low effort.
+  if (trigger) return 'coaching'
+
+  const text = message?.trim() || ''
+
+  // A photo with nothing typed is unambiguous: there is no question attached.
+  if (photo && !text) return 'logging'
+
+  if (!text.includes('?') && text.split(/\s+/).length <= LOG_ENTRY_WORDS) return 'logging'
+
+  return 'coaching'
+}
+
 export class CoachError extends Error {
   constructor(message, code = 'internal') {
     super(message)
@@ -68,7 +134,7 @@ function buildUserContent({ text, photo }) {
  * @param deps.context    live app context for this turn
  * @param deps.dateId     local YYYY-MM-DD
  *
- * @returns {{ reply, cards, toolsUsed, dayTotals, remaining, logMutated }}
+ * @returns {{ reply, cards, toolsUsed, dayTotals, remaining, logMutated, tier }}
  */
 export async function runCoachTurn(
   { message, photo, history = [], trigger = null },
@@ -108,18 +174,17 @@ export async function runCoachTurn(
     { type: 'text', text: `Live app data for this turn:\n\n${buildContextBlock(context)}` },
   ]
 
+  let tier = classifyTurn({ message, photo, trigger })
+
   let response
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     try {
       response = await anthropic.messages.create({
         model: MODEL,
-        max_tokens: 2048,
+        max_tokens: TURN_TIERS[tier].maxTokens,
         system,
         thinking: { type: 'adaptive' },
-        // Chat latency matters more than depth here; the hard reasoning lives
-        // in the guardrails, which are enforced structurally rather than by
-        // the model thinking harder about them.
-        output_config: { effort: 'low' },
+        output_config: { effort: TURN_TIERS[tier].effort },
         tools: TOOL_DEFINITIONS,
         messages,
       })
@@ -139,6 +204,12 @@ export async function runCoachTurn(
     messages.push({ role: 'assistant', content: response.content })
 
     const toolUses = response.content.filter((b) => b.type === 'tool_use')
+
+    // Escalate for the rest of the loop, never de-escalate. The iteration that
+    // matters is the one after the tool results come back — that is where the
+    // answer is actually composed — so catching it here is in time.
+    if (toolUses.some((b) => COACHING_TOOLS.has(b.name))) tier = 'coaching'
+
     const results = await Promise.all(
       toolUses.map(async (block) => {
         toolsUsed.push(block.name)
@@ -195,5 +266,9 @@ export async function runCoachTurn(
     dayTotals: tooling.dayTotals(entries),
     remaining: tooling.remainingFrom(entries),
     hitIterationCap: response?.stop_reason === 'tool_use',
+    // Returned so the tier a turn ended up in is observable rather than
+    // inferred from latency — the classifier is a heuristic and needs to be
+    // checkable against real turns.
+    tier,
   }
 }
