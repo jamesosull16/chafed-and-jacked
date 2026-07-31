@@ -16,6 +16,7 @@ import {
   LIMITS,
 } from '../src/coach/rateLimit.js'
 import { buildWorkoutTrigger } from '../src/coach/trigger.js'
+import { readHistory, HISTORY_TURNS } from '../src/coach/history.js'
 
 // ── In-memory store, same surface as src/store.js ─────────────────────
 
@@ -785,6 +786,138 @@ describe('runCoachTurn', () => {
     const { messages } = anthropic.messages.create.mock.calls[0][0]
     expect(messages).toHaveLength(3)
     expect(messages[0].content).toBe('chicken and rice')
+  })
+})
+
+// ── Server-read history ──────────────────────────────────────────────
+
+describe('readHistory', () => {
+  const thread = (...docs) =>
+    fakeStore({
+      collections: {
+        coachChat: Object.fromEntries(
+          docs.map((d, i) => [`m${i}`, { createdAt: `2026-07-31T10:0${i}:00Z`, ...d }])
+        ),
+      },
+    })
+
+  it('returns the thread oldest first', async () => {
+    const store = thread(
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'second' },
+      { role: 'user', content: 'third' }
+    )
+    const history = await readHistory(store)
+
+    expect(history.map((m) => m.content)).toEqual(['first', 'second', 'third'])
+  })
+
+  it('replays meal options with their numbering so "option 1" resolves', async () => {
+    const store = thread({
+      role: 'assistant',
+      content: 'Three that fit:',
+      cards: [
+        {
+          type: 'meal_options',
+          options: [
+            { name: 'Chicken burrito bowl', kcal: 620, protein_g: 45, carbs_g: 70, fat_g: 18 },
+            { name: 'Salmon and rice', kcal: 580, protein_g: 40, carbs_g: 60, fat_g: 20 },
+          ],
+        },
+      ],
+    })
+    const [message] = await readHistory(store)
+
+    expect(message.content).toContain('1. Chicken burrito bowl')
+    expect(message.content).toContain('2. Salmon and rice')
+    expect(message.content).toContain('620 kcal')
+  })
+
+  it('replays a logged meal with the id needed to correct it', async () => {
+    const store = thread({
+      role: 'assistant',
+      content: 'Logged ✓',
+      cards: [{ type: 'food_log', entry: { id: 'abc123', description: 'Chicken and rice', kcal: 485 } }],
+    })
+    const [message] = await readHistory(store)
+
+    expect(message.content).toContain('Chicken and rice')
+    expect(message.content).toContain('abc123')
+  })
+
+  it('replays a fuelling card with its window', async () => {
+    const store = thread({
+      role: 'assistant',
+      content: '',
+      cards: [
+        {
+          type: 'fuelling',
+          window: 'next 45 min',
+          options: [{ name: 'Rice pudding', kcal: 400, protein_g: 12, carbs_g: 70, fat_g: 8 }],
+        },
+      ],
+    })
+    const [message] = await readHistory(store)
+
+    expect(message.content).toContain('next 45 min')
+    expect(message.content).toContain('1. Rice pudding')
+  })
+
+  it('marks a photo rather than dropping the message', async () => {
+    // Dropped entirely, this replayed as a message about nothing.
+    const store = thread({ role: 'user', content: 'is this ok?', photoPreview: 'data:image/x' })
+    const [message] = await readHistory(store)
+
+    expect(message.content).toContain('is this ok?')
+    expect(message.content).toContain('[photo attached]')
+  })
+
+  it('drops the optimistic user message the client already wrote', async () => {
+    // The client writes the message to the thread before calling in. Replayed,
+    // the model sees the question twice and answers one it has already been asked.
+    const store = thread(
+      { role: 'assistant', content: 'Logged ✓' },
+      { role: 'user', content: "what's left today?" }
+    )
+    const history = await readHistory(store, { pendingUserText: "what's left today?" })
+
+    expect(history.map((m) => m.content)).toEqual(['Logged ✓'])
+  })
+
+  it('keeps an identical earlier question that is not the pending one', async () => {
+    const store = thread(
+      { role: 'user', content: "what's left today?" },
+      { role: 'assistant', content: '1,230 kcal.' }
+    )
+    const history = await readHistory(store, { pendingUserText: "what's left today?" })
+
+    expect(history).toHaveLength(2)
+  })
+
+  it('skips a message with no text, no photo and no renderable card', async () => {
+    const store = thread(
+      { role: 'assistant', content: '' },
+      { role: 'user', content: 'still there?' }
+    )
+    const history = await readHistory(store)
+
+    expect(history.map((m) => m.content)).toEqual(['still there?'])
+  })
+
+  it('caps the window at HISTORY_TURNS', async () => {
+    const docs = Array.from({ length: HISTORY_TURNS + 10 }, (_, i) => ({
+      role: i % 2 ? 'assistant' : 'user',
+      content: `m${i}`,
+    }))
+    const store = fakeStore({
+      collections: {
+        coachChat: Object.fromEntries(
+          docs.map((d, i) => [`m${i}`, { createdAt: String(i).padStart(4, '0'), ...d }])
+        ),
+      },
+    })
+
+    expect(await readHistory(store)).toHaveLength(HISTORY_TURNS)
   })
 })
 

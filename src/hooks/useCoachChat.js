@@ -98,10 +98,12 @@ export function useCoachChat({ buildContext }) {
         })
 
         const callable = httpsCallable(functions, 'coachTurn', { timeout: 180_000 })
+        // History is no longer sent. The server reads the thread itself — it is
+        // the record of what the coach has already said, and it carries the
+        // cards, which this hook was stripping before they ever left the device.
         const { data } = await callable({
           message: text || '',
           photo: photo ? { base64: photo.base64, mediaType: photo.mediaType } : null,
-          history: messages.slice(-20).map((m) => ({ role: m.role, content: m.content })),
           context: buildContextRef.current?.() || {},
           timezoneOffset: new Date().getTimezoneOffset(),
         })
@@ -122,7 +124,9 @@ export function useCoachChat({ buildContext }) {
         setSending(false)
       }
     },
-    [user, sending, messages, write]
+    // `messages` is no longer a dependency — dropping it means typing a second
+    // message doesn't rebuild `send` on every snapshot the thread receives.
+    [user, sending, write]
   )
 
   return { messages, pending, loading, sending, error, send, clearError: () => setError(null) }

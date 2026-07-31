@@ -21,6 +21,7 @@ import { estimateMeal, EstimationError } from './src/estimator.js'
 import { createStore, localDateId } from './src/store.js'
 import { runCoachTurn, CoachError } from './src/coach/orchestrator.js'
 import { buildTurnContext } from './src/coach/context.js'
+import { readHistory } from './src/coach/history.js'
 import { consumeTurn, consumeProactive, claimWorkout, RateLimitError } from './src/coach/rateLimit.js'
 import { buildWorkoutTrigger } from './src/coach/trigger.js'
 
@@ -132,7 +133,10 @@ export const coachTurn = onCall({ ...RUNTIME, timeoutSeconds: 180 }, async (requ
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in to talk to your coach.')
 
   const uid = request.auth.uid
-  const { message, photo, history, context: clientContext, timezoneOffset } = request.data || {}
+  // `history` is deliberately not read from the payload. The thread is the
+  // record of what the Coach has already said, and it is re-read server-side
+  // so a client cannot make it appear to have given advice it never gave.
+  const { message, photo, context: clientContext, timezoneOffset } = request.data || {}
 
   if (typeof message === 'string' && message.length > MAX_MESSAGE_CHARS) {
     throw new HttpsError('invalid-argument', 'That message is too long.')
@@ -155,13 +159,19 @@ export const coachTurn = onCall({ ...RUNTIME, timeoutSeconds: 180 }, async (requ
   const dateId = localDateId(new Date(), Number(timezoneOffset) || 0)
 
   try {
-    const context = await buildTurnContext({ store, dateId, clientContext })
+    // The client writes James's message into the thread before calling in, so
+    // it is already in what we read back — `pendingUserText` keeps it from
+    // being replayed as history and appended as this turn at the same time.
+    const [context, history] = await Promise.all([
+      buildTurnContext({ store, dateId, clientContext }),
+      readHistory(store, { pendingUserText: message }),
+    ])
 
     const result = await runCoachTurn(
       {
         message,
         photo: photo?.base64 ? { base64: photo.base64, mediaType: photo.mediaType } : null,
-        history: Array.isArray(history) ? history : [],
+        history,
       },
       { anthropic: client(), store, estimate: estimator(), context, dateId }
     )
@@ -214,7 +224,13 @@ export const coachWorkoutLogged = onCall({ ...RUNTIME, timeoutSeconds: 180 }, as
   const dateId = localDateId(new Date(), Number(timezoneOffset) || 0)
 
   try {
-    const context = await buildTurnContext({ store, dateId })
+    // History matters more here than on a typed turn, not less: this message
+    // is unprompted, and "never send the same message twice about the same
+    // session" is only enforceable if the model can see what it already sent.
+    const [context, history] = await Promise.all([
+      buildTurnContext({ store, dateId }),
+      readHistory(store),
+    ])
 
     // The summary is built from server-read context, never from the payload —
     // the client says only *that* something was logged, not what.
@@ -224,7 +240,7 @@ export const coachWorkoutLogged = onCall({ ...RUNTIME, timeoutSeconds: 180 }, as
         : summariseSessionForTrigger(context.lastSession)
 
     const result = await runCoachTurn(
-      { trigger: buildWorkoutTrigger({ kind, summary }) },
+      { trigger: buildWorkoutTrigger({ kind, summary }), history },
       { anthropic: client(), store, estimate: estimator(), context, dateId }
     )
 

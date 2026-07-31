@@ -15,14 +15,14 @@
 
 import { buildSystemPrompt, buildContextBlock } from './prompt.js'
 import { TOOL_DEFINITIONS, createHandlers, ToolError } from './tools.js'
+import { HISTORY_TURNS } from './history.js'
 
 export const MODEL = 'claude-opus-4-8'
 
 /** Enough for a log-then-explain turn plus a correction; well short of a loop. */
 export const MAX_ITERATIONS = 8
 
-/** How many prior messages of history to replay. */
-export const HISTORY_TURNS = 20
+export { HISTORY_TURNS }
 
 // ── Reasoning effort ──────────────────────────────────────────
 //
