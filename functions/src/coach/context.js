@@ -22,6 +22,7 @@ import {
   normaliseMileageDoc,
   hoursSince,
 } from './training.js'
+import { estimateEnergyBalance } from './energy.js'
 
 /**
  * How much history to pull for the rollup. 30 sessions and 21 mileage docs
@@ -136,19 +137,31 @@ export async function buildTurnContext({ store, dateId, clientContext = {}, now 
   const todayMileage = normaliseMileageDoc(
     (mileageDocs || []).find((d) => d.date === dateId) || null
   )
+  const lastSession = summariseSession(completed[0], now)
+  const todayRuns = todayMileage?.runs || []
 
   return {
     date: dateId,
     mode,
     // Most recent completed session, with hours elapsed — the difference
     // between "you lifted" and "you finished lifting two hours ago".
-    lastSession: summariseSession(completed[0], now),
-    todayRuns: (todayMileage?.runs || []).map((r) => ({
+    lastSession,
+    todayRuns: todayRuns.map((r) => ({
       miles: r.miles,
       duration_minutes: r.duration_minutes ?? null,
       avg_hr_bpm: r.avg_hr_bpm ?? null,
       hoursSince: r.enteredAt ? hoursSince(r.enteredAt, now) : null,
     })),
+    // Expenditure against intake, both halves reported rather than a verdict —
+    // the coach should reason about the gap, not be handed a pass/fail.
+    energyBalance: estimateEnergyBalance({
+      profile,
+      mode,
+      lastSession,
+      todayRuns,
+      consumed,
+      dateId,
+    }),
     todayMiles: todayMileage?.miles ?? 0,
     recentTraining,
     // Running mode only — there is no race in a strength block.

@@ -22,6 +22,12 @@
 
 import { validateEstimate, toLogEntry, totalsFor } from '../schema.js'
 import { findBlockedMovements } from './guardrails.js'
+import { normaliseMileageDoc, summariseSession, toDate } from './training.js'
+import { estimateSessionCost, summariseBodyMetrics } from './energy.js'
+
+/** Reads are capped so a model-chosen argument can't pull an unbounded scan. */
+const MAX_HISTORY_DAYS = 90
+const MAX_METRIC_WEEKS = 52
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack', 'preWorkout', 'postWorkout']
 
@@ -150,6 +156,102 @@ export const TOOL_DEFINITIONS = [
       "Render today's session as a card — the exercise list with sets, reps, RIR and any " +
       'guardrail notes. Use when James asks what he is training.',
     input_schema: { type: 'object', properties: {} },
+  },
+
+  // ── Reads ──
+  //
+  // The context block already carries what is needed on nearly every turn.
+  // These are for detail too large to inject every time (every set of a
+  // session), or too rare (one exercise's history, a 90-day trend). Call them
+  // when the answer actually depends on the detail — not to confirm something
+  // the context line already says.
+  {
+    name: 'get_workout',
+    description:
+      'Full detail of one session — every set, weight, reps and RIR — or a given day\'s runs ' +
+      'with duration and heart rate. More than the LAST SESSION context line carries. Use when ' +
+      'the answer depends on how individual sets actually went, not just that a session happened.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        which: {
+          type: 'string',
+          enum: ['last', 'today', 'date'],
+          description: 'Which workout. Use "date" with the date field for a specific day.',
+        },
+        date: { type: 'string', description: 'YYYY-MM-DD. Required when which is "date".' },
+      },
+      required: ['which'],
+    },
+  },
+  {
+    name: 'get_training_history',
+    description:
+      'Sessions and runs over a window, with weekly aggregates. Use for "how has my volume ' +
+      'trended", "am I ramping too fast", or any question about a pattern across weeks rather ' +
+      'than a single session. Never answer a trend question from memory — call this.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        days: {
+          type: 'number',
+          description: 'How many days back, 1-90. Defaults to 28.',
+        },
+      },
+    },
+  },
+  {
+    name: 'get_exercise_progress',
+    description:
+      'Load and rep history for one movement, for "am I progressing on hip thrusts". Takes the ' +
+      'app\'s exercise id, e.g. barbellHipThrust or lyingLegCurl — the ids shown in the LAST ' +
+      'SESSION context line.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        exercise_id: { type: 'string', description: 'The app exercise id.' },
+      },
+      required: ['exercise_id'],
+    },
+  },
+  {
+    name: 'get_body_metrics',
+    description:
+      'Weight, body-fat and lean-mass trend. Enforces the same rule the app does: with fewer ' +
+      'than three weeks of weigh-ins it reports the readings but refuses a trend, because a ' +
+      'single reading is water rather than tissue. Do not compute a trend yourself from the ' +
+      'raw entries when it says it has too few.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        weeks: { type: 'number', description: 'Window in weeks, 1-52. Defaults to 8.' },
+      },
+    },
+  },
+  {
+    name: 'estimate_session_cost',
+    description:
+      'Energy cost of a specific session or run, from the same model the app uses, so fuelling ' +
+      'advice rests on a number rather than a guess. Call before giving a recovery or refuelling ' +
+      'answer that depends on how depleting the session actually was.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        session_id: {
+          type: 'string',
+          description: 'A workoutSessions id, or "last" for the most recent completed session.',
+        },
+        run: {
+          type: 'object',
+          description: 'A run to cost instead of a session. Use for a run just described to you.',
+          properties: {
+            miles: { type: 'number' },
+            duration_minutes: { type: 'number' },
+            avg_hr_bpm: { type: 'number' },
+          },
+        },
+      },
+    },
   },
   {
     name: 'propose_adjustment',
@@ -322,10 +424,180 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
 
     async show_session() {
       if (!context?.session) {
-        return { session: null, note: 'Rest day — no session scheduled.' }
+        // Mode matters here. In strength mode a missing session means a rest
+        // day, which is a real answer. In running mode it means the run
+        // session wasn't supplied — saying "rest day" would be a claim about
+        // training that nothing has established.
+        return context?.mode === 'running'
+          ? {
+              session: null,
+              note: "No run session available for today. Say you don't have it rather than describing one.",
+            }
+          : { session: null, note: 'Rest day — no session scheduled.' }
       }
-      cards.push({ type: 'session', session: context.session })
-      return { shown: true, name: context.session.name }
+      cards.push({ type: 'session', session: context.session, mode: context?.mode || 'strength' })
+      return { shown: true, name: context.session.name, mode: context?.mode || 'strength' }
+    },
+
+    // ── Reads ──
+
+    async get_workout({ which, date }) {
+      if (which === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(date || '')) {
+        throw new ToolError('For which="date", supply date as YYYY-MM-DD.')
+      }
+      let day = null
+      if (which === 'today') day = dateId
+      else if (which === 'date') day = date
+
+      const sessions = await store.query('workoutSessions', {
+        orderField: 'date',
+        direction: 'desc',
+        limit: 60,
+      })
+      const completed = sessions.filter((s) => s.completed !== false)
+      const session = day
+        ? completed.find((s) => toDate(s.date)?.toISOString().slice(0, 10) === day)
+        : completed[0]
+
+      const mileage = day ? await store.getDoc('dailyMileage', day) : null
+      const runs = normaliseMileageDoc(mileage)?.runs || []
+
+      if (!session && !runs.length) {
+        return {
+          found: false,
+          note: day
+            ? `Nothing recorded for ${day}.`
+            : 'No completed session recorded. Do not describe one.',
+        }
+      }
+
+      return {
+        found: true,
+        session: session
+          ? {
+              ...summariseSession(session, new Date()),
+              // The whole point of this tool over the context line: every set.
+              exercises: (session.exercises || []).map((e) => ({
+                id: e.id,
+                sets: (e.sets || []).map((s) => ({
+                  weight: Number(s.weight) || 0,
+                  reps: Number(s.reps) || 0,
+                  rir: s.rir == null ? null : Number(s.rir),
+                  side: s.side || null,
+                  isBodyweight: !!s.isBodyweight,
+                })),
+              })),
+            }
+          : null,
+        runs,
+      }
+    },
+
+    async get_training_history({ days } = {}) {
+      const window = Math.min(Math.max(Math.round(Number(days) || 28), 1), MAX_HISTORY_DAYS)
+      const cutoff = new Date(Date.now() - window * 86400000)
+
+      const [sessions, mileage] = await Promise.all([
+        store.query('workoutSessions', { orderField: 'date', direction: 'desc', limit: 120 }),
+        store.query('dailyMileage', { orderField: 'date', direction: 'desc', limit: 120 }),
+      ])
+
+      const inWindow = sessions
+        .filter((s) => s.completed !== false)
+        .filter((s) => (toDate(s.date) || 0) >= cutoff)
+      const runDays = mileage
+        .map(normaliseMileageDoc)
+        .filter((d) => d && new Date(`${d.date}T12:00:00`) >= cutoff)
+
+      // Weekly buckets, keyed by the Monday of each week.
+      const weeks = new Map()
+      const bucket = (d) => {
+        const monday = new Date(d)
+        monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7))
+        return monday.toISOString().slice(0, 10)
+      }
+      const touch = (key) =>
+        weeks.get(key) || weeks.set(key, { week: key, sessions: 0, volume: 0, miles: 0 }).get(key)
+
+      for (const s of inWindow) {
+        const d = toDate(s.date)
+        if (!d) continue
+        const w = touch(bucket(d))
+        w.sessions += 1
+        w.volume += Number(s.totalVolume) || 0
+      }
+      for (const day of runDays) {
+        const w = touch(bucket(new Date(`${day.date}T12:00:00`)))
+        w.miles += day.miles
+      }
+
+      return {
+        days: window,
+        sessions: inWindow.length,
+        totalMiles: round1(runDays.reduce((s, d) => s + d.miles, 0)),
+        totalVolume: Math.round(inWindow.reduce((s, x) => s + (Number(x.totalVolume) || 0), 0)),
+        weekly: [...weeks.values()]
+          .sort((a, b) => (a.week < b.week ? 1 : -1))
+          .map((w) => ({ ...w, volume: Math.round(w.volume), miles: round1(w.miles) })),
+      }
+    },
+
+    async get_exercise_progress({ exercise_id }) {
+      if (!exercise_id) throw new ToolError('Supply exercise_id, e.g. barbellHipThrust.')
+      const doc = await store.getDoc('exerciseProgress', exercise_id)
+      if (!doc) {
+        throw new ToolError(
+          `No progress recorded for "${exercise_id}". Check the id against the LAST SESSION line — ` +
+            'it may be spelled differently or never logged.'
+        )
+      }
+      const history = (doc.history || []).slice(-20)
+      return {
+        exercise_id,
+        currentWeight: doc.currentWeight ?? null,
+        lastReps: doc.lastReps ?? null,
+        isBodyweight: !!doc.isBodyweight,
+        lastSessionDate: doc.lastSessionDate ?? null,
+        sessions: history.length,
+        history: history.map((h) => ({
+          date: h.date,
+          weight: h.weight ?? null,
+          reps: h.reps ?? null,
+          pr: h.pr ?? null,
+        })),
+      }
+    },
+
+    async get_body_metrics({ weeks } = {}) {
+      const window = Math.min(Math.max(Math.round(Number(weeks) || 8), 1), MAX_METRIC_WEEKS)
+      const cutoff = new Date(Date.now() - window * 7 * 86400000)
+      const entries = await store.query('bodyMetrics', {
+        orderField: 'date',
+        direction: 'desc',
+        limit: 60,
+      })
+      const inWindow = entries.filter((e) => (toDate(e.date) || 0) >= cutoff)
+      return summariseBodyMetrics(inWindow, window)
+    },
+
+    async estimate_session_cost({ session_id, run } = {}) {
+      if (!session_id && !run) {
+        throw new ToolError('Supply session_id (or "last") or a run object.')
+      }
+      const profile = await store.getProfile()
+
+      if (run) return estimateSessionCost({ run, profile })
+
+      const sessions = await store.query('workoutSessions', {
+        orderField: 'date',
+        direction: 'desc',
+        limit: 60,
+      })
+      const completed = sessions.filter((s) => s.completed !== false)
+      const session = session_id === 'last' ? completed[0] : completed.find((s) => s.id === session_id)
+      if (!session) throw new ToolError(`No completed session with id ${session_id}.`)
+
+      return estimateSessionCost({ session, profile })
     },
 
     async propose_adjustment({ title, subtitle, changes }) {

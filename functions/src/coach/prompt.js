@@ -328,6 +328,16 @@ function renderRace({ raceContext, mode }) {
   ]
 }
 
+function renderEnergyBalance({ energyBalance: e }) {
+  if (!e) return []
+  const direction = e.balance < 0 ? 'under' : 'over'
+  const lines = [
+    `ENERGY TODAY — burned ~${e.expenditure} (${e.basis}), eaten ${e.intake}, ${Math.abs(e.balance)} ${direction}`,
+  ]
+  if (e.note) lines.push(`  ${e.note}`)
+  return lines
+}
+
 function renderBalance({ balance }) {
   if (!balance) return []
   const lines = [
@@ -365,6 +375,7 @@ const CONTEXT_SECTIONS = [
   renderTodayRuns,
   renderRecentTraining,
   renderRace,
+  renderEnergyBalance,
   renderBalance,
   renderGuardrails,
   renderWeight,

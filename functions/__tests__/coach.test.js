@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { runCoachTurn, CoachError, MAX_ITERATIONS } from '../src/coach/orchestrator.js'
-import { createHandlers, TOOL_DEFINITIONS } from '../src/coach/tools.js'
+import { createHandlers, TOOL_DEFINITIONS, ToolError } from '../src/coach/tools.js'
 import { buildTurnContext } from '../src/coach/context.js'
 import { buildContextBlock, buildSystemPrompt, COACH_MODES } from '../src/coach/prompt.js'
 import { consumeTurn, RateLimitError, LIMITS } from '../src/coach/rateLimit.js'
@@ -137,11 +137,19 @@ const deps = (overrides = {}) => ({
 // ── Tool contract ────────────────────────────────────────────────────
 
 describe('tool definitions', () => {
-  it('exposes only effectful and presentational tools — reads come from context', () => {
+  it('exposes effectful, presentational and bounded-read tools', () => {
+    // Reads that are needed on nearly every turn still live in the context
+    // block. These are the ones for detail too large to inject every time
+    // (every set of a session) or too rare (a 90-day trend).
     const names = TOOL_DEFINITIONS.map((t) => t.name).sort()
     expect(names).toEqual([
       'delete_meal',
       'estimate_meal',
+      'estimate_session_cost',
+      'get_body_metrics',
+      'get_exercise_progress',
+      'get_training_history',
+      'get_workout',
       'log_meal',
       'propose_adjustment',
       'propose_meals',
@@ -301,6 +309,154 @@ describe('tool handlers', () => {
   // A card is applied in one tap, so a movement named in one has to clear the
   // same bar as one the session generator picked. CONTEXT is week 3 with the
   // hamstring flag set, i.e. rehab stage 1.
+  describe('read tools', () => {
+    const NOW_DAY = '2026-07-22'
+    const seeded = () =>
+      fakeStore({
+        profile: { weightLbs: 172, heightInches: 71, ageYears: 38, sex: 'male', currentBodyFatPct: 13 },
+        collections: {
+          workoutSessions: {
+            s1: {
+              date: '2026-07-22T15:00:00Z',
+              dayType: 'Lower — Posterior',
+              duration: 62,
+              totalVolume: 12400,
+              completed: true,
+              exercises: [
+                {
+                  id: 'barbellHipThrust',
+                  sets: [
+                    { weight: 80, reps: 10, rir: 3 },
+                    { weight: 100, reps: 8, rir: 2, side: 'both' },
+                  ],
+                },
+              ],
+            },
+            s0: { date: '2026-07-15T15:00:00Z', dayType: 'Upper — Push', totalVolume: 9000, completed: true },
+          },
+          dailyMileage: {
+            '2026-07-22': { date: '2026-07-22', runs: [{ miles: 6.2, duration_minutes: 52, avg_hr_bpm: 148 }] },
+            '2026-07-16': { date: '2026-07-16', runs: [{ miles: 10 }] },
+          },
+          exerciseProgress: {
+            barbellHipThrust: {
+              currentWeight: 100,
+              lastReps: [8, 8, 7],
+              isBodyweight: false,
+              lastSessionDate: '2026-07-22T15:00:00Z',
+              history: [
+                { date: '2026-07-08T00:00:00Z', weight: 90, reps: [8], pr: null },
+                { date: '2026-07-22T00:00:00Z', weight: 100, reps: [8], pr: 'weight' },
+              ],
+            },
+          },
+          bodyMetrics: {
+            b1: { date: '2026-06-24', weight: 170, bodyFatPct: 13.0 },
+            b2: { date: '2026-07-22', weight: 172, bodyFatPct: 13.1 },
+          },
+        },
+      })
+
+    const tooling = (store = seeded(), ctx = CONTEXT) =>
+      createHandlers({ store, estimate: vi.fn(), photo: null, dateId: NOW_DAY, context: ctx })
+
+    it('get_workout returns every set, not just the top set', async () => {
+      const r = await tooling().handlers.get_workout({ which: 'last' })
+      expect(r.found).toBe(true)
+      expect(r.session.exercises[0].sets).toHaveLength(2)
+      expect(r.session.exercises[0].sets[1]).toMatchObject({ weight: 100, reps: 8, rir: 2, side: 'both' })
+    })
+
+    it('get_workout returns the day\'s runs for a date', async () => {
+      const r = await tooling().handlers.get_workout({ which: 'today' })
+      expect(r.runs[0]).toMatchObject({ miles: 6.2, duration_minutes: 52, avg_hr_bpm: 148 })
+    })
+
+    it('get_workout rejects a date query with no date', async () => {
+      await expect(tooling().handlers.get_workout({ which: 'date' })).rejects.toThrow(ToolError)
+    })
+
+    it('get_workout says nothing is recorded rather than returning an empty shape', async () => {
+      const r = await tooling().handlers.get_workout({ which: 'date', date: '2020-01-01' })
+      expect(r.found).toBe(false)
+      expect(r.note).toMatch(/Nothing recorded/)
+    })
+
+    it('get_training_history aggregates into weekly buckets', async () => {
+      const r = await tooling().handlers.get_training_history({ days: 28 })
+      expect(r.days).toBe(28)
+      expect(r.sessions).toBe(2)
+      expect(r.totalMiles).toBeCloseTo(16.2)
+      expect(r.weekly.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('get_training_history caps the window so a model argument cannot scan forever', async () => {
+      expect((await tooling().handlers.get_training_history({ days: 9999 })).days).toBe(90)
+      expect((await tooling().handlers.get_training_history({ days: -5 })).days).toBe(1)
+      expect((await tooling().handlers.get_training_history({})).days).toBe(28)
+    })
+
+    it('get_exercise_progress returns the movement history', async () => {
+      const r = await tooling().handlers.get_exercise_progress({ exercise_id: 'barbellHipThrust' })
+      expect(r.currentWeight).toBe(100)
+      expect(r.history).toHaveLength(2)
+      expect(r.history[1].pr).toBe('weight')
+    })
+
+    it('get_exercise_progress returns a recoverable error for an unknown id', async () => {
+      await expect(
+        tooling().handlers.get_exercise_progress({ exercise_id: 'nonsenseLift' })
+      ).rejects.toThrow(ToolError)
+    })
+
+    it('get_body_metrics enforces the three-week rule', async () => {
+      const r = await tooling().handlers.get_body_metrics({ weeks: 8 })
+      expect(r.available).toBe(true)
+      expect(r.changeLbs).toBe(2)
+
+      const thin = fakeStore({
+        collections: { bodyMetrics: { b1: { date: '2026-07-20', weight: 172 } } },
+      })
+      const t = await tooling(thin).handlers.get_body_metrics({})
+      expect(t.available).toBe(false)
+      expect(t.reason).toMatch(/water, not tissue/)
+    })
+
+    it('estimate_session_cost costs the last session from the app model', async () => {
+      const r = await tooling().handlers.estimate_session_cost({ session_id: 'last' })
+      expect(r.available).toBe(true)
+      expect(r.type).toBe('lift')
+      expect(r.kcal).toBeGreaterThan(0)
+    })
+
+    it('estimate_session_cost costs a described run and withholds a protocol when short', async () => {
+      const long = await tooling().handlers.estimate_session_cost({
+        run: { miles: 16, duration_minutes: 150, avg_hr_bpm: 142 },
+      })
+      expect(long.fuelling.during_carb_g_per_hour).toEqual([30, 60])
+
+      const short = await tooling().handlers.estimate_session_cost({
+        run: { miles: 3, duration_minutes: 25 },
+      })
+      expect(short.fuelling).toBeNull()
+    })
+
+    it('estimate_session_cost errors recoverably with neither argument', async () => {
+      await expect(tooling().handlers.estimate_session_cost({})).rejects.toThrow(ToolError)
+    })
+
+    it('show_session will not call a running-mode gap a rest day', async () => {
+      // "Rest day" is a claim about training. With no run session supplied it
+      // is unfounded, and in running mode the strength split is not the answer.
+      const running = await tooling(seeded(), { ...CONTEXT, mode: 'running', session: null }).handlers.show_session()
+      expect(running.note).toMatch(/don't have it/)
+      expect(running.note).not.toMatch(/Rest day/)
+
+      const strength = await tooling(seeded(), { ...CONTEXT, mode: 'strength', session: null }).handlers.show_session()
+      expect(strength.note).toMatch(/Rest day/)
+    })
+  })
+
   describe('propose_adjustment movement screening', () => {
     it('refuses a card naming a movement the current stage excludes', async () => {
       const tooling = build()

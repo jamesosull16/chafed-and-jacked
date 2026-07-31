@@ -235,7 +235,9 @@ function strengthAdvice({
  * A typical 45-min session at moderate volume ≈ 250 kcal.
  * A double session (A+B same day) with higher volume will scale up accordingly.
  */
-function estimateStrengthCalories(todayLiftStats, weightLbs) {
+// Exported so functions/__tests__/energyParity.test.js can compare the Cloud
+// Function's duplicate against it. Behaviour is unchanged.
+export function estimateStrengthCalories(todayLiftStats, weightLbs) {
   if (!todayLiftStats) return 0
 
   const { totalDuration = 0, totalVolume = 0, sessionCount = 0 } = todayLiftStats
