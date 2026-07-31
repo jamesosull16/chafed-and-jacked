@@ -4,7 +4,9 @@ import { ChevronLeft, Sparkles } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useAppMode } from '../hooks/useAppMode'
 import { useStrengthBlock } from '../hooks/useStrengthBlock'
+import { useWorkout } from '../hooks/useWorkout'
 import { useCoachChat } from '../hooks/useCoachChat'
+import { buildCoachContext, buildSessionContext } from '../lib/coachContext'
 import { useFirestore, formatLocalDate } from '../hooks/useFirestore'
 import { getNutritionAdvice } from '../lib/nutritionAdvice'
 import { calculateAge } from '../lib/bodyMetrics'
@@ -102,7 +104,13 @@ export default function CoachChat() {
   const { user, userProfile } = useAuth()
   const { isStrength, strength } = useAppMode()
   const { getCollection, getDocument } = useFirestore()
+  // Both engines, selected by mode — the same shape NutritionTracker uses.
+  // Hooks cannot be called conditionally, and the page needs whichever one the
+  // athlete is actually training under. Previously only the strength block was
+  // read, so in running mode the coach was handed a lifting block's context or
+  // nothing at all.
   const block = useStrengthBlock()
+  const running = useWorkout()
 
   const [latest, setLatest] = useState({ weight: null, bodyFatPct: null })
   const [todayLog, setTodayLog] = useState(null)
@@ -155,10 +163,29 @@ export default function CoachChat() {
       ageYears: calculateAge(userProfile?.profile?.birthday),
       sex: userProfile?.profile?.biologicalSex || 'male',
       currentBodyFatPct: latest.bodyFatPct,
-      todayLiftStats: block.todayLiftStats,
+      todayLiftStats: isStrength ? block.todayLiftStats : running.todayLiftStats,
       strength: { ...strength, isTrainingDay: block.isTrainingDay },
+      // Running mode adds an explicit run-calorie term and drops the strength
+      // activity factor, so these change the target rather than decorate it.
+      dailyMiles: isStrength ? 0 : running.todayMiles || 0,
+      weeklyMiles: isStrength ? 0 : running.currentMileage || 0,
+      trainingPhase: running.weekInfo?.type || 'build',
+      todayRuns: isStrength ? null : running.todayRuns,
+      vo2max: userProfile?.profile?.vo2max || null,
     })
-  }, [latest, isStrength, userProfile, strength, block.todayLiftStats, block.isTrainingDay])
+  }, [
+    latest,
+    isStrength,
+    userProfile,
+    strength,
+    block.todayLiftStats,
+    block.isTrainingDay,
+    running.todayLiftStats,
+    running.todayMiles,
+    running.currentMileage,
+    running.weekInfo,
+    running.todayRuns,
+  ])
 
   const targets = useMemo(() => {
     if (!advice) return null
@@ -193,55 +220,24 @@ export default function CoachChat() {
     }
   }, [targets, consumed])
 
+  const sessionContext = useMemo(
+    () =>
+      buildSessionContext({
+        isStrength,
+        strengthSession: block.todaysSession,
+        runningSession: isStrength ? null : running.getTodaysWorkout?.(),
+      }),
+    [isStrength, block.todaysSession, running]
+  )
+
   /**
    * The advisory half of the turn context. Everything security-relevant — the
    * uid, injury flags, block week, and the meal ids the coach may correct — is
    * re-derived server-side from the stored profile and log.
    */
   const buildContext = useCallback(
-    () => ({
-      targets,
-      derivation: advice ? { basis: advice.calories.breakdown } : null,
-      session: block.todaysSession
-        ? {
-            name: block.todaysSession.name,
-            focus: block.todaysSession.focus,
-            isToday: block.todaysSession.isToday,
-            dayLabel: block.todaysSession.date?.toLocaleDateString('en-US', { weekday: 'long' }),
-            rirTarget: block.todaysSession.rirTarget,
-            estimatedMinutes: block.todaysSession.estimatedMinutes,
-            exercises: block.todaysSession.exercises.map((e) => ({
-              id: e.id,
-              name: e.name,
-              sets: e.sets,
-              repRange: e.repRange,
-              restSeconds: e.restSeconds,
-              modification: e.modification || null,
-            })),
-            substitutions: block.todaysSession.substitutions,
-          }
-        : null,
-      block: {
-        totalWeeks: block.blockStatus.totalWeeks,
-        mesocycle: block.blockStatus.mesocycle,
-        weekInMesocycle: block.blockStatus.weekInMesocycle,
-        phase: block.blockStatus.phase,
-        rirTarget: block.blockStatus.rirTarget,
-      },
-      balance: {
-        ratio: block.balance.chain.ratio,
-        posteriorSets: block.balance.chain.posteriorSets,
-        anteriorSets: block.balance.chain.anteriorSets,
-        status: block.balance.chain.status,
-        perMuscle: Object.fromEntries(
-          block.balance.volume.map((v) => [
-            v.muscle,
-            { sets: v.sets, status: v.status, capped: v.capped },
-          ])
-        ),
-      },
-    }),
-    [targets, advice, block.todaysSession, block.blockStatus, block.balance]
+    () => buildCoachContext({ isStrength, targets, advice, session: sessionContext, block }),
+    [isStrength, targets, advice, sessionContext, block]
   )
 
   const { messages, pending, loading, sending, error, send } = useCoachChat({ buildContext })
@@ -276,7 +272,9 @@ export default function CoachChat() {
     setLoggingIndex(null)
   }
 
-  if (loading || block.loading) return <SkeletonPage cards={3} />
+  // Only the active engine gates the page. Waiting on both would hold the
+  // thread behind a load the athlete's mode doesn't depend on.
+  if (loading || (isStrength ? block.loading : running.loading)) return <SkeletonPage cards={3} />
 
   const isEmpty = messages.length === 0 && !pending
 
@@ -305,7 +303,7 @@ export default function CoachChat() {
               <span className="text-success" aria-hidden="true">
                 ●
               </span>{' '}
-              Strength &amp; nutrition
+              {isStrength ? 'Strength & nutrition' : 'Endurance & nutrition'}
             </p>
           </div>
         </div>
@@ -313,8 +311,21 @@ export default function CoachChat() {
         <ContextStrip
           targets={targets}
           remaining={remaining}
-          session={block.todaysSession}
+          session={sessionContext}
+          isStrength={isStrength}
+          running={
+            isStrength
+              ? null
+              : {
+                  todayMiles: running.todayMiles || 0,
+                  weeklyMiles: running.currentMileage || 0,
+                  raceName: running.activeRace?.name || null,
+                  raceDaysLeft: running.raceDaysLeft,
+                  weekType: running.weekInfo?.type || null,
+                }
+          }
           onSessionTap={() => handleSend("What's today's session?")}
+          onRunTap={() => handleSend('How is my mileage tracking this week?')}
         />
       </header>
 
@@ -327,11 +338,19 @@ export default function CoachChat() {
             <p className="text-sm font-medium text-text">
               Morning, {(user?.displayName || 'there').split(' ')[0]}
             </p>
+            {/* An invitation to talk, not an instruction to photograph food —
+                logging is one thing the coach does, not the point of it. */}
             <p className="text-sm text-muted mt-1 max-w-xs mx-auto">
-              {remaining
-                ? `You've got ${Math.round(remaining.kcal).toLocaleString()} kcal and ${Math.round(remaining.protein_g)}g protein left today. Snap a photo or tell me what you ate.`
-                : 'Ask me about training or food — or tell me what you ate and I\'ll log it.'}
+              {isStrength
+                ? "Ask me about your session, how you're recovering, or what to eat. Tell me what you ate and I'll log it."
+                : "Ask me about your build, a session, or fuelling a long one. Tell me what you ran or ate and I'll log it."}
             </p>
+            {remaining && (
+              <p className="text-xs text-subtle mt-2">
+                {Math.round(remaining.kcal).toLocaleString()} kcal and{' '}
+                {Math.round(remaining.protein_g)}g protein left today
+              </p>
+            )}
           </div>
         )}
 
@@ -397,6 +416,7 @@ export default function CoachChat() {
           photo={photo}
           onClearPhoto={() => setPhoto(null)}
           disabled={sending}
+          isStrength={isStrength}
         />
       </div>
       </div>

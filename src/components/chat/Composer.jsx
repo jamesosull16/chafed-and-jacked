@@ -2,12 +2,32 @@ import { useRef, useState } from 'react'
 import { Camera, SendHorizontal, X } from 'lucide-react'
 import { cn } from '../ui/cn'
 
-const QUICK_CHIPS = [
-  { label: 'What’s left today?', send: "What's left in my macros today?" },
-  { label: 'Today’s workout', send: "What's today's session?" },
-  { label: 'Dinner ideas', send: 'What should I eat for dinner to finish my macros?' },
-  { label: 'How am I tracking?', send: 'How is my chain balance and volume looking this week?' },
-]
+/**
+ * Quick chips, per mode.
+ *
+ * Both sets lead with a conversational opener rather than a lookup: the chips
+ * are the clearest signal of what the coach is for, and four data queries make
+ * it read as a dashboard with a text box. "How was that run?" invites the kind
+ * of exchange the rest of this feature was built for.
+ */
+const CHIPS = {
+  strength: [
+    { label: 'What should I eat after this?', send: 'What should I eat after today\'s session?' },
+    { label: 'Today’s session', send: "What's today's session?" },
+    { label: 'What’s left today?', send: "What's left in my macros today?" },
+    { label: 'Dinner ideas', send: 'What should I eat for dinner to finish my macros?' },
+    { label: 'How am I tracking?', send: 'How is my chain balance and volume looking this week?' },
+  ],
+  running: [
+    { label: 'How was that run?', send: 'How did that run look? Anything I should take from it?' },
+    { label: 'What should I eat now?', send: 'What should I eat now, given what I just did?' },
+    { label: 'Plan my week', send: 'How should the rest of this training week look?' },
+    // Prefills rather than sends: only he knows the distance, and sending
+    // "log a run" on its own just makes the coach ask how far.
+    { label: 'Log a run', prefill: 'I ran ' },
+    { label: 'What’s left today?', send: "What's left in my macros today?" },
+  ],
+}
 
 /**
  * Composer: photo, text, send, plus quick chips spanning both domains.
@@ -16,11 +36,26 @@ const QUICK_CHIPS = [
  * descriptions are routinely two or three lines and a one-line field makes them
  * feel wrong to type.
  */
-export default function Composer({ onSend, onPickPhoto, photo, onClearPhoto, disabled }) {
+export default function Composer({
+  onSend,
+  onPickPhoto,
+  photo,
+  onClearPhoto,
+  disabled,
+  isStrength = true,
+}) {
   const fileRef = useRef(null)
+  const inputRef = useRef(null)
   const [text, setText] = useState('')
 
   const canSend = !disabled && (text.trim() || photo)
+  const chips = CHIPS[isStrength ? 'strength' : 'running']
+
+  function tapChip(chip) {
+    if (!chip.prefill) return submit(chip.send)
+    setText(chip.prefill)
+    inputRef.current?.focus()
+  }
 
   function submit(override) {
     const payload = override ?? text
@@ -51,12 +86,12 @@ export default function Composer({ onSend, onPickPhoto, photo, onClearPhoto, dis
       )}
 
       <div className="flex gap-2 px-4 pt-3 pb-2 overflow-x-auto no-scrollbar">
-        {QUICK_CHIPS.map((chip) => (
+        {chips.map((chip) => (
           <button
             key={chip.label}
             type="button"
             disabled={disabled}
-            onClick={() => submit(chip.send)}
+            onClick={() => tapChip(chip)}
             className="shrink-0 px-3 py-1.5 rounded-full border border-border-strong text-xs font-medium text-muted hover:bg-surface hover:text-text transition-colors disabled:opacity-40"
           >
             {chip.label}
@@ -88,6 +123,7 @@ export default function Composer({ onSend, onPickPhoto, photo, onClearPhoto, dis
         </button>
 
         <textarea
+          ref={inputRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
