@@ -319,6 +319,25 @@ function renderTodayRuns({ todayRuns }) {
   return [`TODAY'S RUNS — ${list}`]
 }
 
+/**
+ * How he said he felt. Nothing else here can see it — soreness and a bad
+ * night's sleep leave no trace in a workout document, and they are often the
+ * whole reason a session went badly.
+ */
+function renderCheckIns({ checkIns }) {
+  if (!checkIns?.length) return []
+  const lines = checkIns.map((c) => {
+    const parts = [
+      c.sleep_hours == null ? null : `slept ${c.sleep_hours}h`,
+      c.soreness == null ? null : `soreness ${c.soreness}/10`,
+      c.rpe == null ? null : `RPE ${c.rpe}/10`,
+      c.note,
+    ].filter(Boolean)
+    return `  ${c.date}: ${parts.join(', ')}`
+  })
+  return ['HOW HE SAID HE FELT —', ...lines]
+}
+
 function renderRecentTraining({ recentTraining: t }) {
   if (!t) return []
   const extra = [
@@ -400,6 +419,7 @@ const CONTEXT_SECTIONS = [
   renderPlannedSession,
   renderLastSession,
   renderTodayRuns,
+  renderCheckIns,
   renderRecentTraining,
   renderRace,
   renderEnergyBalance,

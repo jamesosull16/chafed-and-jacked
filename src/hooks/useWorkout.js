@@ -6,6 +6,7 @@ import { getScalingTier, calculateEffectiveSets } from '../lib/loadScaling'
 import { getRecommendedWeight, checkForPR } from '../lib/progression'
 import { useAuth } from '../contexts/AuthContext'
 import { notifyWorkoutLogged } from '../lib/coachTrigger'
+import { appendRun } from '../lib/runLog'
 
 /**
  * Central hook for workout state management.
@@ -260,16 +261,11 @@ export function useWorkout() {
     if (!user) return
     const date = dateStr || formatLocalDate()
     const existing = await getDocument(`dailyMileage/${date}`)
-    // Build runs array from existing data (supports legacy single-miles docs)
-    let runs = existing?.runs || []
-    if (runs.length === 0 && existing?.miles) {
-      runs = [{ miles: existing.miles, enteredAt: existing.enteredAt }]
-    }
     const newRun = { miles, enteredAt: new Date().toISOString() }
     if (opts.duration_minutes) newRun.duration_minutes = opts.duration_minutes
     if (opts.avg_hr_bpm) newRun.avg_hr_bpm = opts.avg_hr_bpm
-    runs.push(newRun)
-    const total = runs.reduce((s, r) => s + r.miles, 0)
+    // Shared with the coach's log_run tool via a parity test — see src/lib/runLog.js.
+    const { runs, miles: total } = appendRun(existing, newRun)
     await setDocument(`dailyMileage/${date}`, { date, runs, miles: total })
     if (!dateStr || dateStr === formatLocalDate()) {
       setTodayMiles(total)

@@ -58,6 +58,28 @@ export function normaliseMileageDoc(doc) {
   return { ...doc, miles: 0, runs: [] }
 }
 
+/**
+ * Append a run to a day's mileage document.
+ *
+ * A deliberate duplicate of `appendRun` in `src/lib/runLog.js`, which the
+ * client's `useWorkout.addRun` uses. A run logged from the dashboard and a run
+ * logged by telling the coach must produce the same document, or everything
+ * downstream disagrees depending on how it was entered. Kept honest by
+ * `functions/__tests__/runLogParity.test.js`.
+ *
+ * @returns `{ runs, miles }` — the runs array and the day's new total
+ */
+export function appendRun(existing, run) {
+  let runs = existing?.runs || []
+
+  if (runs.length === 0 && existing?.miles) {
+    runs = [{ miles: existing.miles, enteredAt: existing.enteredAt }]
+  }
+
+  const next = [...runs, run]
+  return { runs: next, miles: next.reduce((sum, r) => sum + r.miles, 0) }
+}
+
 // ── Run calories ──────────────────────────────────────────────
 // Mirrors calculateRunKcal in src/lib/macroCalculator.js.
 

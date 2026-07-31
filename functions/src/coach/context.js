@@ -31,6 +31,8 @@ import { estimateEnergyBalance } from './energy.js'
  */
 const SESSION_SCAN = 30
 const MILEAGE_SCAN = 21
+/** Enough to see a bad night carrying into a second day, and no further. */
+const CHECKIN_DAYS = 4
 
 const num = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback)
 
@@ -111,12 +113,16 @@ function consumedFrom(entries = []) {
 export async function buildTurnContext({ store, dateId, clientContext = {}, now = new Date() }) {
   // Training reads are server-side and unconditional: advice about what the
   // athlete did is worthless if the client can claim he did something else.
-  const [profile, log, sessions, mileageDocs, plans] = await Promise.all([
+  const [profile, log, sessions, mileageDocs, plans, checkIns] = await Promise.all([
     store.getProfile(),
     store.getDoc('nutritionLogs', dateId),
     store.query('workoutSessions', { orderField: 'date', direction: 'desc', limit: SESSION_SCAN }),
     store.query('dailyMileage', { orderField: 'date', direction: 'desc', limit: MILEAGE_SCAN }),
     store.query('mileageLogs', { orderField: 'weekStart', direction: 'desc', limit: 2 }),
+    // Short window on purpose. "I'm wrecked today" is worth knowing tomorrow;
+    // it is not worth knowing next month, and a longer read would invite the
+    // coach to argue with how he feels now from how he felt three weeks ago.
+    store.query('checkIns', { orderField: 'date', direction: 'desc', limit: CHECKIN_DAYS }),
   ])
 
   const entries = log?.entries || []
@@ -163,6 +169,17 @@ export async function buildTurnContext({ store, dateId, clientContext = {}, now 
       dateId,
     }),
     todayMiles: todayMileage?.miles ?? 0,
+    // What he has said about how he feels, which nothing else in the context
+    // block can see — soreness and sleep leave no trace in a workout document.
+    checkIns: (checkIns || [])
+      .filter((c) => c?.date)
+      .map((c) => ({
+        date: c.date,
+        sleep_hours: c.sleep_hours ?? null,
+        soreness: c.soreness ?? null,
+        rpe: c.rpe ?? null,
+        note: c.note || null,
+      })),
     recentTraining,
     // Running mode only — there is no race in a strength block.
     raceContext: mode === 'running' ? buildRaceContext(profile, recentTraining.miles7, now) : null,

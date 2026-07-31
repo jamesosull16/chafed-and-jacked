@@ -22,7 +22,7 @@
 
 import { validateEstimate, toLogEntry, totalsFor } from '../schema.js'
 import { findBlockedMovements } from './guardrails.js'
-import { normaliseMileageDoc, summariseSession, toDate } from './training.js'
+import { normaliseMileageDoc, summariseSession, toDate, appendRun } from './training.js'
 import { estimateSessionCost, summariseBodyMetrics } from './energy.js'
 
 /** Reads are capped so a model-chosen argument can't pull an unbounded scan. */
@@ -295,6 +295,48 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'log_run',
+    description:
+      'Log a run James tells you he did. Only ever for a run he states as completed — never ' +
+      'log one he is planning, considering, or asking about, and never infer a distance he ' +
+      'did not give. If he says how long it took or what his heart rate averaged, include ' +
+      'those; they make the calorie and fuelling maths real rather than assumed. After ' +
+      'logging, answer in the same turn — do not wait for anything else to comment on it.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        miles: { type: 'number', description: 'Distance in miles. Required.' },
+        duration_minutes: { type: 'number' },
+        avg_hr_bpm: { type: 'number' },
+        date: {
+          type: 'string',
+          description: 'YYYY-MM-DD. Defaults to today; use only when he says it was another day.',
+        },
+      },
+      required: ['miles'],
+    },
+  },
+  {
+    name: 'log_subjective',
+    description:
+      'Record how James says he is feeling — sleep, soreness, how hard a session felt, or a ' +
+      'short note. Use it when he volunteers that kind of thing in passing ("slept badly", ' +
+      '"legs are wrecked"), so it is still known tomorrow rather than scrolling out of the ' +
+      'conversation. Do not interrogate him for the fields; log whatever he actually said.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        sleep_hours: { type: 'number' },
+        soreness: {
+          type: 'number',
+          description: '1-10, where 10 is the worst. Only if he gives a sense of severity.',
+        },
+        rpe: { type: 'number', description: '1-10 perceived exertion for the last session.' },
+        note: { type: 'string', description: 'His words, condensed. Max ~200 chars.' },
+      },
+    },
+  },
+  {
     name: 'propose_adjustment',
     description:
       'Propose changes to an upcoming session as a card James can apply in one tap. Use for ' +
@@ -461,6 +503,80 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
       }))
       cards.push({ type: 'meal_options', options: cleaned })
       return { shown: cleaned.length }
+    },
+
+    /**
+     * Writes the same document `useWorkout.addRun` writes, via the same
+     * append logic — see the parity test. Deliberately does not fire the
+     * proactive post-workout message: the coach is already mid-conversation
+     * here, and a second unprompted message about the run it just logged is
+     * exactly what "never send the same message twice about the same session"
+     * exists to prevent. It answers in this turn instead.
+     */
+    async log_run({ miles, duration_minutes, avg_hr_bpm, date }) {
+      const distance = Number(miles)
+      if (!Number.isFinite(distance) || distance <= 0) {
+        throw new ToolError('How far was it? I need the distance in miles to log a run.')
+      }
+      if (distance > 200) {
+        throw new ToolError(`${distance} miles doesn't look right — check the distance with him.`)
+      }
+      if (date != null && !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+        throw new ToolError('Dates must be YYYY-MM-DD.')
+      }
+
+      const day = date ? String(date) : dateId
+      const existing = await store.getDoc('dailyMileage', day)
+
+      const run = { miles: distance, enteredAt: new Date().toISOString() }
+      const duration = Number(duration_minutes)
+      if (Number.isFinite(duration) && duration > 0) run.duration_minutes = duration
+      const hr = Number(avg_hr_bpm)
+      if (Number.isFinite(hr) && hr > 0) run.avg_hr_bpm = hr
+
+      const { runs, miles: total } = appendRun(existing, run)
+      await store.setDoc('dailyMileage', day, { date: day, runs, miles: total })
+
+      return {
+        logged: true,
+        date: day,
+        miles: distance,
+        day_total_miles: round1(total),
+        runs_logged_today: runs.length,
+      }
+    },
+
+    /**
+     * How a session felt, kept somewhere it survives the conversation.
+     *
+     * Lives under the user subtree, so unlike `coachMemory` it needs no
+     * firestore.rules change — the recursive wildcard already covers it, and
+     * unlike remembered facts this is James's own record of his own body,
+     * which he should be able to correct.
+     */
+    async log_subjective({ sleep_hours, soreness, rpe, note }) {
+      const entry = {}
+      const clamp = (value, lo, hi) => {
+        const n = Number(value)
+        return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : null
+      }
+
+      const sleep = clamp(sleep_hours, 0, 24)
+      if (sleep != null) entry.sleep_hours = round1(sleep)
+      const sore = clamp(soreness, 1, 10)
+      if (sore != null) entry.soreness = Math.round(sore)
+      const effort = clamp(rpe, 1, 10)
+      if (effort != null) entry.rpe = Math.round(effort)
+      if (note?.trim()) entry.note = String(note).trim().slice(0, 200)
+
+      if (!Object.keys(entry).length) {
+        throw new ToolError('Nothing to record — give at least one of sleep, soreness, RPE or a note.')
+      }
+
+      // Merged into the day rather than appended, so mentioning soreness at
+      // noon and sleep at night is one check-in and not two conflicting ones.
+      await store.setDoc('checkIns', dateId, { date: dateId, ...entry })
+      return { recorded: true, date: dateId, ...entry }
     },
 
     async show_session() {

@@ -165,6 +165,8 @@ describe('tool definitions', () => {
       'get_training_history',
       'get_workout',
       'log_meal',
+      'log_run',
+      'log_subjective',
       'propose_adjustment',
       'propose_fuelling',
       'propose_meals',
@@ -324,6 +326,126 @@ describe('tool handlers', () => {
   // A card is applied in one tap, so a movement named in one has to clear the
   // same bar as one the session generator picked. CONTEXT is week 3 with the
   // hamstring flag set, i.e. rehab stage 1.
+  describe('log_run', () => {
+    const run = (store, input) =>
+      createHandlers({ store, estimate: vi.fn(), dateId: '2026-07-22', context: CONTEXT })
+        .handlers.log_run(input)
+
+    it('writes the same document shape the dashboard writes', async () => {
+      const store = fakeStore()
+      const result = await run(store, { miles: 5, duration_minutes: 42, avg_hr_bpm: 148 })
+
+      const doc = await store.getDoc('dailyMileage', '2026-07-22')
+      expect(doc.date).toBe('2026-07-22')
+      expect(doc.miles).toBe(5)
+      expect(doc.runs).toHaveLength(1)
+      expect(doc.runs[0]).toMatchObject({ miles: 5, duration_minutes: 42, avg_hr_bpm: 148 })
+      expect(doc.runs[0].enteredAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+      expect(result.day_total_miles).toBe(5)
+    })
+
+    it('appends to a day that already has a run rather than replacing it', async () => {
+      const store = fakeStore({
+        collections: {
+          dailyMileage: {
+            '2026-07-22': { date: '2026-07-22', runs: [{ miles: 3, enteredAt: 'x' }], miles: 3 },
+          },
+        },
+      })
+      const result = await run(store, { miles: 5 })
+
+      expect((await store.getDoc('dailyMileage', '2026-07-22')).runs).toHaveLength(2)
+      expect(result.day_total_miles).toBe(8)
+    })
+
+    it('normalises a legacy bare-miles day instead of losing the earlier run', async () => {
+      const store = fakeStore({
+        collections: { dailyMileage: { '2026-07-22': { date: '2026-07-22', miles: 4 } } },
+      })
+      await run(store, { miles: 5 })
+
+      const doc = await store.getDoc('dailyMileage', '2026-07-22')
+      expect(doc.runs).toHaveLength(2)
+      expect(doc.miles).toBe(9)
+    })
+
+    it('omits duration and heart rate rather than writing nulls', async () => {
+      // Firestore rejects undefined, and a null avg_hr_bpm would read as a
+      // measured zero to the Keytel calorie maths downstream.
+      const store = fakeStore()
+      await run(store, { miles: 5 })
+
+      const [logged] = (await store.getDoc('dailyMileage', '2026-07-22')).runs
+      expect(logged).not.toHaveProperty('duration_minutes')
+      expect(logged).not.toHaveProperty('avg_hr_bpm')
+    })
+
+    it('refuses a run with no usable distance', async () => {
+      await expect(run(fakeStore(), {})).rejects.toBeInstanceOf(ToolError)
+      await expect(run(fakeStore(), { miles: 0 })).rejects.toBeInstanceOf(ToolError)
+      await expect(run(fakeStore(), { miles: 'far' })).rejects.toBeInstanceOf(ToolError)
+    })
+
+    it('refuses an implausible distance rather than writing it', async () => {
+      await expect(run(fakeStore(), { miles: 500 })).rejects.toBeInstanceOf(ToolError)
+    })
+
+    it('refuses a malformed date', async () => {
+      await expect(run(fakeStore(), { miles: 5, date: 'yesterday' })).rejects.toBeInstanceOf(
+        ToolError
+      )
+    })
+
+    it('back-fills another day when asked', async () => {
+      const store = fakeStore()
+      await run(store, { miles: 6, date: '2026-07-20' })
+
+      expect(await store.getDoc('dailyMileage', '2026-07-20')).toMatchObject({ miles: 6 })
+      expect(await store.getDoc('dailyMileage', '2026-07-22')).toBeNull()
+    })
+  })
+
+  describe('log_subjective', () => {
+    const check = (store, input) =>
+      createHandlers({ store, estimate: vi.fn(), dateId: '2026-07-22', context: CONTEXT })
+        .handlers.log_subjective(input)
+
+    it('records what he actually said', async () => {
+      const store = fakeStore()
+      await check(store, { sleep_hours: 5.5, soreness: 7, note: 'legs are wrecked' })
+
+      expect(await store.getDoc('checkIns', '2026-07-22')).toMatchObject({
+        date: '2026-07-22',
+        sleep_hours: 5.5,
+        soreness: 7,
+        note: 'legs are wrecked',
+      })
+    })
+
+    it('merges into the day rather than writing a second check-in', async () => {
+      // Soreness at noon and sleep at night are one day, not two records that
+      // disagree with each other.
+      const store = fakeStore()
+      await check(store, { soreness: 6 })
+      await check(store, { sleep_hours: 8 })
+
+      const doc = await store.getDoc('checkIns', '2026-07-22')
+      expect(doc).toMatchObject({ soreness: 6, sleep_hours: 8 })
+    })
+
+    it('clamps out-of-range scores instead of storing them', async () => {
+      const store = fakeStore()
+      await check(store, { soreness: 99, rpe: -4 })
+
+      expect(await store.getDoc('checkIns', '2026-07-22')).toMatchObject({ soreness: 10, rpe: 1 })
+    })
+
+    it('refuses an empty check-in', async () => {
+      await expect(check(fakeStore(), {})).rejects.toBeInstanceOf(ToolError)
+      await expect(check(fakeStore(), { note: '   ' })).rejects.toBeInstanceOf(ToolError)
+    })
+  })
+
   describe('read tools', () => {
     const NOW_DAY = '2026-07-22'
     const seeded = () =>
