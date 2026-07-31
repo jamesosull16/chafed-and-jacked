@@ -9,7 +9,7 @@ import {
   Repeat,
   Sparkles,
   StretchHorizontal,
-  Hexagon,
+  Shield,
 } from 'lucide-react'
 import { useStrengthBlock } from '../../hooks/useStrengthBlock'
 import { Card, CardHeader, Button, Badge, SkeletonPage, ProgressBar, EmptyState } from '../ui'
@@ -152,13 +152,13 @@ function CoreSection({ exercises, sessionData, rirTarget, expanded, onExpand, on
   ).length
 
   return (
-    <div className="space-y-3">
+    <Card padded={false}>
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-3 px-1 pt-2 text-left min-h-11"
+        className="w-full flex items-center gap-3 p-4 text-left min-h-14"
       >
-        <Hexagon className="w-4 h-4 text-subtle shrink-0" aria-hidden="true" />
+        <Shield className="w-4 h-4 text-subtle shrink-0" aria-hidden="true" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-text">Core</p>
           <p className="text-xs text-muted">
@@ -171,29 +171,50 @@ function CoreSection({ exercises, sessionData, rirTarget, expanded, onExpand, on
         />
       </button>
 
-      {open &&
-        exercises.map((exercise) => (
-          <ExerciseCard
-            key={exercise.id}
-            exercise={exercise}
-            data={sessionData[exercise.id]}
-            rirTarget={rirTarget}
-            expanded={expanded === exercise.id}
-            onToggle={() => onExpand(expanded === exercise.id ? null : exercise.id)}
-            onLogSet={onLogSet}
-            readOnly={readOnly}
-          />
-        ))}
-    </div>
+      {open && (
+        <div className="px-4 pb-4 space-y-1.5">
+          {exercises.map((exercise) => (
+            <ExerciseCard
+              key={exercise.id}
+              nested
+              exercise={exercise}
+              data={sessionData[exercise.id]}
+              rirTarget={rirTarget}
+              expanded={expanded === exercise.id}
+              onToggle={() => onExpand(expanded === exercise.id ? null : exercise.id)}
+              onLogSet={onLogSet}
+              readOnly={readOnly}
+            />
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }
 
-function ExerciseCard({ exercise, data, rirTarget, expanded, onToggle, onLogSet, readOnly }) {
+function ExerciseCard({
+  exercise,
+  data,
+  rirTarget,
+  expanded,
+  onToggle,
+  onLogSet,
+  readOnly,
+  nested = false,
+}) {
   const done = (data?.sets || []).filter((s) => s?.completed).length
   const allDone = done >= exercise.sets
 
+  // Inside the core block these sit within a Card already, so they drop to a
+  // filled panel instead — a bordered card inside a bordered card reads as a
+  // rendering mistake, and this matches how the mobility drills nest.
+  const Shell = nested ? 'div' : Card
+  const shellProps = nested
+    ? { className: cn('rounded-xl overflow-hidden', allDone ? 'bg-success-subtle' : 'bg-surface') }
+    : { padded: false, className: cn(allDone && 'border-success-border') }
+
   return (
-    <Card padded={false} className={cn(allDone && 'border-success-border')}>
+    <Shell {...shellProps}>
       <button
         type="button"
         onClick={onToggle}
@@ -289,7 +310,7 @@ function ExerciseCard({ exercise, data, rirTarget, expanded, onToggle, onLogSet,
           </div>
         </div>
       )}
-    </Card>
+    </Shell>
   )
 }
 
