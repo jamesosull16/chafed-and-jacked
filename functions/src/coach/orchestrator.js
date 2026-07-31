@@ -73,8 +73,16 @@ const LOG_ENTRY_WORDS = 12
  * Wrong in the cheap direction on purpose: a misjudged coaching turn is
  * caught mid-loop by the tool escalation above, whereas a misjudged logging
  * turn only costs latency on the app's most frequent interaction.
+ *
+ * `previousTier` is the tier of the last coach reply while the conversation is
+ * still warm. It exists because shape alone cannot separate a short follow-up
+ * from a short meal entry — they are the same shape, and only the exchange
+ * around them differs. It is also what keeps the tier stable across a
+ * conversation, which matters beyond correctness: `effort` is part of the
+ * prompt-cache key, so every flip rewrites the 6384-token prefix instead of
+ * reading it.
  */
-export function classifyTurn({ message, photo, trigger }) {
+export function classifyTurn({ message, photo, trigger, previousTier }) {
   // The post-workout message is the hardest call the Coach makes — it decides
   // whether to speak at all, and the restraint rules are the thing most likely
   // to be reasoned away at low effort.
@@ -82,12 +90,17 @@ export function classifyTurn({ message, photo, trigger }) {
 
   const text = message?.trim() || ''
 
-  // A photo with nothing typed is unambiguous: there is no question attached.
-  if (photo && !text) return 'logging'
+  // A photo is a meal being logged, whatever was being discussed before it —
+  // so it beats the sticky tier rather than inheriting it. Unless he attached
+  // a question to it, in which case he is asking rather than logging.
+  if (photo) return text.includes('?') ? 'coaching' : 'logging'
 
-  if (!text.includes('?') && text.split(/\s+/).length <= LOG_ENTRY_WORDS) return 'logging'
+  if (text.includes('?')) return 'coaching'
+  if (text.split(/\s+/).length > LOG_ENTRY_WORDS) return 'coaching'
 
-  return 'coaching'
+  // Short, unpunctuated, no photo: ambiguous on its own. Mid-conversation it
+  // is a follow-up; on its own it is a meal.
+  return previousTier === 'coaching' ? 'coaching' : 'logging'
 }
 
 export class CoachError extends Error {
@@ -137,7 +150,7 @@ function buildUserContent({ text, photo }) {
  * @returns {{ reply, cards, toolsUsed, dayTotals, remaining, logMutated, tier }}
  */
 export async function runCoachTurn(
-  { message, photo, history = [], trigger = null },
+  { message, photo, history = [], trigger = null, previousTier = null },
   { anthropic, store, estimate, context, dateId }
 ) {
   if (!message?.trim() && !photo && !trigger) {
@@ -181,7 +194,7 @@ export async function runCoachTurn(
     { type: 'text', text: `Live app data for this turn:\n\n${buildContextBlock(context)}` },
   ]
 
-  let tier = classifyTurn({ message, photo, trigger })
+  let tier = classifyTurn({ message, photo, trigger, previousTier })
 
   let response
   for (let i = 0; i < MAX_ITERATIONS; i++) {

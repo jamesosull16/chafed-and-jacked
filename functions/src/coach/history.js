@@ -28,6 +28,59 @@
  */
 export const HISTORY_TURNS = 40
 
+/**
+ * How long a coaching exchange stays warm enough for a short reply to be read
+ * as a follow-up rather than a fresh meal entry.
+ *
+ * Needs to be long enough to span thinking about an answer and typing back,
+ * and short enough that logging lunch two hours later isn't dragged along by
+ * the morning's conversation. Without a decay the coaching tier would be
+ * absorbing: every short message after the first coaching turn would inherit
+ * it, and the logging tier would become unreachable.
+ */
+export const STICKY_MINUTES = 15
+
+/** Firestore Timestamp in production, ISO string in tests. */
+function toMillis(value) {
+  if (!value) return null
+  if (typeof value.toMillis === 'function') return value.toMillis()
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
+/**
+ * The tier of the last coach reply, if the conversation is still warm.
+ *
+ * The effort classifier can only see the message in front of it, and a short
+ * unpunctuated message is genuinely ambiguous by shape: "the terrain will be
+ * flat on a multipurpose path" and "2 eggs, toast and a flat white" are the
+ * same shape, and only what came before separates them. This is that missing
+ * signal — still a property of the conversation rather than of the words,
+ * which is what keeps it out of keyword-routing territory.
+ */
+export async function readConversationTier(
+  store,
+  { withinMinutes = STICKY_MINUTES, now = Date.now() } = {}
+) {
+  // Four deep because the newest document is usually the message the client has
+  // just optimistically written, and a card-only reply may sit between.
+  const docs = await store.query('coachChat', {
+    orderField: 'createdAt',
+    direction: 'desc',
+    limit: 4,
+  })
+
+  const last = docs.find((d) => d.role === 'assistant' && d.tier)
+  if (!last) return null
+
+  const at = toMillis(last.createdAt)
+  // No resolved timestamp means the server hasn't stamped it yet, which only
+  // happens for a reply written moments ago — warm by definition.
+  if (at == null) return last.tier
+
+  return now - at <= withinMinutes * 60_000 ? last.tier : null
+}
+
 const macros = (o) =>
   `${Math.round(o.kcal)} kcal, ${Math.round(o.protein_g)}P/${Math.round(o.carbs_g)}C/${Math.round(o.fat_g)}F`
 

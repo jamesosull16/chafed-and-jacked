@@ -16,7 +16,7 @@ import {
   LIMITS,
 } from '../src/coach/rateLimit.js'
 import { buildWorkoutTrigger } from '../src/coach/trigger.js'
-import { readHistory, HISTORY_TURNS } from '../src/coach/history.js'
+import { readHistory, readConversationTier, HISTORY_TURNS } from '../src/coach/history.js'
 import { ensureMemory, readMemory, SUMMARISE_BATCH, MAX_FACTS } from '../src/coach/memory.js'
 
 // ── In-memory store, same surface as src/store.js ─────────────────────
@@ -1107,6 +1107,78 @@ describe('classifyTurn', () => {
     // and the restraint rules are what low effort would reason away first.
     expect(classifyTurn({ trigger: 'A run was just logged.' })).toBe('coaching')
   })
+
+  // The live misfire: "the terrain will be flat on a multipurpose path" — eight
+  // words, no question mark — read as a meal entry in the middle of a coaching
+  // exchange. Shape alone cannot separate it from "2 eggs, toast and a flat
+  // white"; only the conversation around it can.
+  it('keeps a short follow-up in the coaching tier mid-conversation', () => {
+    const message = 'the terrain will be flat on a multipurpose path'
+    expect(classifyTurn({ message, previousTier: 'coaching' })).toBe('coaching')
+    expect(classifyTurn({ message })).toBe('logging')
+  })
+
+  it('still treats a short message as a log entry after a logging turn', () => {
+    expect(classifyTurn({ message: 'a banana', previousTier: 'logging' })).toBe('logging')
+  })
+
+  it('lets a photo beat the sticky tier', () => {
+    // Mid-coaching-conversation or not, a photo is a meal being logged.
+    expect(classifyTurn({ message: '', photo: { base64: 'x' }, previousTier: 'coaching' })).toBe(
+      'logging'
+    )
+  })
+
+  it('treats a photo with a question attached as coaching', () => {
+    expect(classifyTurn({ message: 'is this enough carbs?', photo: { base64: 'x' } })).toBe(
+      'coaching'
+    )
+  })
+})
+
+describe('readConversationTier', () => {
+  const NOW = Date.parse('2026-07-31T13:30:00Z')
+  const at = (minutesAgo) => new Date(NOW - minutesAgo * 60_000).toISOString()
+
+  const thread = (...docs) =>
+    fakeStore({
+      collections: {
+        coachChat: Object.fromEntries(docs.map((d, i) => [`m${i}`, d])),
+      },
+    })
+
+  it('returns the tier of a recent coach reply', async () => {
+    const store = thread({ role: 'assistant', content: 'a', tier: 'coaching', createdAt: at(2) })
+    expect(await readConversationTier(store, { now: NOW })).toBe('coaching')
+  })
+
+  it('forgets a conversation that has gone cold', async () => {
+    // Without a decay the coaching tier would be absorbing — every short
+    // message after the first coaching turn would inherit it forever, and the
+    // logging tier would become unreachable.
+    const store = thread({ role: 'assistant', content: 'a', tier: 'coaching', createdAt: at(90) })
+    expect(await readConversationTier(store, { now: NOW })).toBeNull()
+  })
+
+  it('looks past the message the client has just written', async () => {
+    const store = thread(
+      { role: 'assistant', content: 'a', tier: 'coaching', createdAt: at(3) },
+      { role: 'user', content: 'and the terrain?', createdAt: at(1) }
+    )
+    expect(await readConversationTier(store, { now: NOW })).toBe('coaching')
+  })
+
+  it('treats an unstamped reply as warm', async () => {
+    // serverTimestamp() resolves late; an unresolved one only happens for a
+    // document written moments ago.
+    const store = thread({ role: 'assistant', content: 'a', tier: 'coaching', createdAt: null })
+    expect(await readConversationTier(store, { now: NOW })).toBe('coaching')
+  })
+
+  it('returns nothing for a thread with no tiered reply yet', async () => {
+    const store = thread({ role: 'user', content: 'hello', createdAt: at(1) })
+    expect(await readConversationTier(store, { now: NOW })).toBeNull()
+  })
 })
 
 describe('reasoning effort', () => {
@@ -1641,11 +1713,30 @@ describe('buildSystemPrompt', () => {
     expect(running).not.toMatch(/\+300 kcal/)
   })
 
-  it('puts the hypertrophy block in strength mode and keeps race fuelling out of it', () => {
+  it('puts the hypertrophy block in strength mode and keeps race content out of it', () => {
     expect(strength).toMatch(/Lean bulk/)
     expect(strength).toMatch(/0\.25-0\.5% bodyweight per week/)
-    expect(strength).not.toMatch(/glucose and fructose/)
+    // Race-specific material stays in running mode; long-run fuelling does not,
+    // because he still runs long during this block. See the test below.
+    expect(strength).not.toMatch(/Carbohydrate loading/)
+    expect(strength).not.toMatch(/Race week/)
     expect(strength).not.toMatch(/talk test/)
+  })
+
+  // Added after a live turn in strength mode answered "how should I fuel a 3
+  // hour long run?" with 60 g/h flat and an unconditional refuel window. The
+  // section told the model to fuel a long run properly and gave it no numbers,
+  // so it supplied textbook ones that contradict the running skill. These are
+  // the same figures as running mode by design — the modes are never both
+  // loaded, so this is not the ownership split the skills encode.
+  it('carries the canonical long-run fuelling figures in strength mode too', () => {
+    expect(strength).toMatch(/30-60 g of carbohydrate an hour/)
+    expect(strength).toMatch(/only with a gut trained for it/)
+    expect(strength).toMatch(/1-4 g\/kg of carbohydrate one to four hours out/)
+    // The window is conditional, and in a lifting block the condition is
+    // almost never met — this is the line that stops it being recited.
+    expect(strength).toMatch(/under about 8 hours away/)
+    expect(strength).toMatch(/Drink to thirst/)
   })
 
   // These are the specific places the prompt previously contradicted

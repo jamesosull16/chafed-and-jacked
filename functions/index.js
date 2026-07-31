@@ -22,7 +22,7 @@ import { estimateMeal, EstimationError } from './src/estimator.js'
 import { createStore, localDateId } from './src/store.js'
 import { runCoachTurn, CoachError, MODEL } from './src/coach/orchestrator.js'
 import { buildTurnContext } from './src/coach/context.js'
-import { readHistory, HISTORY_TURNS } from './src/coach/history.js'
+import { readHistory, readConversationTier, HISTORY_TURNS } from './src/coach/history.js'
 import { ensureMemory, readMemory } from './src/coach/memory.js'
 import { consumeTurn, consumeProactive, claimWorkout, RateLimitError } from './src/coach/rateLimit.js'
 import { buildWorkoutTrigger } from './src/coach/trigger.js'
@@ -164,10 +164,11 @@ export const coachTurn = onCall({ ...RUNTIME, timeoutSeconds: 180 }, async (requ
     // The client writes James's message into the thread before calling in, so
     // it is already in what we read back — `pendingUserText` keeps it from
     // being replayed as history and appended as this turn at the same time.
-    const [context, history, memory] = await Promise.all([
+    const [context, history, memory, previousTier] = await Promise.all([
       buildTurnContext({ store, dateId, clientContext }),
       readHistory(store, { pendingUserText: message }),
       ensureMemory(store, { anthropic: client(), model: MODEL, windowSize: HISTORY_TURNS }),
+      readConversationTier(store),
     ])
     context.memory = memory
 
@@ -176,6 +177,7 @@ export const coachTurn = onCall({ ...RUNTIME, timeoutSeconds: 180 }, async (requ
         message,
         photo: photo?.base64 ? { base64: photo.base64, mediaType: photo.mediaType } : null,
         history,
+        previousTier,
       },
       { anthropic: client(), store, estimate: estimator(), context, dateId }
     )
@@ -199,6 +201,9 @@ export const coachTurn = onCall({ ...RUNTIME, timeoutSeconds: 180 }, async (requ
       dayTotals: result.dayTotals,
       remaining: result.remaining,
       logMutated: result.logMutated,
+      // Written onto the assistant message by the client so the next turn can
+      // tell a follow-up from a fresh meal entry.
+      tier: result.tier,
     }
   } catch (err) {
     throw toHttpsError(err)
@@ -275,6 +280,7 @@ export const coachWorkoutLogged = onCall({ ...RUNTIME, timeoutSeconds: 180 }, as
     await store.addDoc('coachChat', {
       role: 'assistant',
       content: result.reply,
+      tier: result.tier,
       ...(result.cards?.length && { cards: result.cards }),
       proactive: true,
       workoutId,

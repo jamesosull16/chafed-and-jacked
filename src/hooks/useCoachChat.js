@@ -135,6 +135,9 @@ export function useCoachChat({ buildContext }) {
         await write({
           role: 'assistant',
           content: data.reply,
+          // Stored so the server can tell a short follow-up from a short meal
+          // entry on the next turn — the two are indistinguishable by shape.
+          ...(data.tier && { tier: data.tier }),
           ...(data.cards?.length && { cards: data.cards }),
         })
 
