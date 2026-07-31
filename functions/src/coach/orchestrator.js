@@ -71,10 +71,10 @@ function buildUserContent({ text, photo }) {
  * @returns {{ reply, cards, toolsUsed, dayTotals, remaining, logMutated }}
  */
 export async function runCoachTurn(
-  { message, photo, history = [] },
+  { message, photo, history = [], trigger = null },
   { anthropic, store, estimate, context, dateId }
 ) {
-  if (!message?.trim() && !photo) {
+  if (!message?.trim() && !photo && !trigger) {
     throw new CoachError('Send a message or a photo.', 'invalid-argument')
   }
   if (!anthropic) throw new CoachError('No model client configured.', 'internal')
@@ -82,9 +82,17 @@ export async function runCoachTurn(
   const tooling = createHandlers({ store, estimate, photo, dateId, context })
   const toolsUsed = []
 
+  // A trigger turn is server-authored — nothing James typed. It rides as a
+  // user-role message rather than a `role: "system"` one because the model
+  // supports mid-conversation system messages only in positions this turn
+  // cannot guarantee: they may not be messages[0], which is exactly where this
+  // lands on a fresh thread. The content is generated here, never from client
+  // input, so there is no injection surface either way.
   const messages = [
     ...historyToMessages(history),
-    { role: 'user', content: buildUserContent({ text: message, photo }) },
+    trigger
+      ? { role: 'user', content: [{ type: 'text', text: trigger }] }
+      : { role: 'user', content: buildUserContent({ text: message, photo }) },
   ]
 
   const system = [
@@ -175,7 +183,12 @@ export async function runCoachTurn(
   const entries = await tooling.readLog()
 
   return {
-    reply: reply || "Logged. Anything else?",
+    // On a trigger turn an empty reply is the model choosing silence, which is
+    // a valid and often correct answer — substituting a filler line would turn
+    // "this session didn't warrant a message" into noise, which is precisely
+    // what the restraint rules exist to prevent. Only a real user turn gets a
+    // fallback, because there a silent reply would look like a failure.
+    reply: reply || (trigger ? '' : 'Logged. Anything else?'),
     cards: tooling.cards,
     toolsUsed,
     logMutated: tooling.logMutated,

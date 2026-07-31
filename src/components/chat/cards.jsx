@@ -1,4 +1,4 @@
-import { Check, Pencil, Dumbbell, ShieldAlert, Plus } from 'lucide-react'
+import { Check, Pencil, Dumbbell, ShieldAlert, Plus, Timer } from 'lucide-react'
 import { Badge, Button } from '../ui'
 import { cn } from '../ui/cn'
 
@@ -135,6 +135,59 @@ export function MealOptionsCard({ options, onLog, loggingIndex }) {
           </div>
         </CardShell>
       ))}
+    </div>
+  )
+}
+
+/**
+ * A post-session fuelling window.
+ *
+ * Distinct from MealOptionsCard on purpose: that one closes a macro gap
+ * whenever it's asked for, this one is time-bound and arrives unprompted. The
+ * window label is the whole point — it's why this is a card rather than a
+ * sentence — so it leads, and each option is loggable in one tap through the
+ * same path as any other meal.
+ */
+export function FuellingCard({ card, onLog, loggingIndex }) {
+  return (
+    <div className="w-full max-w-[300px] space-y-2">
+      <CardShell>
+        <CardHead
+          title={`Fuel — ${card.window}`}
+          subtitle={card.rationale}
+          badge={
+            <Badge tone="accent" size="xs" icon={Timer}>
+              Window
+            </Badge>
+          }
+        />
+        <ul className="px-3 pb-3 space-y-2">
+          {card.options.map((option, i) => (
+            <li key={option.name} className="border-t border-border-default pt-2 first:border-0 first:pt-0">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="text-sm font-semibold text-text min-w-0">{option.name}</p>
+                <span className="text-xs font-semibold text-brand tabular-nums shrink-0">
+                  {Math.round(option.carbs_g)}C · {Math.round(option.protein_g)}P
+                </span>
+              </div>
+              <p className="text-xs text-muted mt-1">{option.description}</p>
+              <div className="flex items-center justify-between gap-2 mt-2">
+                <span className="text-xs text-subtle tabular-nums">
+                  {Math.round(option.kcal)} kcal · {Math.round(option.fat_g)}g fat
+                </span>
+                <Button
+                  size="xs"
+                  icon={Plus}
+                  onClick={() => onLog(option, i)}
+                  disabled={loggingIndex != null}
+                >
+                  {loggingIndex === i ? 'Logging…' : 'Log this'}
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </CardShell>
     </div>
   )
 }

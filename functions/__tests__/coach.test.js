@@ -3,7 +3,14 @@ import { runCoachTurn, CoachError, MAX_ITERATIONS } from '../src/coach/orchestra
 import { createHandlers, TOOL_DEFINITIONS, ToolError } from '../src/coach/tools.js'
 import { buildTurnContext } from '../src/coach/context.js'
 import { buildContextBlock, buildSystemPrompt, COACH_MODES } from '../src/coach/prompt.js'
-import { consumeTurn, RateLimitError, LIMITS } from '../src/coach/rateLimit.js'
+import {
+  consumeTurn,
+  consumeProactive,
+  claimWorkout,
+  RateLimitError,
+  LIMITS,
+} from '../src/coach/rateLimit.js'
+import { buildWorkoutTrigger } from '../src/coach/trigger.js'
 
 // ── In-memory store, same surface as src/store.js ─────────────────────
 
@@ -152,6 +159,7 @@ describe('tool definitions', () => {
       'get_workout',
       'log_meal',
       'propose_adjustment',
+      'propose_fuelling',
       'propose_meals',
       'show_session',
       'update_meal',
@@ -775,6 +783,133 @@ describe('runCoachTurn', () => {
   })
 })
 
+// ── Proactive post-workout turn ──────────────────────────────────────
+
+describe('post-workout trigger', () => {
+  it('runs a turn with no user message at all', async () => {
+    const anthropic = scriptedModel([{ text: '2h10 long run. Eat 90g carbs in the next 45 min.' }])
+    const result = await runCoachTurn(
+      { trigger: buildWorkoutTrigger({ kind: 'run', summary: '13.1 mi, 115 min' }) },
+      deps({ anthropic })
+    )
+    expect(result.reply).toMatch(/45 min/)
+
+    const { messages } = anthropic.messages.create.mock.calls[0][0]
+    expect(messages).toHaveLength(1)
+    expect(messages[0].content[0].text).toMatch(/Automatic trigger/)
+  })
+
+  it('still rejects a turn with nothing at all', async () => {
+    await expect(runCoachTurn({}, deps({ anthropic: scriptedModel([]) }))).rejects.toThrow(CoachError)
+  })
+
+  it('returns an empty reply rather than filler when the model stays silent', async () => {
+    // This is the whole restraint mechanism: an easy session should produce
+    // silence, and a fallback line here would turn every rest day into noise.
+    const anthropic = scriptedModel([{ text: '' }])
+    const result = await runCoachTurn({ trigger: 'x' }, deps({ anthropic }))
+    expect(result.reply).toBe('')
+    expect(result.cards).toEqual([])
+  })
+
+  it('still gives a user turn a fallback, where silence would look broken', async () => {
+    const anthropic = scriptedModel([{ text: '' }])
+    const result = await runCoachTurn({ message: 'hi' }, deps({ anthropic }))
+    expect(result.reply).toBe('Logged. Anything else?')
+  })
+
+  it('tells the model that saying nothing is permitted', () => {
+    const trigger = buildWorkoutTrigger({ kind: 'strength', summary: 'Lower — Posterior, 62 min' })
+    expect(trigger).toMatch(/has not asked you anything/)
+    expect(trigger).toMatch(/empty reply is correct and expected/)
+    expect(trigger).toMatch(/Lower — Posterior, 62 min/)
+  })
+
+  it('degrades to a neutral description when the summary is missing', () => {
+    expect(buildWorkoutTrigger({ kind: 'run' })).toMatch(/logged a run/)
+    expect(buildWorkoutTrigger({})).toMatch(/a training session/)
+  })
+
+  it('renders a fuelling card the model authored', async () => {
+    const anthropic = scriptedModel([
+      {
+        tools: [
+          {
+            name: 'propose_fuelling',
+            input: {
+              window: 'next 45 min',
+              rationale: '2h10 at 1,450 kcal — the window matters with a session tomorrow.',
+              options: [
+                { name: 'Rice & chicken', description: '250g rice, 200g chicken', kcal: 700, protein_g: 55, carbs_g: 90, fat_g: 8 },
+              ],
+            },
+          },
+        ],
+      },
+      { text: 'Eat in the next 45.' },
+    ])
+    const result = await runCoachTurn({ trigger: 'x' }, deps({ anthropic }))
+    expect(result.cards[0]).toMatchObject({ type: 'fuelling', window: 'next 45 min' })
+    expect(result.cards[0].options[0].protein_g).toBe(55)
+  })
+
+  it('refuses a fuelling card with no window or no options', async () => {
+    const tooling = createHandlers({
+      store: fakeStore(),
+      estimate: vi.fn(),
+      photo: null,
+      dateId: '2026-07-22',
+      context: CONTEXT,
+    })
+    await expect(tooling.handlers.propose_fuelling({ window: '', options: [{}] })).rejects.toThrow(ToolError)
+    await expect(tooling.handlers.propose_fuelling({ window: 'now', options: [] })).rejects.toThrow(ToolError)
+  })
+})
+
+describe('proactive budget and idempotency', () => {
+  it('keeps the proactive budget separate from the conversational one', async () => {
+    const store = fakeStore()
+    // Exhaust the proactive budget entirely.
+    for (let i = 0; i < LIMITS.MAX_PROACTIVE_PER_WINDOW; i++) await consumeProactive(store)
+    await expect(consumeProactive(store)).rejects.toThrow(RateLimitError)
+
+    // The conversational allowance must be untouched — the failure mode this
+    // prevents is James asking a question and being told he is out of messages
+    // because a sync loop spent them.
+    const turn = await consumeTurn(store)
+    expect(turn.remaining).toBe(LIMITS.MAX_TURNS_PER_WINDOW - 1)
+  })
+
+  it('does not let conversation exhaust the proactive budget either', async () => {
+    const store = fakeStore()
+    for (let i = 0; i < LIMITS.MAX_TURNS_PER_WINDOW; i++) await consumeTurn(store)
+    await expect(consumeTurn(store)).rejects.toThrow(RateLimitError)
+    await expect(consumeProactive(store)).resolves.toBeTruthy()
+  })
+
+  it('claims a workout id once so a retry cannot double-post', async () => {
+    const store = fakeStore()
+    expect(await claimWorkout(store, 'session-1')).toBe(true)
+    expect(await claimWorkout(store, 'session-1')).toBe(false)
+    expect(await claimWorkout(store, 'session-2')).toBe(true)
+  })
+
+  it('refuses to claim a missing id rather than posting about nothing', async () => {
+    expect(await claimWorkout(fakeStore(), undefined)).toBe(false)
+    expect(await claimWorkout(fakeStore(), '')).toBe(false)
+  })
+
+  it('bounds the remembered ids so the document cannot grow forever', async () => {
+    const store = fakeStore()
+    for (let i = 0; i < LIMITS.POSTED_HISTORY + 5; i++) await claimWorkout(store, `s${i}`)
+    const doc = await store.getSystemDoc('coachUsage')
+    expect(doc.postedWorkouts).toHaveLength(LIMITS.POSTED_HISTORY)
+    // The oldest ids fall off, so a very old workout could in principle repost.
+    // That is the deliberate trade for a bounded document.
+    expect(doc.postedWorkouts).toContain(`s${LIMITS.POSTED_HISTORY + 4}`)
+  })
+})
+
 // ── Context assembly ─────────────────────────────────────────────────
 
 describe('buildTurnContext', () => {
@@ -1151,6 +1286,18 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toMatch(/Never invent a logged meal/)
       expect(prompt).toMatch(/never name which expertise/i)
       expect(prompt).toMatch(/no padding, not no length/)
+    }
+  })
+
+  it('carries the post-workout restraint rules in both modes', () => {
+    // The proactive message is the one place the coach speaks unprompted, so
+    // the licence to say nothing has to be explicit — a model that treats an
+    // empty reply as failure will pad, and padding is what gets it muted.
+    for (const prompt of [strength, running]) {
+      expect(prompt).toMatch(/A rest day, or a session logged so long ago the window has closed, gets \*\*nothing\*\*/)
+      expect(prompt).toMatch(/25-minute recovery jog/)
+      expect(prompt).toMatch(/Silence costs nothing; noise costs you the channel/)
+      expect(prompt).toMatch(/Never send the same message twice about the same session/)
     }
   })
 

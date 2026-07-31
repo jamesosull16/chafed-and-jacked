@@ -8,6 +8,7 @@ import { analyzeBalance, laggingMuscles } from '../lib/strength/chainBalance'
 import { activeGuardrails, hamstringStageFor } from '../lib/strength/injuryGuardrails'
 import { mobilityAdherence } from '../lib/strength/mobility'
 import { STRENGTH_EXERCISES } from '../lib/strength/exercises'
+import { notifyWorkoutLogged } from '../lib/coachTrigger'
 
 /**
  * Strength-mode counterpart to useWorkout.
@@ -232,6 +233,11 @@ export function useStrengthBlock() {
     }
 
     await loadData()
+
+    // Fire-and-forget: the coach may drop a fuelling message into the thread.
+    // Never awaited — a save must not depend on a chat message succeeding.
+    notifyWorkoutLogged({ workoutId: id, kind: 'strength' })
+
     return { id, ...doc }
   }
 

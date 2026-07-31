@@ -21,7 +21,8 @@ import { estimateMeal, EstimationError } from './src/estimator.js'
 import { createStore, localDateId } from './src/store.js'
 import { runCoachTurn, CoachError } from './src/coach/orchestrator.js'
 import { buildTurnContext } from './src/coach/context.js'
-import { consumeTurn, RateLimitError } from './src/coach/rateLimit.js'
+import { consumeTurn, consumeProactive, claimWorkout, RateLimitError } from './src/coach/rateLimit.js'
+import { buildWorkoutTrigger } from './src/coach/trigger.js'
 
 if (getApps().length === 0) initializeApp()
 
@@ -176,3 +177,92 @@ export const coachTurn = onCall({ ...RUNTIME, timeoutSeconds: 180 }, async (requ
     throw toHttpsError(err)
   }
 })
+
+/**
+ * Proactive post-workout message.
+ *
+ * Called fire-and-forget by the client after a session or run is saved. Every
+ * failure path here is deliberately silent to the caller: a coach message that
+ * doesn't arrive is a missing nicety, and it must never surface as an error on
+ * the screen where James just finished training.
+ *
+ * The workout id is claimed before the model runs, so a retry, a double-tap or
+ * a remount cannot produce two unprompted messages about the same session. The
+ * reply is written straight into the thread by this function rather than
+ * returned for the client to write — the client has already navigated away.
+ */
+export const coachWorkoutLogged = onCall({ ...RUNTIME, timeoutSeconds: 180 }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.')
+
+  const uid = request.auth.uid
+  const { workoutId, kind, timezoneOffset } = request.data || {}
+  if (!workoutId || typeof workoutId !== 'string') {
+    throw new HttpsError('invalid-argument', 'workoutId is required.')
+  }
+
+  const store = createStore(uid)
+
+  // Claim first. Everything after this is best-effort.
+  if (!(await claimWorkout(store, workoutId))) return { posted: false, reason: 'already-posted' }
+
+  try {
+    await consumeProactive(store)
+  } catch {
+    return { posted: false, reason: 'rate-limited' }
+  }
+
+  const dateId = localDateId(new Date(), Number(timezoneOffset) || 0)
+
+  try {
+    const context = await buildTurnContext({ store, dateId })
+
+    // The summary is built from server-read context, never from the payload —
+    // the client says only *that* something was logged, not what.
+    const summary =
+      kind === 'run'
+        ? summariseRunsForTrigger(context.todayRuns)
+        : summariseSessionForTrigger(context.lastSession)
+
+    const result = await runCoachTurn(
+      { trigger: buildWorkoutTrigger({ kind, summary }) },
+      { anthropic: client(), store, estimate: estimator(), context, dateId }
+    )
+
+    // An empty reply is the model exercising restraint. Respect it — writing a
+    // filler message here is exactly the noise the rules exist to prevent.
+    if (!result.reply?.trim() && !result.cards?.length) {
+      return { posted: false, reason: 'nothing-worth-saying' }
+    }
+
+    await store.addDoc('coachChat', {
+      role: 'assistant',
+      content: result.reply,
+      ...(result.cards?.length && { cards: result.cards }),
+      proactive: true,
+      workoutId,
+      createdAt: new Date(),
+    })
+
+    return { posted: true }
+  } catch (err) {
+    // Logged for us, invisible to him.
+    console.error('Proactive coach message failed:', err)
+    return { posted: false, reason: 'failed' }
+  }
+})
+
+function summariseSessionForTrigger(session) {
+  if (!session) return null
+  const bits = [session.dayType || 'a session']
+  if (session.duration) bits.push(`${session.duration} min`)
+  if (session.totalVolume) bits.push(`${session.totalVolume} volume`)
+  return bits.join(', ')
+}
+
+function summariseRunsForTrigger(runs) {
+  if (!runs?.length) return null
+  const miles = runs.reduce((s, r) => s + (Number(r.miles) || 0), 0)
+  const minutes = runs.reduce((s, r) => s + (Number(r.duration_minutes) || 0), 0)
+  const duration = minutes ? `, ${minutes} min` : ''
+  return `${Math.round(miles * 10) / 10} mi${duration}`
+}

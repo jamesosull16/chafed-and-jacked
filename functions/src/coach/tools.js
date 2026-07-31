@@ -158,6 +158,47 @@ export const TOOL_DEFINITIONS = [
     input_schema: { type: 'object', properties: {} },
   },
 
+  {
+    name: 'propose_fuelling',
+    description:
+      'Render a fuelling-window card — a labelled window ("next 45 min") and 2-3 concrete ' +
+      'options with macros, each loggable in one tap. Use after a session that genuinely ' +
+      'warrants a window: a long run, a depleting interval session, or a hard lift with ' +
+      'another session close behind. Do NOT use it after an easy or short session — a 25-minute ' +
+      'recovery jog needs a normal meal, and a card there is noise. You author the numbers from ' +
+      'the context block and tool results; this validates and renders them.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        window: {
+          type: 'string',
+          description: 'The window label, e.g. "next 45 min" or "within 2 hours".',
+        },
+        rationale: {
+          type: 'string',
+          description: 'One line on why this window and this size, grounded in the actual session.',
+        },
+        options: {
+          type: 'array',
+          maxItems: 3,
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              description: { type: 'string', description: 'Portions, in real food.' },
+              kcal: { type: 'number' },
+              protein_g: { type: 'number' },
+              carbs_g: { type: 'number' },
+              fat_g: { type: 'number' },
+            },
+            required: ['name', 'description', 'kcal', 'protein_g', 'carbs_g', 'fat_g'],
+          },
+        },
+      },
+      required: ['window', 'options'],
+    },
+  },
+
   // ── Reads ──
   //
   // The context block already carries what is needed on nearly every turn.
@@ -437,6 +478,28 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
       }
       cards.push({ type: 'session', session: context.session, mode: context?.mode || 'strength' })
       return { shown: true, name: context.session.name, mode: context?.mode || 'strength' }
+    },
+
+    async propose_fuelling({ window, rationale, options }) {
+      if (!window?.trim()) throw new ToolError('Give the window a label, e.g. "next 45 min".')
+      if (!Array.isArray(options) || options.length === 0) {
+        throw new ToolError('Provide at least one fuelling option.')
+      }
+      const cleaned = options.slice(0, 3).map((o) => ({
+        name: String(o.name).slice(0, 120),
+        description: String(o.description).slice(0, 240),
+        kcal: Math.round(Number(o.kcal) || 0),
+        protein_g: round1(Number(o.protein_g) || 0),
+        carbs_g: round1(Number(o.carbs_g) || 0),
+        fat_g: round1(Number(o.fat_g) || 0),
+      }))
+      cards.push({
+        type: 'fuelling',
+        window: String(window).slice(0, 60),
+        rationale: rationale ? String(rationale).slice(0, 200) : null,
+        options: cleaned,
+      })
+      return { shown: cleaned.length }
     },
 
     // ── Reads ──

@@ -5,6 +5,7 @@ import { getCurrentWeek, getWeekModifiers, getNextSession, getDayTypeForDate, ge
 import { getScalingTier, calculateEffectiveSets } from '../lib/loadScaling'
 import { getRecommendedWeight, checkForPR } from '../lib/progression'
 import { useAuth } from '../contexts/AuthContext'
+import { notifyWorkoutLogged } from '../lib/coachTrigger'
 
 /**
  * Central hook for workout state management.
@@ -211,7 +212,7 @@ export function useWorkout() {
       completed: true,
     }
 
-    await addDocument('workoutSessions', sessionData)
+    const sessionId = await addDocument('workoutSessions', sessionData)
 
     // Update per-exercise progress
     for (const ex of exerciseResults) {
@@ -234,6 +235,9 @@ export function useWorkout() {
     }
 
     await loadWeekData()
+
+    // Fire-and-forget: never awaited, never able to fail the save.
+    notifyWorkoutLogged({ workoutId: sessionId, kind: 'strength' })
   }
 
   /** Save weekly mileage */
@@ -271,6 +275,14 @@ export function useWorkout() {
       setTodayMiles(total)
     }
     await loadWeekData()
+
+    // Fire-and-forget, and only for a run logged today — back-filling last
+    // Tuesday's run should not produce a fuelling window for a session whose
+    // window closed days ago. The id is the day plus the run's index, so each
+    // run in a day triggers once and a re-save of the same run does not.
+    if (!dateStr || dateStr === formatLocalDate()) {
+      notifyWorkoutLogged({ workoutId: `${date}#${runs.length - 1}`, kind: 'run' })
+    }
   }
 
   /** Delete a specific run from a day */

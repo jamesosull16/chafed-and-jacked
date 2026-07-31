@@ -18,6 +18,7 @@ import {
   MealOptionsCard,
   SessionCard,
   AdjustmentCard,
+  FuellingCard,
 } from '../components/chat/cards'
 
 function Bubble({ role, children, isError }) {
@@ -77,6 +78,15 @@ function Cards({ cards, onLogOption, loggingIndex }) {
             )
           case 'session':
             return <SessionCard key={i} session={card.session} />
+          case 'fuelling':
+            return (
+              <FuellingCard
+                key={i}
+                card={card}
+                onLog={onLogOption}
+                loggingIndex={loggingIndex}
+              />
+            )
           case 'adjustment':
             return <AdjustmentCard key={i} card={card} />
           default:
