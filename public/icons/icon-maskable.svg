@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!--
+    Maskable variant of favicon.svg.
+
+    Two differences, both required by the maskable spec and neither cosmetic:
+
+    1. The background is full-bleed with no corner radius. Android applies its
+       own mask shape (circle, squircle, teardrop depending on launcher), so an
+       icon with its own rounded corners and transparent outside them shows
+       those transparent corners as artifacts once a different shape is cut.
+
+    2. The mark is centred and scaled into the safe zone — the central 80%
+       circle that every mask shape is guaranteed to keep. In favicon.svg the
+       kettlebell sits low (its body reaches 89% of the height) and its own
+       bounding box only just fits, so an aggressive mask would clip the base.
+       Scaled to 0.82 about the centre, it clears every shape with margin.
+
+    Regenerate the PNGs with `npm run icons` after editing.
+  -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="8" x2="0" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+    <clipPath id="bc">
+      <circle cx="32" cy="42" r="14.5"/>
+    </clipPath>
+  </defs>
+
+  <rect width="64" height="64" fill="#0B1220"/>
+
+  <!-- Content bbox is x 20.5-43.5, y 11.5-57, so its centre is (32, 34.25).
+       Recentre on (32, 32) and shrink for safe-zone margin. -->
+  <g transform="translate(32 32) scale(0.82) translate(-32 -34.25)">
+    <path d="M23 29 C23 14 41 14 41 29" stroke="url(#g)" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <rect x="21" y="26" width="22" height="6" rx="1" fill="url(#g)"/>
+    <circle cx="32" cy="42" r="15" fill="url(#g)"/>
+    <g clip-path="url(#bc)">
+      <path d="M14 50 L25 38 L29 42 L36 33 L46 46 L46 58 L14 58Z" fill="#0B1220" opacity="0.3"/>
+    </g>
+  </g>
+</svg>

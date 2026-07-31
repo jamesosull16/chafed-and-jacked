@@ -31,10 +31,17 @@ export default defineConfig({
         display: 'standalone',
         scope: '/',
         start_url: '/',
+        // `any` and `maskable` are separate images on purpose. They were the
+        // same file declared 'any maskable', which asks one icon to satisfy
+        // two incompatible layouts: `any` is drawn as supplied, while
+        // `maskable` gets an arbitrary launcher shape cut out of it and only
+        // guarantees the central 80%. The maskable source shrinks the mark to
+        // clear that safe zone; using it for both would look needlessly inset
+        // everywhere else. Regenerate both with `npm run icons`.
         icons: [
-          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
         ]
       },
       workbox: {

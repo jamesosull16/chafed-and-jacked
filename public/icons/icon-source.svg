@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!--
+    Source for icon-192.png and icon-512.png.
+
+    Full-bleed and square, unlike favicon.svg, because every platform that uses
+    these applies its own mask — iOS a squircle, Android whatever the launcher
+    draws. Supplying our own rounded corners means either double-rounding, or
+    (as happened here) the renderer flattening the transparent corners onto
+    white and leaving white slivers outside the OS mask.
+
+    favicon.svg keeps its rounded corners: a browser tab draws no mask, so
+    there it is the shape doing the work.
+
+    Same artwork as icon-maskable.svg at a slightly larger scale — that one
+    shrinks further to clear the maskable safe zone, which is stricter than
+    anything applied to a plain `purpose: any` icon.
+
+    Regenerate with `npm run icons`.
+  -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="8" x2="0" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+    <clipPath id="bc">
+      <circle cx="32" cy="42" r="14.5"/>
+    </clipPath>
+  </defs>
+
+  <rect width="64" height="64" fill="#0B1220"/>
+
+  <!-- Content bbox centre is (32, 34.25); recentre it on the tile. -->
+  <g transform="translate(32 32) scale(0.92) translate(-32 -34.25)">
+    <path d="M23 29 C23 14 41 14 41 29" stroke="url(#g)" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <rect x="21" y="26" width="22" height="6" rx="1" fill="url(#g)"/>
+    <circle cx="32" cy="42" r="15" fill="url(#g)"/>
+    <g clip-path="url(#bc)">
+      <path d="M14 50 L25 38 L29 42 L36 33 L46 46 L46 58 L14 58Z" fill="#0B1220" opacity="0.3"/>
+    </g>
+  </g>
+</svg>
