@@ -381,6 +381,16 @@ function renderWeight({ metrics }) {
   return [`WEIGHT TREND — ${metrics.rateOfGain.message}`]
 }
 
+/**
+ * Durable facts carried over from conversations too old to replay. Last of the
+ * sections because it is the only one that is not about today — reading it
+ * first would invite treating a standing preference as a current observation.
+ */
+function renderMemory({ memory }) {
+  if (!memory?.facts?.length) return []
+  return ['REMEMBERED — from earlier conversations:', ...memory.facts.map((f) => `  ${f}`)]
+}
+
 const CONTEXT_SECTIONS = [
   renderMacros,
   renderMeals,
@@ -394,6 +404,7 @@ const CONTEXT_SECTIONS = [
   renderBalance,
   renderGuardrails,
   renderWeight,
+  renderMemory,
 ]
 
 /**

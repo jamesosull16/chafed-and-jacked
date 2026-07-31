@@ -17,6 +17,7 @@ import {
 } from '../src/coach/rateLimit.js'
 import { buildWorkoutTrigger } from '../src/coach/trigger.js'
 import { readHistory, HISTORY_TURNS } from '../src/coach/history.js'
+import { ensureMemory, readMemory, SUMMARISE_BATCH, MAX_FACTS } from '../src/coach/memory.js'
 
 // ── In-memory store, same surface as src/store.js ─────────────────────
 
@@ -918,6 +919,160 @@ describe('readHistory', () => {
     })
 
     expect(await readHistory(store)).toHaveLength(HISTORY_TURNS)
+  })
+})
+
+// ── Long-term memory ─────────────────────────────────────────────────
+
+describe('coach memory', () => {
+  const WINDOW = 4
+
+  /** A thread of `n` messages, oldest first, with sortable timestamps. */
+  const threadOf = (n, seed = {}) =>
+    fakeStore({
+      collections: {
+        coachChat: Object.fromEntries(
+          Array.from({ length: n }, (_, i) => [
+            `m${i}`,
+            {
+              createdAt: String(i).padStart(4, '0'),
+              role: i % 2 ? 'assistant' : 'user',
+              content: `message ${i}`,
+            },
+          ])
+        ),
+        ...seed,
+      },
+    })
+
+  const summariser = (text) => ({
+    messages: {
+      create: vi.fn(async () => ({
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text }],
+      })),
+    },
+  })
+
+  it('does not call the model until a full batch has aged out', async () => {
+    // One short of the batch. Paying for a model call on every turn to
+    // re-derive facts that haven't changed is the cost this guard exists for.
+    const store = threadOf(WINDOW + SUMMARISE_BATCH - 1)
+    const anthropic = summariser('Doesn\'t tolerate whey')
+
+    const memory = await ensureMemory(store, { anthropic, model: 'm', windowSize: WINDOW })
+
+    expect(anthropic.messages.create).not.toHaveBeenCalled()
+    expect(memory.facts).toEqual([])
+  })
+
+  it('summarises once a batch has aged out and persists the facts', async () => {
+    const store = threadOf(WINDOW + SUMMARISE_BATCH)
+    const anthropic = summariser("Doesn't tolerate whey — cramps on it\nCan't train Tuesday evenings")
+
+    const memory = await ensureMemory(store, { anthropic, model: 'm', windowSize: WINDOW })
+
+    expect(anthropic.messages.create).toHaveBeenCalledTimes(1)
+    expect(memory.facts).toEqual([
+      "Doesn't tolerate whey — cramps on it",
+      "Can't train Tuesday evenings",
+    ])
+    expect(await readMemory(store)).toEqual(memory)
+  })
+
+  it('summarises only what has aged out, never the live window', async () => {
+    // The replayed window is already in front of the model verbatim.
+    // Summarising it too would put a lossy copy beside the real thing.
+    const store = threadOf(WINDOW + SUMMARISE_BATCH)
+    const anthropic = summariser('a fact')
+
+    await ensureMemory(store, { anthropic, model: 'm', windowSize: WINDOW })
+
+    const { messages } = anthropic.messages.create.mock.calls[0][0]
+    expect(messages[0].content).toContain('message 0')
+    expect(messages[0].content).not.toContain(`message ${WINDOW + SUMMARISE_BATCH - 1}`)
+  })
+
+  it('does not re-summarise the same stretch on the next turn', async () => {
+    const store = threadOf(WINDOW + SUMMARISE_BATCH)
+    const first = summariser('a fact')
+    await ensureMemory(store, { anthropic: first, model: 'm', windowSize: WINDOW })
+
+    const second = summariser('a fact')
+    const memory = await ensureMemory(store, { anthropic: second, model: 'm', windowSize: WINDOW })
+
+    expect(second.messages.create).not.toHaveBeenCalled()
+    expect(memory.facts).toEqual(['a fact'])
+  })
+
+  it('feeds the existing facts back so they can be merged and superseded', async () => {
+    const store = threadOf(WINDOW + SUMMARISE_BATCH, {
+      coachMemory: { 'test-uid': { facts: ['Hates oats'], summarisedThrough: null } },
+    })
+    const anthropic = summariser('Hates oats\nLikes oats now')
+
+    await ensureMemory(store, { anthropic, model: 'm', windowSize: WINDOW })
+
+    expect(anthropic.messages.create.mock.calls[0][0].messages[0].content).toContain('Hates oats')
+  })
+
+  it('strips bullets and numbering the model may add anyway', async () => {
+    const store = threadOf(WINDOW + SUMMARISE_BATCH)
+    const anthropic = summariser('- Doesn\'t tolerate whey\n2. Trains fasted')
+
+    const memory = await ensureMemory(store, { anthropic, model: 'm', windowSize: WINDOW })
+
+    expect(memory.facts).toEqual(["Doesn't tolerate whey", 'Trains fasted'])
+  })
+
+  it('keeps the old memory when the model call fails', async () => {
+    // A summarisation that didn't happen costs some continuity next fortnight.
+    // One that throws would cost James the answer he actually asked for.
+    const store = threadOf(WINDOW + SUMMARISE_BATCH, {
+      coachMemory: { 'test-uid': { facts: ['Hates oats'], summarisedThrough: null } },
+    })
+    const anthropic = { messages: { create: vi.fn().mockRejectedValue(new Error('503')) } }
+
+    const memory = await ensureMemory(store, { anthropic, model: 'm', windowSize: WINDOW })
+
+    expect(memory.facts).toEqual(['Hates oats'])
+  })
+
+  it('caps how much it will remember', async () => {
+    const store = threadOf(WINDOW + SUMMARISE_BATCH)
+    const anthropic = summariser(
+      Array.from({ length: MAX_FACTS + 15 }, (_, i) => `fact ${i}`).join('\n')
+    )
+
+    const memory = await ensureMemory(store, { anthropic, model: 'm', windowSize: WINDOW })
+
+    expect(memory.facts).toHaveLength(MAX_FACTS)
+  })
+
+  it('advances even when nothing durable came out', async () => {
+    // Otherwise a stretch of small talk is re-summarised on every turn forever.
+    const store = threadOf(WINDOW + SUMMARISE_BATCH)
+    const first = summariser('')
+    await ensureMemory(store, { anthropic: first, model: 'm', windowSize: WINDOW })
+
+    const second = summariser('')
+    await ensureMemory(store, { anthropic: second, model: 'm', windowSize: WINDOW })
+
+    expect(second.messages.create).not.toHaveBeenCalled()
+  })
+
+  it('renders remembered facts into the context block', () => {
+    const block = buildContextBlock({
+      ...CONTEXT,
+      memory: { facts: ["Doesn't tolerate whey", "Can't train Tuesday evenings"] },
+    })
+
+    expect(block).toContain('REMEMBERED')
+    expect(block).toContain("Doesn't tolerate whey")
+  })
+
+  it('says nothing in the context block when there is nothing remembered', () => {
+    expect(buildContextBlock({ ...CONTEXT, memory: { facts: [] } })).not.toContain('REMEMBERED')
   })
 })
 

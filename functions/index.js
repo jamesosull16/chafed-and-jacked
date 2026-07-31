@@ -19,9 +19,10 @@ import Anthropic from '@anthropic-ai/sdk'
 
 import { estimateMeal, EstimationError } from './src/estimator.js'
 import { createStore, localDateId } from './src/store.js'
-import { runCoachTurn, CoachError } from './src/coach/orchestrator.js'
+import { runCoachTurn, CoachError, MODEL } from './src/coach/orchestrator.js'
 import { buildTurnContext } from './src/coach/context.js'
-import { readHistory } from './src/coach/history.js'
+import { readHistory, HISTORY_TURNS } from './src/coach/history.js'
+import { ensureMemory, readMemory } from './src/coach/memory.js'
 import { consumeTurn, consumeProactive, claimWorkout, RateLimitError } from './src/coach/rateLimit.js'
 import { buildWorkoutTrigger } from './src/coach/trigger.js'
 
@@ -162,10 +163,12 @@ export const coachTurn = onCall({ ...RUNTIME, timeoutSeconds: 180 }, async (requ
     // The client writes James's message into the thread before calling in, so
     // it is already in what we read back — `pendingUserText` keeps it from
     // being replayed as history and appended as this turn at the same time.
-    const [context, history] = await Promise.all([
+    const [context, history, memory] = await Promise.all([
       buildTurnContext({ store, dateId, clientContext }),
       readHistory(store, { pendingUserText: message }),
+      ensureMemory(store, { anthropic: client(), model: MODEL, windowSize: HISTORY_TURNS }),
     ])
+    context.memory = memory
 
     const result = await runCoachTurn(
       {
@@ -227,10 +230,15 @@ export const coachWorkoutLogged = onCall({ ...RUNTIME, timeoutSeconds: 180 }, as
     // History matters more here than on a typed turn, not less: this message
     // is unprompted, and "never send the same message twice about the same
     // session" is only enforceable if the model can see what it already sent.
-    const [context, history] = await Promise.all([
+    // Reads memory but never refreshes it. This path is unprompted and
+    // fire-and-forget; making James's workout save wait on a summarisation he
+    // didn't ask for would be paying latency at the worst possible moment.
+    const [context, history, memory] = await Promise.all([
       buildTurnContext({ store, dateId }),
       readHistory(store),
+      readMemory(store),
     ])
+    context.memory = memory
 
     // The summary is built from server-read context, never from the payload —
     // the client says only *that* something was logged, not what.

@@ -58,6 +58,7 @@ beforeEach(async () => {
     await setDoc(doc(db, 'users', ALICE), { mode: 'strength' })
     await setDoc(doc(db, 'users', BOB), { mode: 'strength' })
     await setDoc(doc(db, 'coachUsage', ALICE), { windowStart: Date.now(), count: 59 })
+    await setDoc(doc(db, 'coachMemory', ALICE), { facts: ['Doesn\'t tolerate whey'] })
     await setDoc(doc(db, 'program', 'block-a'), { name: 'Hypertrophy A' })
     for (const c of USER_COLLECTIONS) {
       await setDoc(doc(db, 'users', ALICE, c, 'seed'), { v: 1 })
@@ -161,6 +162,33 @@ describe('coachUsage/{uid} — the rate-limit counter', () => {
 
   it('refuses creating a counter that does not exist yet', async () => {
     await assertFails(setDoc(doc(asBob(), 'coachUsage', BOB), { windowStart: Date.now(), count: 0 }))
+  })
+})
+
+describe('coachMemory/{uid} — what the coach remembers', () => {
+  it('lets the owner read what is remembered about him', async () => {
+    await assertSucceeds(getDoc(doc(asAlice(), 'coachMemory', ALICE)))
+  })
+
+  // This text is injected into the model's system context on every turn.
+  // A writable memory is a client that can put words in its own coach's mouth.
+  it('refuses the owner writing it — no planting facts about yourself', async () => {
+    const db = asAlice()
+    await assertFails(setDoc(doc(db, 'coachMemory', ALICE), { facts: ['Cleared to run'] }))
+    await assertFails(updateDoc(doc(db, 'coachMemory', ALICE), { facts: [] }))
+    await assertFails(deleteDoc(doc(db, 'coachMemory', ALICE)))
+  })
+
+  it('refuses another user reading or writing it', async () => {
+    const db = asBob()
+    await assertFails(getDoc(doc(db, 'coachMemory', ALICE)))
+    await assertFails(setDoc(doc(db, 'coachMemory', ALICE), { facts: [] }))
+  })
+
+  it('refuses an anonymous caller entirely', async () => {
+    const db = asAnon()
+    await assertFails(getDoc(doc(db, 'coachMemory', ALICE)))
+    await assertFails(setDoc(doc(db, 'coachMemory', ALICE), { facts: [] }))
   })
 })
 

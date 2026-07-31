@@ -33,6 +33,20 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // What the Coach remembers about the athlete from conversations too old to
+    // replay.
+    //
+    // Outside the user subtree for the same union-of-allows reason as
+    // coachUsage above, and the stakes are higher here than for a counter:
+    // these lines are injected into the model's context on every turn, so a
+    // client that could write them could put words in its own coach's mouth —
+    // an invented injury clearance, a fabricated preference. Readable, so the
+    // athlete can always see what is being remembered about him.
+    match /coachMemory/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+    }
+
     // Shared program definitions are read-only reference data.
     match /program/{docId} {
       allow read: if request.auth != null;
