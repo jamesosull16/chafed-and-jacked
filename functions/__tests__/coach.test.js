@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { runCoachTurn, CoachError, MAX_ITERATIONS } from '../src/coach/orchestrator.js'
 import { createHandlers, TOOL_DEFINITIONS } from '../src/coach/tools.js'
 import { buildTurnContext } from '../src/coach/context.js'
-import { buildContextBlock, COACH_SYSTEM_PROMPT } from '../src/coach/prompt.js'
+import { buildContextBlock, buildSystemPrompt, COACH_MODES } from '../src/coach/prompt.js'
 import { consumeTurn, RateLimitError, LIMITS } from '../src/coach/rateLimit.js'
 
 // ── In-memory store, same surface as src/store.js ─────────────────────
@@ -569,6 +569,26 @@ describe('runCoachTurn', () => {
     expect(system[1].text).toMatch(/Live app data/)
   })
 
+  it('selects the system prompt from the context mode', async () => {
+    const anthropic = scriptedModel([{ text: 'ok' }])
+    await runCoachTurn(
+      { message: 'how should I fuel tomorrow?' },
+      deps({ anthropic, context: { ...CONTEXT, mode: 'running' } })
+    )
+
+    const { system } = anthropic.messages.create.mock.calls[0][0]
+    expect(system[0].text).toBe(buildSystemPrompt('running'))
+    expect(system[0].text).not.toBe(buildSystemPrompt('strength'))
+  })
+
+  it('falls back to strength when the context carries no mode', async () => {
+    const anthropic = scriptedModel([{ text: 'ok' }])
+    await runCoachTurn({ message: 'x' }, deps({ anthropic }))
+
+    const { system } = anthropic.messages.create.mock.calls[0][0]
+    expect(system[0].text).toBe(buildSystemPrompt('strength'))
+  })
+
   it('replays prior conversation so corrections have referents', async () => {
     const anthropic = scriptedModel([{ text: 'ok' }])
     await runCoachTurn(
@@ -700,18 +720,61 @@ describe('buildContextBlock', () => {
   })
 })
 
-describe('system prompt', () => {
-  it('states the hamstring rule and the lying-vs-seated distinction', () => {
-    expect(COACH_SYSTEM_PROMPT).toMatch(/Load progresses before range/)
-    expect(COACH_SYSTEM_PROMPT).toMatch(/seated position flexes the hip/)
+describe('buildSystemPrompt', () => {
+  const strength = buildSystemPrompt('strength')
+  const running = buildSystemPrompt('running')
+
+  it('covers both modes', () => {
+    expect([...COACH_MODES].sort()).toEqual(['running', 'strength'])
   })
 
-  it('forbids inventing data', () => {
-    expect(COACH_SYSTEM_PROMPT).toMatch(/Never invent a logged meal/)
+  it('puts endurance content in running mode and keeps lean bulk out of it', () => {
+    expect(running).toMatch(/80\/20/)
+    expect(running).toMatch(/60-90 g of carbohydrate an hour/)
+    expect(running).toMatch(/grade-adjusted pace/)
+    expect(running).not.toMatch(/Lean bulk/)
+    expect(running).not.toMatch(/\+300 kcal/)
   })
 
-  it('tells the model not to expose routing', () => {
-    expect(COACH_SYSTEM_PROMPT).toMatch(/never name which expertise/i)
+  it('puts the hypertrophy block in strength mode and keeps race fuelling out of it', () => {
+    expect(strength).toMatch(/Lean bulk/)
+    expect(strength).toMatch(/0\.25-0\.5% bodyweight per week/)
+    expect(strength).not.toMatch(/80\/20/)
+    expect(strength).not.toMatch(/glucose and fructose/)
+  })
+
+  it('includes the guardrails in both modes, last', () => {
+    for (const prompt of [strength, running]) {
+      expect(prompt).toMatch(/Load progresses before range/)
+      expect(prompt).toMatch(/seated position flexes the hip/)
+      // Last means last: nothing may be appended after the override section,
+      // or the "these override everything above" framing stops being true.
+      expect(prompt.indexOf('Injury guardrails')).toBeGreaterThan(prompt.indexOf('## The block'))
+      expect(prompt.trimEnd().endsWith("Don't lecture.")).toBe(true)
+    }
+  })
+
+  it('extends the guardrails to running rather than leaving them lifting-only', () => {
+    expect(running).toMatch(/These apply to running too/)
+    expect(running).toMatch(/Never use running as a way around a movement restriction/)
+  })
+
+  it('keeps the mode-independent core in both', () => {
+    for (const prompt of [strength, running]) {
+      expect(prompt).toMatch(/Never invent a logged meal/)
+      expect(prompt).toMatch(/never name which expertise/i)
+      expect(prompt).toMatch(/no padding, not no length/)
+    }
+  })
+
+  it('falls back to strength for an unknown or missing mode', () => {
+    expect(buildSystemPrompt(undefined)).toBe(strength)
+    expect(buildSystemPrompt('triathlon')).toBe(strength)
+  })
+
+  it('returns a byte-identical string per mode so the cache breakpoint holds', () => {
+    expect(buildSystemPrompt('running')).toBe(buildSystemPrompt('running'))
+    expect(buildSystemPrompt('running')).not.toBe(strength)
   })
 })
 

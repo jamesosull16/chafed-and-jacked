@@ -13,7 +13,7 @@
  * The Anthropic client is injected. This module makes no network calls itself.
  */
 
-import { COACH_SYSTEM_PROMPT, buildContextBlock } from './prompt.js'
+import { buildSystemPrompt, buildContextBlock } from './prompt.js'
 import { TOOL_DEFINITIONS, createHandlers, ToolError } from './tools.js'
 
 export const MODEL = 'claude-opus-4-8'
@@ -90,9 +90,11 @@ export async function runCoachTurn(
   const system = [
     {
       type: 'text',
-      text: COACH_SYSTEM_PROMPT,
-      // The persona is identical on every turn — cache it and pay full price
-      // only for the volatile context that follows.
+      text: buildSystemPrompt(context?.mode),
+      // The persona is identical on every turn *within a mode* — cache it and
+      // pay full price only for the volatile context that follows. Switching
+      // modes is a deliberate settings change, so eating one cache miss there
+      // is the right trade for not carrying both disciplines on every turn.
       cache_control: { type: 'ephemeral' },
     },
     { type: 'text', text: `Live app data for this turn:\n\n${buildContextBlock(context)}` },
