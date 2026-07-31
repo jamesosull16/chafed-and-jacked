@@ -148,6 +148,13 @@ export async function runCoachTurn(
   const tooling = createHandlers({ store, estimate, photo, dateId, context })
   const toolsUsed = []
 
+  // Summed across iterations rather than read off the last response, because a
+  // turn that called three tools paid for four requests and the last one is the
+  // cheapest of them. `cacheRead` is the number worth watching: it is 0 on a
+  // cold prefix and should be most of the input on every turn after, so a
+  // persistent 0 means something volatile has crept in ahead of the breakpoint.
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+
   // A trigger turn is server-authored — nothing James typed. It rides as a
   // user-role message rather than a `role: "system"` one because the model
   // supports mid-conversation system messages only in positions this turn
@@ -191,6 +198,11 @@ export async function runCoachTurn(
     } catch (err) {
       throw new CoachError(`Coach request failed: ${err.message}`, 'unavailable')
     }
+
+    usage.input += response.usage?.input_tokens || 0
+    usage.output += response.usage?.output_tokens || 0
+    usage.cacheRead += response.usage?.cache_read_input_tokens || 0
+    usage.cacheWrite += response.usage?.cache_creation_input_tokens || 0
 
     if (response.stop_reason === 'refusal') {
       throw new CoachError(
@@ -270,5 +282,6 @@ export async function runCoachTurn(
     // inferred from latency — the classifier is a heuristic and needs to be
     // checkable against real turns.
     tier,
+    usage,
   }
 }

@@ -1164,6 +1164,31 @@ describe('reasoning effort', () => {
     expect(result.tier).toBe('logging')
   })
 
+  it('sums token usage across every request the turn made', async () => {
+    // Reading usage off the last response would under-report a turn that
+    // called tools — the final request is the cheapest of the several it paid
+    // for, and cacheRead is the number the prompt-cache question hangs on.
+    const anthropic = scriptedModel([
+      { tools: [{ name: 'get_workout', input: { which: 'today' } }] },
+      { text: 'done' },
+    ])
+    anthropic.messages.create.mockImplementation(async () => {
+      const call = anthropic.messages.create.mock.calls.length
+      return {
+        stop_reason: call === 1 ? 'tool_use' : 'end_turn',
+        content:
+          call === 1
+            ? [{ type: 'tool_use', id: 't1', name: 'get_workout', input: { which: 'today' } }]
+            : [{ type: 'text', text: 'done' }],
+        usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 2000 },
+      }
+    })
+
+    const result = await runCoachTurn({ message: 'post run fuel' }, deps({ anthropic }))
+
+    expect(result.usage).toEqual({ input: 200, output: 100, cacheRead: 4000, cacheWrite: 0 })
+  })
+
   it('runs the post-workout trigger at coaching effort', async () => {
     const anthropic = scriptedModel([{ text: '' }])
     await runCoachTurn(

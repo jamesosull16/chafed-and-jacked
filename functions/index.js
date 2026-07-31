@@ -179,6 +179,19 @@ export const coachTurn = onCall({ ...RUNTIME, timeoutSeconds: 180 }, async (requ
       { anthropic: client(), store, estimate: estimator(), context, dateId }
     )
 
+    // One line per turn, because everything worth checking after a live turn is
+    // otherwise invisible: which effort tier the classifier picked, whether the
+    // cached prefix is actually being read, and how much history got replayed.
+    // No message text — this is a training-and-food diary, and the logs are not
+    // the place for it.
+    console.log('coachTurn', {
+      tier: result.tier,
+      tools: result.toolsUsed,
+      historyMessages: history.length,
+      rememberedFacts: memory.facts.length,
+      ...result.usage,
+    })
+
     return {
       reply: result.reply,
       cards: result.cards,
