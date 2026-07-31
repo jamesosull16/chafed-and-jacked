@@ -9,6 +9,7 @@ import {
   Repeat,
   Sparkles,
   StretchHorizontal,
+  Hexagon,
 } from 'lucide-react'
 import { useStrengthBlock } from '../../hooks/useStrengthBlock'
 import { Card, CardHeader, Button, Badge, SkeletonPage, ProgressBar, EmptyState } from '../ui'
@@ -130,6 +131,60 @@ function MobilityBlock({ mobility, completed, onToggle }) {
         </div>
       )}
     </Card>
+  )
+}
+
+/**
+ * The core block.
+ *
+ * Its own section like Mobility, but the contents are ordinary ExerciseCards:
+ * core here is logged with weight and reps, progresses, and counts toward
+ * weekly volume. Grouping it separately is about where it sits in the session
+ * — three movements after the main work — not about it being a lesser kind of
+ * training.
+ */
+function CoreSection({ exercises, sessionData, rirTarget, expanded, onExpand, onLogSet, readOnly }) {
+  const [open, setOpen] = useState(true)
+  if (!exercises?.length) return null
+
+  const done = exercises.filter(
+    (ex) => (sessionData[ex.id]?.sets || []).filter((s) => s?.completed).length >= ex.sets
+  ).length
+
+  return (
+    <div className="space-y-3">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-3 px-1 pt-2 text-left min-h-11"
+      >
+        <Hexagon className="w-4 h-4 text-subtle shrink-0" aria-hidden="true" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-text">Core</p>
+          <p className="text-xs text-muted">
+            {done}/{exercises.length} done · finish every session here
+          </p>
+        </div>
+        <ChevronDown
+          className={cn('w-4 h-4 text-subtle transition-transform', open && 'rotate-180')}
+          aria-hidden="true"
+        />
+      </button>
+
+      {open &&
+        exercises.map((exercise) => (
+          <ExerciseCard
+            key={exercise.id}
+            exercise={exercise}
+            data={sessionData[exercise.id]}
+            rirTarget={rirTarget}
+            expanded={expanded === exercise.id}
+            onToggle={() => onExpand(expanded === exercise.id ? null : exercise.id)}
+            onLogSet={onLogSet}
+            readOnly={readOnly}
+          />
+        ))}
+    </div>
   )
 }
 
@@ -410,6 +465,12 @@ export default function StrengthSession({ searchParams }) {
     )
   }
 
+  // The core block is its own section but the same kind of work — logged with
+  // weight and reps, counted in the session's progress, saved with everything
+  // else. Only the grouping is different.
+  const mainExercises = session.exercises.filter((ex) => ex.group !== 'core')
+  const coreExercises = session.exercises.filter((ex) => ex.group === 'core')
+
   const completedCount = session.exercises.filter(
     (ex) => (sessionData[ex.id]?.sets || []).filter((s) => s?.completed).length >= ex.sets
   ).length
@@ -480,7 +541,7 @@ export default function StrengthSession({ searchParams }) {
         </Card>
       )}
 
-      {session.exercises.map((exercise) => (
+      {mainExercises.map((exercise) => (
         <ExerciseCard
           key={exercise.id}
           exercise={exercise}
@@ -492,6 +553,16 @@ export default function StrengthSession({ searchParams }) {
           readOnly={isReview}
         />
       ))}
+
+      <CoreSection
+        exercises={coreExercises}
+        sessionData={sessionData}
+        rirTarget={session.rirTarget}
+        expanded={expanded}
+        onExpand={setExpanded}
+        onLogSet={handleLogSet}
+        readOnly={isReview}
+      />
 
       {anyLogged && (
         <Button size="lg" fullWidth onClick={handleFinish} disabled={saving}>

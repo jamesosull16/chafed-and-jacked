@@ -26,24 +26,29 @@ const SECONDS_PER_SET_WORK = 45
 const slot = (role, sets, candidates, opts = {}) => ({ role, sets, candidates, ...opts })
 
 /**
- * Every session ends on core work.
+ * Every session ends on a dedicated core block of three movements.
  *
- * Two sets, not three, and deliberately so. Direct core was already at ~7.5
- * weekly sets against an MAV band of 6-12 (see VOLUME_LANDMARKS); putting three
- * on all four days would take it past 13 and toward the MRV of 16, spending
- * recovery the block wants for hypertrophy. Two on every day lands near 9.5 —
- * more frequent than before, similar total, and comfortably inside the band.
+ * These are real logged sets, not a checklist: they carry weight, reps and
+ * history like any other lift, and they count toward weekly volume. The block
+ * is a grouping in the UI, not a different kind of work.
  *
- * The candidate order across the 4-day split is chosen so the week spans the
- * core's actual jobs rather than repeating one: flexion on the posterior day,
- * anti-extension on push, anti-rotation on quad day, loaded carry on pull.
+ * Two sets each and capped there. Three movements on four days is already ~24
+ * weekly sets; letting the mesocycle multiplier push that to three sets would
+ * reach 36, and the block's five objectives do not include core. A deload
+ * still drops it to one set, so the week breathes.
  *
- * Left `optional` like the originals, which means it is the first thing dropped
- * when a session runs over its time budget. That is the right order — core is
- * not one of the block's five objectives — and at the default 75-minute budget
- * sessions land at 48-57 minutes, so it survives in practice.
+ * `ignoreInjuryFlags` is deliberate and is the one place the guardrails are
+ * bypassed. The athlete's call: the flags exist for loaded lower-body work,
+ * and he does not want a hamstring stage silently rewriting which core
+ * movements he is given. Nothing is hidden by it — the hanging leg raise still
+ * carries its cue to bend the knees while the proximal hamstring is
+ * symptomatic, so the information reaches him without the selection changing
+ * underneath him.
  */
-const coreFinisher = (candidates) => slot('Core finisher', 2, candidates, { optional: true })
+export const CORE_BLOCK_SIZE = 3
+
+const coreSlot = (role, candidates) =>
+  slot(`Core — ${role}`, 2, candidates, { group: 'core', ignoreInjuryFlags: true, maxSets: 2 })
 
 /**
  * Day templates. Candidate order encodes preference: the first entry is the
@@ -67,7 +72,9 @@ export const DAY_TEMPLATES = {
       ]),
       slot('Glute accessory', 3, ['cableKickback', 'hipAbductionMachine', 'gluteBridge']),
       slot('Calf', 4, ['seatedCalfRaise', 'singleLegCalfRaise']),
-      coreFinisher(['cableCrunch', 'pallofPress', 'hangingLegRaise', 'deadBug']),
+      coreSlot('flexion', ['cableCrunch', 'hangingLegRaise', 'deadBug']),
+      coreSlot('anti-rotation', ['pallofPress', 'deadBug', 'sidePlank']),
+      coreSlot('anti-lateral flexion', ['sidePlank', 'farmersCarry', 'deadBug']),
     ],
   },
   upperPush: {
@@ -82,7 +89,9 @@ export const DAY_TEMPLATES = {
       slot('Side delts', 4, ['lateralRaise']),
       slot('Triceps', 3, ['overheadCableExtension', 'triceptPushdown']),
       slot('Rear delts', 3, ['facePull', 'rearDeltFly']),
-      coreFinisher(['hangingLegRaise', 'cableCrunch', 'pallofPress', 'deadBug']),
+      coreSlot('anti-extension', ['hangingLegRaise', 'deadBug', 'cableCrunch']),
+      coreSlot('anti-rotation', ['pallofPress', 'sidePlank', 'deadBug']),
+      coreSlot('carry', ['farmersCarry', 'sidePlank', 'deadBug']),
     ],
   },
   lowerQuad: {
@@ -96,7 +105,9 @@ export const DAY_TEMPLATES = {
       slot('Quad isolation', 3, ['legExtension', 'spanishSquat']),
       slot('Glute', 3, ['cableKickback', 'hipAbductionMachine', 'singleLegHipThrust']),
       slot('Calf', 4, ['standingCalfRaise', 'singleLegCalfRaise']),
-      coreFinisher(['pallofPress', 'cableCrunch', 'sidePlank', 'deadBug']),
+      coreSlot('anti-rotation', ['pallofPress', 'deadBug', 'sidePlank']),
+      coreSlot('flexion', ['cableCrunch', 'hangingLegRaise', 'deadBug']),
+      coreSlot('anti-lateral flexion', ['sidePlank', 'farmersCarry', 'deadBug']),
     ],
   },
   upperPull: {
@@ -111,7 +122,9 @@ export const DAY_TEMPLATES = {
       slot('Lat isolation', 3, ['straightArmPulldown', 'latPulldown']),
       slot('Biceps', 3, ['inclineDbCurl', 'barbellCurl', 'hammerCurl']),
       slot('Rear delts / traps', 3, ['rearDeltFly', 'facePull', 'farmersCarry']),
-      coreFinisher(['farmersCarry', 'sidePlank', 'pallofPress', 'deadBug']),
+      coreSlot('carry', ['farmersCarry', 'sidePlank', 'deadBug']),
+      coreSlot('anti-extension', ['deadBug', 'hangingLegRaise', 'cableCrunch']),
+      coreSlot('flexion', ['hangingLegRaise', 'cableCrunch', 'pallofPress']),
     ],
   },
   fullBody: {
@@ -126,7 +139,9 @@ export const DAY_TEMPLATES = {
       slot('Pull', 3, ['latPulldown', 'chestSupportedRow', 'pullUp']),
       slot('Hamstring', 3, ['lyingLegCurl', 'hamstringBridgeIsometric']),
       slot('Calf', 3, ['seatedCalfRaise', 'standingCalfRaise']),
-      coreFinisher(['pallofPress', 'cableCrunch', 'deadBug', 'sidePlank']),
+      coreSlot('anti-extension', ['deadBug', 'cableCrunch', 'hangingLegRaise']),
+      coreSlot('anti-rotation', ['pallofPress', 'sidePlank', 'deadBug']),
+      coreSlot('anti-lateral flexion', ['sidePlank', 'farmersCarry', 'deadBug']),
     ],
   },
 }
@@ -177,7 +192,10 @@ function resolveSlot(slotDef, context) {
     if (!exercise) continue
     if (!isAvailable(exercise, context.equipment)) continue
 
-    const verdict = isExerciseAllowed(exercise, context)
+    // Core slots opt out of the guardrails entirely — see coreSlot above.
+    const verdict = slotDef.ignoreInjuryFlags
+      ? { allowed: true }
+      : isExerciseAllowed(exercise, context)
     if (verdict.allowed) {
       return {
         exercise,
@@ -264,11 +282,13 @@ export function buildSession({
 
     // Volume: mesocycle progression, plus one extra set when this movement
     // trains a muscle the athlete is behind on.
-    const trainsLagging = exercise.muscles.primary.some((m) => laggingSet.has(m))
-    const sets = Math.max(
-      1,
-      Math.round(slotDef.sets * volumeMultiplier) + (trainsLagging ? 1 : 0)
-    )
+    // The lagging-muscle bonus is for the muscles the block is built around.
+    // Core is a fixed finisher, so it neither grows on a deficit nor exceeds
+    // its cap when the mesocycle ramps.
+    const trainsLagging =
+      slotDef.group !== 'core' && exercise.muscles.primary.some((m) => laggingSet.has(m))
+    let sets = Math.max(1, Math.round(slotDef.sets * volumeMultiplier) + (trainsLagging ? 1 : 0))
+    if (slotDef.maxSets) sets = Math.min(sets, slotDef.maxSets)
 
     const history = exerciseHistory[exercise.id]
     const [repMin, repMax] = repRangeFor(exercise)
@@ -276,6 +296,7 @@ export function buildSession({
     exercises.push({
       ...exercise,
       slotRole: slotDef.role,
+      group: slotDef.group || 'main',
       optional: !!slotDef.optional,
       sets,
       repRange: [repMin, repMax],

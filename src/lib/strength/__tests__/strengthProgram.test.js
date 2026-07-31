@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { buildSession, buildWeek, getSplit, plannedWeeklySets } from '../strengthProgram'
+import {
+  buildSession,
+  buildWeek,
+  getSplit,
+  plannedWeeklySets,
+  CORE_BLOCK_SIZE,
+} from '../strengthProgram'
+import { VOLUME_LANDMARKS } from '../chainBalance'
 import { getBlockStatus } from '../strengthPeriodization'
 import { isExerciseAllowed } from '../injuryGuardrails'
 
@@ -39,12 +46,15 @@ describe('split structure', () => {
 })
 
 describe('injury guardrails are structural, not advisory', () => {
+  // Scoped to the main work. The core block deliberately opts out of the
+  // guardrails at the athlete's instruction — see the core block tests below,
+  // which pin that exemption so it stays a decision rather than a leak.
   it('emits no disallowed movement anywhere in the week, at any block week', () => {
     for (const week of [1, 4, 5, 12, 13, 22]) {
       const blockStatus = statusForWeek(week)
       const sessions = buildWeek({ ...ATHLETE, blockStatus })
       for (const session of sessions) {
-        for (const ex of session.exercises) {
+        for (const ex of session.exercises.filter((e) => e.group !== 'core')) {
           const verdict = isExerciseAllowed(ex, {
             injuryFlags: ATHLETE.injuryFlags,
             blockWeek: blockStatus.blockWeek,
@@ -182,90 +192,108 @@ describe('equipment', () => {
   })
 })
 
-describe('core finisher', () => {
+describe('core block', () => {
   const week = (n) => statusForWeek(n)
+  const coreOf = (session) => session.exercises.filter((e) => e.group === 'core')
 
-  it('ends every session of the split with core work', () => {
-    for (const days of [2, 3, 4, 5, 6]) {
-      for (let i = 0; i < days; i++) {
-        const session = buildSession({
-          ...ATHLETE,
-          daysPerWeek: days,
-          splitIndex: i,
-          blockStatus: week(1),
-        })
-        const core = session.exercises.filter((e) => e.slotRole === 'Core finisher')
-        expect(core).toHaveLength(1)
-        // A finisher that isn't last isn't a finisher.
-        expect(session.exercises.at(-1).slotRole).toBe('Core finisher')
+  it('gives every session of every split three core movements', () => {
+    for (const equipment of ['fullGym', 'homeGym', 'minimal']) {
+      for (const days of [2, 3, 4, 5, 6]) {
+        for (let i = 0; i < days; i++) {
+          const session = buildSession({
+            ...ATHLETE,
+            equipment,
+            daysPerWeek: days,
+            splitIndex: i,
+            blockStatus: week(1),
+          })
+          const core = coreOf(session)
+          expect(core, `${equipment} ${days}-day #${i}`).toHaveLength(CORE_BLOCK_SIZE)
+          // Three distinct movements, not the same one three times.
+          expect(new Set(core.map((e) => e.id)).size).toBe(CORE_BLOCK_SIZE)
+        }
       }
     }
   })
 
-  it('spans the core\'s different jobs across the training week', () => {
-    // Four sessions of cable crunches is not a core programme. The candidate
-    // order exists so the week covers flexion, anti-extension, anti-rotation
-    // and a loaded carry rather than repeating one pattern.
-    const chosen = [0, 1, 2, 3].map(
-      (i) =>
-        buildSession({ ...ATHLETE, injuryFlags: [], splitIndex: i, blockStatus: week(1) }).exercises
-          .at(-1).id
-    )
-    expect(new Set(chosen).size).toBe(4)
+  it('puts the core block last, after the main work', () => {
+    const { exercises } = buildSession({ ...ATHLETE, splitIndex: 0, blockStatus: week(1) })
+    const firstCore = exercises.findIndex((e) => e.group === 'core')
+    expect(firstCore).toBe(exercises.length - CORE_BLOCK_SIZE)
+    expect(exercises.slice(firstCore).every((e) => e.group === 'core')).toBe(true)
   })
 
-  it('keeps weekly core volume inside its adaptive band', () => {
-    // VOLUME_LANDMARKS.core is mev 4 / mav 6-12 / mrv 16. Three sets on four
-    // days would clear 13 and eat recovery the block needs for hypertrophy.
-    const planned = plannedWeeklySets({ ...ATHLETE, blockStatus: week(2) })
-    expect(planned.core).toBeGreaterThanOrEqual(6)
-    expect(planned.core).toBeLessThanOrEqual(12)
+  it('prescribes core as logged, weighted work rather than a checklist', () => {
+    // The whole point of the block being exercises and not drills: they carry
+    // sets, a rep range and rest, so they log and progress like any other lift.
+    for (const ex of coreOf(buildSession({ ...ATHLETE, splitIndex: 0, blockStatus: week(1) }))) {
+      expect(ex.sets).toBeGreaterThan(0)
+      expect(ex.repRange).toHaveLength(2)
+      expect(ex.restSeconds).toBeGreaterThan(0)
+    }
   })
 
-  it('is the first thing dropped when the session runs short of time', () => {
-    // Core is not one of the block's five objectives, so it yields before any
-    // of the movements that are.
+  it('ignores injury flags when choosing core movements', () => {
+    // The athlete's explicit call: the guardrails exist for loaded lower-body
+    // work, and a hamstring stage should not silently rewrite his core work.
+    // Stage 1 would otherwise block the hanging leg raise.
+    const injured = buildSession({ ...ATHLETE, splitIndex: 1, blockStatus: week(2) })
+    const healthy = buildSession({
+      ...ATHLETE,
+      injuryFlags: [],
+      splitIndex: 1,
+      blockStatus: week(2),
+    })
+    expect(coreOf(injured).map((e) => e.id)).toEqual(coreOf(healthy).map((e) => e.id))
+    expect(coreOf(injured).some((e) => e.id === 'hangingLegRaise')).toBe(true)
+    // Nothing is hidden by the exemption — the movement still carries its cue.
+    expect(coreOf(injured).find((e) => e.id === 'hangingLegRaise').cue).toMatch(/bend the knees/i)
+  })
+
+  it('leaves the main work under the guardrails', () => {
+    // The exemption must not leak: an RDL is still refused in the early block.
+    const session = buildSession({ ...ATHLETE, splitIndex: 0, blockStatus: week(2) })
+    const main = session.exercises.filter((e) => e.group !== 'core')
+    expect(main.some((e) => e.id === 'romanianDeadlift')).toBe(false)
+  })
+
+  it('caps core sets so the mesocycle ramp cannot inflate them', () => {
+    // Three movements on four days is already ~24 weekly sets. Letting the
+    // peak-week multiplier take each to three would reach 36, for work that
+    // is not one of the block's objectives.
+    const peak = buildSession({ ...ATHLETE, splitIndex: 0, blockStatus: week(4) })
+    expect(coreOf(peak).every((e) => e.sets <= 2)).toBe(true)
+  })
+
+  it('keeps the block\'s own weekly volume inside the core landmark band', () => {
+    // Asserted on what the block prescribes, not on plannedWeeklySets.core —
+    // that also carries fractional secondary credit from every compound in the
+    // week, which swings with the mesocycle and with what the guardrails
+    // substituted, and is not something the core block controls.
+    const direct = [0, 1, 2, 3]
+      .map((i) => buildSession({ ...ATHLETE, splitIndex: i, blockStatus: week(2) }))
+      .flatMap((s) => s.exercises.filter((e) => e.group === 'core'))
+      .reduce((total, e) => total + e.sets, 0)
+
+    const [mavMin, mavMax] = VOLUME_LANDMARKS.core.mav
+    expect(direct).toBe(24)
+    expect(direct).toBeGreaterThanOrEqual(mavMin)
+    expect(direct).toBeLessThanOrEqual(mavMax)
+  })
+
+  it('survives a short session — core is not the thing that gets cut', () => {
+    // It was optional in the first pass, which meant a tight time budget
+    // dropped it and "core after every session" quietly became "sometimes".
     const rushed = buildSession({
       ...ATHLETE,
       sessionMinutes: 35,
       splitIndex: 0,
       blockStatus: week(1),
     })
-    expect(rushed.exercises.some((e) => e.slotRole === 'Core finisher')).toBe(false)
-    expect(rushed.exercises.some((e) => e.slotRole === 'Primary glute')).toBe(true)
-  })
-
-  it('respects the hamstring stage rather than assuming core work is safe', () => {
-    // A straight-leg hanging raise loads the proximal tendon at length, the
-    // same mechanism that blocks the seated leg curl. Stage 1 must refuse it.
-    const stage1 = buildSession({ ...ATHLETE, splitIndex: 1, blockStatus: week(2) })
-    const finisher = stage1.exercises.at(-1)
-    expect(finisher.id).not.toBe('hangingLegRaise')
-    expect(finisher.substitutedFor?.id).toBe('hangingLegRaise')
-
-    // Stage 2 opens moderate range, so it becomes available again.
-    const stage2 = buildSession({ ...ATHLETE, splitIndex: 1, blockStatus: week(8) })
-    expect(stage2.exercises.at(-1).id).toBe('hangingLegRaise')
-  })
-
-  it('still finishes on core when the gym has no cables or bar', () => {
-    // Every other core movement needs a cable or a pull-up bar, so before the
-    // bodyweight options existed the pull day ended with nothing here.
-    for (const equipment of ['minimal', 'homeGym']) {
-      for (let i = 0; i < 4; i++) {
-        const session = buildSession({ ...ATHLETE, equipment, splitIndex: i, blockStatus: week(8) })
-        const finisher = session.exercises.at(-1)
-        expect(finisher.slotRole).toBe('Core finisher')
-        expect(finisher.equipmentLevel).not.toBe('fullGym')
-      }
-    }
+    expect(coreOf(rushed)).toHaveLength(CORE_BLOCK_SIZE)
   })
 
   it('never prescribes the same movement twice in one session', () => {
-    // Two ways a day can double up: two slots sharing a candidate, and two
-    // slots both falling through to the same catalogue substitute. The second
-    // was reachable before this — on a minimal setup the posterior day's glute
-    // and hinge slots both resolved to the single-leg hip thrust.
     for (const equipment of ['fullGym', 'homeGym', 'minimal']) {
       for (const flags of [[], ['highHamstring'], ATHLETE.injuryFlags]) {
         for (const days of [2, 3, 4, 5, 6]) {

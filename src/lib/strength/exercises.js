@@ -910,9 +910,10 @@ export const STRENGTH_EXERCISES = {
     weightIncrement: 0,
     // Knees stay bent, so unlike a straight-leg raise this never loads the
     // proximal hamstring at length — available at every rehab stage.
+    repRange: [8, 12],
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Anti-extension. Ribs down, low back flat to the floor throughout.',
-    cue: 'Move slowly. If the back arches, shorten the reach.',
+    cue: 'Reps per side, slowly. If the back arches, shorten the reach.',
   },
   sidePlank: {
     id: 'sidePlank',
@@ -926,9 +927,14 @@ export const STRENGTH_EXERCISES = {
     equipmentLevel: 'minimal',
     isUnilateral: true,
     weightIncrement: 0,
+    // A hold, not a rep — the card and the set logger both read isTimeBased
+    // and switch the unit to seconds. Without it a side plank prescribes
+    // "12-20 reps", which is nonsense on the screen.
+    isTimeBased: true,
+    repRange: [20, 45],
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Anti-lateral flexion. Also loads glute medius, which serves the hip work.',
-    cue: 'Stack the hips. Push the floor away.',
+    cue: 'Seconds per side. Stack the hips and push the floor away.',
   },
   hangingLegRaise: {
     id: 'hangingLegRaise',

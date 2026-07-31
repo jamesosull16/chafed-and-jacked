@@ -31,7 +31,15 @@ export const VOLUME_LANDMARKS = {
   biceps: { mev: 6, mav: [8, 14], mrv: 20, priority: 3 },
   triceps: { mev: 6, mav: [8, 14], mrv: 18, priority: 3 },
   traps: { mev: 4, mav: [6, 12], mrv: 16, priority: 3 },
-  core: { mev: 4, mav: [6, 12], mrv: 16, priority: 3 },
+  // Raised when the block gained a dedicated three-movement core finisher on
+  // every session. The old 6-12 band described core as incidental accessory
+  // work picked up from compounds; the programme now prescribes ~24 direct
+  // sets a week on purpose. Left alone, assessVolume would report 'excessive'
+  // every single week — a permanent false alarm on the dashboard and in the
+  // coach's context, which is worse than no signal because it trains the
+  // athlete to ignore the one place real over-reaching would show up. Core is
+  // also the group that tolerates frequency and volume best.
+  core: { mev: 8, mav: [14, 28], mrv: 36, priority: 3 },
   adductors: { mev: 2, mav: [4, 8], mrv: 12, priority: 3 },
 }
 
