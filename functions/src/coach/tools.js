@@ -27,6 +27,7 @@ import { estimateSessionCost, summariseBodyMetrics } from './energy.js'
 
 /** Reads are capped so a model-chosen argument can't pull an unbounded scan. */
 const MAX_HISTORY_DAYS = 90
+const MAX_UPCOMING_DAYS = 14
 const MAX_METRIC_WEEKS = 52
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack', 'preWorkout', 'postWorkout']
@@ -290,6 +291,25 @@ export const TOOL_DEFINITIONS = [
             duration_minutes: { type: 'number' },
             avg_hr_bpm: { type: 'number' },
           },
+        },
+      },
+    },
+  },
+  {
+    name: 'get_upcoming_sessions',
+    description:
+      'The training days ahead — which days are sessions and which are rest, what each ' +
+      'session is, and whether a week is a deload. Use it for anything forward-looking: ' +
+      'meal prep, a shopping list, "what should I cook this week", how to spread food ' +
+      'across the next few days, or planning around a day he says he will be busy. Every ' +
+      'other training read looks backwards, so answer a planning question from this ' +
+      'rather than from what he has already done.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        days: {
+          type: 'number',
+          description: 'How many days ahead, 1-14. Defaults to 7.',
         },
       },
     },
@@ -577,6 +597,44 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
       // noon and sleep at night is one check-in and not two conflicting ones.
       await store.setDoc('checkIns', dateId, { date: dateId, ...entry })
       return { recorded: true, date: dateId, ...entry }
+    },
+
+    /**
+     * Forward-looking counterpart to get_workout. Reads the projection the
+     * client supplies rather than a stored document — see sanitizeUpcoming.
+     */
+    async get_upcoming_sessions({ days }) {
+      const window = Math.min(MAX_UPCOMING_DAYS, Math.max(1, Math.round(Number(days) || 7)))
+      const upcoming = context?.upcoming
+
+      if (!upcoming?.days?.length) {
+        return {
+          days: [],
+          note: "No schedule available. Say you can't see the week ahead rather than guessing at it.",
+        }
+      }
+
+      const scoped = upcoming.days.slice(0, window)
+      const training = scoped.filter((d) => d.training)
+
+      return {
+        window_days: window,
+        training_days: training.length,
+        rest_days: scoped.length - training.length,
+        // Deload weeks change the answer — a week at reduced volume does not
+        // need the same food as a peak week.
+        deload_days: scoped.filter((d) => d.phase === 'deload').length,
+        weekly_miles: upcoming.weeklyMiles ?? null,
+        days: scoped.map((d) => ({
+          date: d.date,
+          weekday: d.weekday,
+          days_from_now: d.daysFromNow,
+          session: d.training ? d.name || 'Training' : null,
+          focus: d.training ? d.focus : null,
+          rest: !d.training,
+          phase: d.phase,
+        })),
+      }
     },
 
     async show_session() {

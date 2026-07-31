@@ -163,6 +163,7 @@ describe('tool definitions', () => {
       'get_body_metrics',
       'get_exercise_progress',
       'get_training_history',
+      'get_upcoming_sessions',
       'get_workout',
       'log_meal',
       'log_run',
@@ -326,6 +327,52 @@ describe('tool handlers', () => {
   // A card is applied in one tap, so a movement named in one has to clear the
   // same bar as one the session generator picked. CONTEXT is week 3 with the
   // hamstring flag set, i.e. rehab stage 1.
+  describe('get_upcoming_sessions', () => {
+    const UPCOMING = {
+      days: [
+        { date: '2026-07-22', weekday: 'Wednesday', daysFromNow: 0, training: true, name: 'Lower — Posterior', focus: 'Glutes', phase: 'accumulation' },
+        { date: '2026-07-23', weekday: 'Thursday', daysFromNow: 1, training: false, phase: 'accumulation' },
+        { date: '2026-07-24', weekday: 'Friday', daysFromNow: 2, training: true, name: 'Upper — Push', focus: 'Chest', phase: 'accumulation' },
+        { date: '2026-07-25', weekday: 'Saturday', daysFromNow: 3, training: false, phase: 'deload' },
+      ],
+      weeklyMiles: null,
+    }
+
+    const ask = (input, upcoming = UPCOMING) =>
+      createHandlers({
+        store: fakeStore(),
+        estimate: vi.fn(),
+        dateId: '2026-07-22',
+        context: { ...CONTEXT, upcoming },
+      }).handlers.get_upcoming_sessions(input)
+
+    it('answers what the week ahead actually looks like', async () => {
+      const result = await ask({ days: 4 })
+      expect(result.training_days).toBe(2)
+      expect(result.rest_days).toBe(2)
+      expect(result.days[0].session).toBe('Lower — Posterior')
+      expect(result.days[1].rest).toBe(true)
+    })
+
+    it('surfaces deload days, which change how much food a week needs', async () => {
+      expect((await ask({ days: 4 })).deload_days).toBe(1)
+    })
+
+    it('clamps the window rather than trusting the model\'s number', async () => {
+      expect((await ask({ days: 999 })).window_days).toBe(14)
+      expect((await ask({ days: -3 })).window_days).toBe(1)
+      expect((await ask({})).window_days).toBe(7)
+    })
+
+    it('says it cannot see the schedule instead of inventing one', async () => {
+      // The failure this guards is the coach cheerfully planning a week of
+      // meals against sessions it made up.
+      const result = await ask({ days: 7 }, null)
+      expect(result.days).toEqual([])
+      expect(result.note).toMatch(/can't see/i)
+    })
+  })
+
   describe('log_run', () => {
     const run = (store, input) =>
       createHandlers({ store, estimate: vi.fn(), dateId: '2026-07-22', context: CONTEXT })

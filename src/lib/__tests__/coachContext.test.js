@@ -9,7 +9,11 @@
  * fact.
  */
 import { describe, it, expect } from 'vitest'
-import { buildCoachContext, buildSessionContext } from '../coachContext'
+import {
+  buildCoachContext,
+  buildSessionContext,
+  buildUpcomingSessions,
+} from '../coachContext'
 
 const BLOCK = {
   blockStatus: { totalWeeks: 22, mesocycle: 2, weekInMesocycle: 1, phase: 'build', rirTarget: 2 },
@@ -108,5 +112,81 @@ describe('buildSessionContext', () => {
   it('returns null rather than falling back to the other mode', () => {
     expect(buildSessionContext({ isStrength: false, strengthSession, runningSession: null })).toBeNull()
     expect(buildSessionContext({ isStrength: true, strengthSession: null, runningSession })).toBeNull()
+  })
+})
+
+describe('buildUpcomingSessions', () => {
+  // A Wednesday, so the projection immediately crosses a week boundary — the
+  // thing "future weeks" actually asks for.
+  const NOW = new Date('2026-07-22T09:00:00')
+  const STRENGTH = {
+    trainingDayIndices: [1, 2, 4, 5], // Mon, Tue, Thu, Fri
+    trainingDaysPerWeek: 4,
+    blockStart: '2026-07-20',
+    blockEnd: '2026-12-20',
+  }
+
+  const strengthWeek = (days = 14) =>
+    buildUpcomingSessions({
+      isStrength: true,
+      days,
+      now: NOW,
+      strength: STRENGTH,
+      blockStart: STRENGTH.blockStart,
+      blockEnd: STRENGTH.blockEnd,
+    })
+
+  it('projects past the end of the current week', () => {
+    // The whole point: on Wednesday, the coach must be able to see next Monday.
+    const { days } = strengthWeek()
+    expect(days).toHaveLength(14)
+    const nextMonday = days.find((d) => d.weekday === 'Monday' && d.daysFromNow > 3)
+    expect(nextMonday).toBeTruthy()
+    expect(nextMonday.training).toBe(true)
+  })
+
+  it('marks training days and rest days from the athlete\'s own schedule', () => {
+    const { days } = strengthWeek(7)
+    const byWeekday = Object.fromEntries(days.map((d) => [d.weekday, d.training]))
+    expect(byWeekday.Monday).toBe(true)
+    expect(byWeekday.Tuesday).toBe(true)
+    expect(byWeekday.Wednesday).toBe(false)
+    expect(byWeekday.Saturday).toBe(false)
+    expect(byWeekday.Sunday).toBe(false)
+  })
+
+  it('names each session so food can be planned against the work', () => {
+    const training = strengthWeek(7).days.filter((d) => d.training)
+    expect(training.every((d) => typeof d.name === 'string' && d.name.length > 0)).toBe(true)
+  })
+
+  it('carries the block phase, because a deload week needs less food', () => {
+    const { days } = strengthWeek()
+    expect(days.every((d) => d.blockWeek >= 1)).toBe(true)
+    expect(days.every((d) => ['accumulation', 'deload'].includes(d.phase))).toBe(true)
+  })
+
+  it('uses the running schedule and weekly mileage in running mode', () => {
+    const { days, weeklyMiles } = buildUpcomingSessions({
+      isStrength: false,
+      days: 7,
+      now: NOW,
+      runningTrainingDays: 'tue-thu-sat',
+      runningWeeklyMiles: 32,
+    })
+    const byWeekday = Object.fromEntries(days.map((d) => [d.weekday, d.training]))
+    expect(byWeekday.Tuesday).toBe(true)
+    expect(byWeekday.Thursday).toBe(true)
+    expect(byWeekday.Saturday).toBe(true)
+    expect(byWeekday.Monday).toBe(false)
+    // Running mode plans by weekly volume, not by the lift split.
+    expect(weeklyMiles).toBe(32)
+  })
+
+  it('starts from today rather than the start of the week', () => {
+    const { days } = strengthWeek(3)
+    expect(days[0].weekday).toBe('Wednesday')
+    expect(days[0].daysFromNow).toBe(0)
+    expect(days[0].date).toBe('2026-07-22')
   })
 })

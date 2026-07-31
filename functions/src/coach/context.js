@@ -33,6 +33,8 @@ const SESSION_SCAN = 30
 const MILEAGE_SCAN = 21
 /** Enough to see a bad night carrying into a second day, and no further. */
 const CHECKIN_DAYS = 4
+/** Two weeks of schedule covers any shopping trip; more is payload for nothing. */
+const MAX_UPCOMING_DAYS = 14
 
 const num = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback)
 
@@ -44,6 +46,31 @@ function macroSet(input) {
     carbs_g: num(input.carbs_g ?? input.carbs),
     fat_g: num(input.fat_g ?? input.fat),
   }
+}
+
+/**
+ * The upcoming-schedule projection, clamped.
+ *
+ * Client-supplied like `session` and for the same reason: it comes from the
+ * running/strength engines the athlete is looking at, and Cloud Functions
+ * cannot import them. It is a *plan* rather than a claim about completed
+ * training, so it carries none of the trust weight the server-read history
+ * does — but it is still shape-clamped, because everything from the payload is.
+ */
+function sanitizeUpcoming(upcoming) {
+  if (!Array.isArray(upcoming?.days)) return null
+  const days = upcoming.days.slice(0, MAX_UPCOMING_DAYS).map((d) => ({
+    date: String(d.date || '').slice(0, 10),
+    weekday: String(d.weekday || '').slice(0, 12),
+    daysFromNow: num(d.daysFromNow, 0),
+    training: !!d.training,
+    name: d.name ? String(d.name).slice(0, 80) : null,
+    focus: d.focus ? String(d.focus).slice(0, 120) : null,
+    blockWeek: d.blockWeek == null ? null : num(d.blockWeek, 1),
+    phase: d.phase === 'deload' ? 'deload' : d.phase ? 'accumulation' : null,
+  }))
+  if (!days.length) return null
+  return { days, weeklyMiles: upcoming.weeklyMiles == null ? null : num(upcoming.weeklyMiles, 0) }
 }
 
 function sanitizeSession(session) {
@@ -203,6 +230,7 @@ export async function buildTurnContext({ store, dateId, clientContext = {}, now 
       mealType: e.mealType || null,
     })),
     session: sanitizeSession(clientContext.session),
+    upcoming: sanitizeUpcoming(clientContext.upcoming),
     block: clientContext.block
       ? {
           blockWeek: guardrails.blockWeek,

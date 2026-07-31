@@ -6,7 +6,11 @@ import { useAppMode } from '../hooks/useAppMode'
 import { useStrengthBlock } from '../hooks/useStrengthBlock'
 import { useWorkout } from '../hooks/useWorkout'
 import { useCoachChat } from '../hooks/useCoachChat'
-import { buildCoachContext, buildSessionContext } from '../lib/coachContext'
+import {
+  buildCoachContext,
+  buildSessionContext,
+  buildUpcomingSessions,
+} from '../lib/coachContext'
 import { useFirestore, formatLocalDate } from '../hooks/useFirestore'
 import { getNutritionAdvice } from '../lib/nutritionAdvice'
 import { calculateAge } from '../lib/bodyMetrics'
@@ -230,14 +234,29 @@ export default function CoachChat() {
     [isStrength, block.todaysSession, running]
   )
 
+  // Recomputed only when the schedule itself changes, not per turn — this is
+  // a fortnight's projection and nothing in it moves between messages.
+  const upcoming = useMemo(
+    () =>
+      buildUpcomingSessions({
+        isStrength,
+        strength,
+        blockStart: strength.blockStart,
+        blockEnd: strength.blockEnd,
+        runningTrainingDays: userProfile?.onboarding?.trainingDays,
+        runningWeeklyMiles: isStrength ? null : running.currentMileage || 0,
+      }),
+    [isStrength, strength, userProfile, running.currentMileage]
+  )
+
   /**
    * The advisory half of the turn context. Everything security-relevant — the
    * uid, injury flags, block week, and the meal ids the coach may correct — is
    * re-derived server-side from the stored profile and log.
    */
   const buildContext = useCallback(
-    () => buildCoachContext({ isStrength, targets, advice, session: sessionContext, block }),
-    [isStrength, targets, advice, sessionContext, block]
+    () => buildCoachContext({ isStrength, targets, advice, session: sessionContext, block, upcoming }),
+    [isStrength, targets, advice, sessionContext, block, upcoming]
   )
 
   const { messages, pending, loading, sending, error, send } = useCoachChat({ buildContext })
