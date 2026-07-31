@@ -729,9 +729,9 @@ describe('buildSystemPrompt', () => {
   })
 
   it('puts endurance content in running mode and keeps lean bulk out of it', () => {
-    expect(running).toMatch(/80\/20/)
-    expect(running).toMatch(/60-90 g of carbohydrate an hour/)
+    expect(running).toMatch(/talk test/)
     expect(running).toMatch(/grade-adjusted pace/)
+    expect(running).toMatch(/moderate rut/)
     expect(running).not.toMatch(/Lean bulk/)
     expect(running).not.toMatch(/\+300 kcal/)
   })
@@ -739,8 +739,42 @@ describe('buildSystemPrompt', () => {
   it('puts the hypertrophy block in strength mode and keeps race fuelling out of it', () => {
     expect(strength).toMatch(/Lean bulk/)
     expect(strength).toMatch(/0\.25-0\.5% bodyweight per week/)
-    expect(strength).not.toMatch(/80\/20/)
     expect(strength).not.toMatch(/glucose and fructose/)
+    expect(strength).not.toMatch(/talk test/)
+  })
+
+  // These are the specific places the prompt previously contradicted
+  // skills/endurance-running-coach. They are asserted by value because a
+  // silent drift back to the textbook figure is exactly the failure mode —
+  // each of these is a considered departure from the obvious number.
+  it('matches the running skill where the skill departs from the textbook', () => {
+    // Pyramidal, not strict polarised, for a sub-elite athlete.
+    expect(running).toMatch(/Pyramidal is the better default/)
+    expect(running).not.toMatch(/80\/20/)
+
+    // The strict 10% rule is explicitly rejected in favour of 5-10% per step
+    // measured on a trailing 3-week average.
+    expect(running).toMatch(/5-10% per step measured against the trailing 3-week average/)
+    expect(running).toMatch(/strict 10% rule has poor evidence/)
+
+    // In-run carbs: 30-60 g/h over ~90 min, 90 g/h only with a trained gut.
+    expect(running).toMatch(/over about 90 minutes, 30-60 g of carbohydrate an hour/)
+    expect(running).toMatch(/only with a gut that has been trained for it/)
+    expect(running).toMatch(/under about 75 minutes need nothing/)
+
+    // Concurrent training concentrates stress on one day rather than spreading it.
+    expect(running).toMatch(/same\*\* day rather than adjacent days/)
+    expect(running).toMatch(/cut lifting volume, not frequency/)
+
+    // Daily carbs 5-8 g/kg and protein 1.8-2.0, per the nutritionist's
+    // running-mode model — not the generic endurance bands.
+    expect(running).toMatch(/Carbohydrate 5-8 g\/kg/)
+    expect(running).toMatch(/Protein 1\.8-2\.0 g\/kg/)
+  })
+
+  it('refuses to clear the return-to-run gate in either mode', () => {
+    expect(running).toMatch(/not yours to make in chat/)
+    expect(strength).toMatch(/not something to clear in a chat message/)
   })
 
   it('includes the guardrails in both modes, last', () => {
