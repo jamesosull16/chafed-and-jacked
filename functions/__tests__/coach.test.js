@@ -30,8 +30,19 @@ function fakeStore(seed = {}) {
       data.collections[collection][id] = value
       return { id, ...value }
     },
-    async query() {
-      return []
+    // Serves seeded collections so the training reads in buildTurnContext are
+    // actually exercised. Returning a bare [] made every context test pass
+    // without touching the code it was meant to cover.
+    async query(collection, { orderField, direction = 'desc', limit } = {}) {
+      let docs = Object.entries(data.collections[collection] || {}).map(([id, d]) => ({ id, ...d }))
+      if (orderField) {
+        docs.sort((a, b) => {
+          const av = a[orderField] ?? ''
+          const bv = b[orderField] ?? ''
+          return direction === 'desc' ? (av < bv ? 1 : av > bv ? -1 : 0) : av < bv ? -1 : av > bv ? 1 : 0
+        })
+      }
+      return limit ? docs.slice(0, limit) : docs
     },
     async getSystemDoc(collection) {
       return data.collections[collection]?.[this.uid] || null
@@ -626,6 +637,117 @@ describe('buildTurnContext', () => {
       },
     })
 
+  // ── Server-read training ──
+  //
+  // The trust argument is the same one that applies to meal ids: advice about
+  // what the athlete did is worthless if the client can claim he did something
+  // else. These assert the reads happen server-side and survive missing data.
+
+  const NOW = new Date('2026-07-22T18:00:00Z')
+  const trainingStore = (extra = {}) =>
+    fakeStore({
+      profile: {
+        mode: 'strength',
+        strength: { blockStart: '2026-07-20', injuryFlags: ['highHamstring'] },
+        ...extra.profile,
+      },
+      collections: {
+        workoutSessions: {
+          s1: {
+            date: '2026-07-22T15:00:00Z',
+            dayType: 'Lower — Posterior',
+            duration: 62,
+            totalVolume: 12400,
+            completed: true,
+            exercises: [
+              { id: 'barbellHipThrust', sets: [{ weight: 80, reps: 10, rir: 3 }, { weight: 100, reps: 8, rir: 2 }] },
+            ],
+          },
+          s0: { date: '2026-07-19T15:00:00Z', dayType: 'Upper — Push', totalVolume: 9000, completed: true },
+        },
+        dailyMileage: {
+          '2026-07-22': {
+            date: '2026-07-22',
+            runs: [{ miles: 6.2, duration_minutes: 52, avg_hr_bpm: 148, enteredAt: '2026-07-22T14:00:00Z' }],
+            miles: 6.2,
+          },
+          '2026-07-18': { date: '2026-07-18', runs: [{ miles: 10 }] },
+        },
+        ...extra.collections,
+      },
+    })
+
+  it('reads the last completed session server-side, with hours elapsed', async () => {
+    const ctx = await buildTurnContext({ store: trainingStore(), dateId: '2026-07-22', now: NOW })
+    expect(ctx.lastSession.dayType).toBe('Lower — Posterior')
+    expect(ctx.lastSession.hoursSince).toBeCloseTo(3)
+    expect(ctx.lastSession.exercises[0].top).toMatchObject({ weight: 100, reps: 8 })
+  })
+
+  it('ignores an uncompleted session when picking the last one', async () => {
+    const store = trainingStore({
+      collections: {
+        workoutSessions: {
+          draft: { date: '2026-07-22T17:00:00Z', dayType: 'Abandoned', completed: false },
+          done: { date: '2026-07-22T09:00:00Z', dayType: 'Upper — Pull', completed: true },
+        },
+      },
+    })
+    const ctx = await buildTurnContext({ store, dateId: '2026-07-22', now: NOW })
+    expect(ctx.lastSession.dayType).toBe('Upper — Pull')
+  })
+
+  it("surfaces today's runs with duration and HR", async () => {
+    const ctx = await buildTurnContext({ store: trainingStore(), dateId: '2026-07-22', now: NOW })
+    expect(ctx.todayRuns).toHaveLength(1)
+    expect(ctx.todayRuns[0]).toMatchObject({ miles: 6.2, duration_minutes: 52, avg_hr_bpm: 148 })
+    expect(ctx.todayMiles).toBeCloseTo(6.2)
+  })
+
+  it('normalises a legacy bare-miles mileage doc', async () => {
+    const store = trainingStore({
+      collections: {
+        dailyMileage: { '2026-07-22': { date: '2026-07-22', miles: 4.5, enteredAt: '2026-07-22T13:00:00Z' } },
+      },
+    })
+    const ctx = await buildTurnContext({ store, dateId: '2026-07-22', now: NOW })
+    expect(ctx.todayRuns).toHaveLength(1)
+    expect(ctx.todayRuns[0].miles).toBe(4.5)
+    expect(ctx.todayRuns[0].duration_minutes).toBeNull()
+  })
+
+  it('rolls up the 7- and 14-day windows', async () => {
+    const ctx = await buildTurnContext({ store: trainingStore(), dateId: '2026-07-22', now: NOW })
+    expect(ctx.recentTraining.sessions7).toBe(2)
+    expect(ctx.recentTraining.miles7).toBeCloseTo(16.2)
+    expect(ctx.recentTraining.longestRun).toBe(10)
+  })
+
+  it('reports no race in strength mode even when races are configured', async () => {
+    const store = trainingStore({ profile: { races: [{ name: 'Ultra X', date: '2026-11-14', isARace: true }] } })
+    const ctx = await buildTurnContext({ store, dateId: '2026-07-22', now: NOW })
+    expect(ctx.raceContext).toBeNull()
+  })
+
+  it('derives race phase and lifting scaling tier in running mode', async () => {
+    const store = trainingStore({
+      profile: { mode: 'running', races: [{ name: 'Ultra X', date: '2026-11-14', isARace: true }] },
+    })
+    const ctx = await buildTurnContext({ store, dateId: '2026-07-22', now: NOW })
+    expect(ctx.raceContext.name).toBe('Ultra X')
+    expect(ctx.raceContext.daysOut).toBeGreaterThan(100)
+    expect(ctx.raceContext.phase).toMatch(/build|deload|taper|race/)
+    expect(ctx.raceContext.scalingTier.id).toBe('full')
+  })
+
+  it('degrades to empty training rather than throwing when nothing is logged', async () => {
+    const ctx = await buildTurnContext({ store: fakeStore(), dateId: '2026-07-22', now: NOW })
+    expect(ctx.lastSession).toBeNull()
+    expect(ctx.todayRuns).toEqual([])
+    expect(ctx.recentTraining.sessions7).toBe(0)
+    expect(ctx.raceContext).toBeNull()
+  })
+
   it('reads consumed totals from the server, not the client', async () => {
     const ctx = await buildTurnContext({
       store: store(),
@@ -717,6 +839,81 @@ describe('buildContextBlock', () => {
 
   it('degrades to a plain statement with no context at all', () => {
     expect(buildContextBlock(null)).toMatch(/No app data/)
+  })
+
+  // ── Completed training ──
+  //
+  // Missing training data has to render as an explicit "none recorded" line.
+  // Omitting the line reads to the model as "nothing happened", which is a
+  // different claim from "not recorded" — and it's the one that invents
+  // sessions.
+
+  const TRAINED = {
+    ...CONTEXT,
+    lastSession: {
+      dayType: 'Lower — Posterior',
+      hoursSince: 3.2,
+      duration: 62,
+      totalVolume: 12400,
+      exercises: [
+        { id: 'barbellHipThrust', sets: 3, top: { weight: 100, reps: 8, rir: 2, isBodyweight: false } },
+        { id: 'pullUp', sets: 3, top: { weight: 0, reps: 8, rir: 1, isBodyweight: true } },
+      ],
+    },
+    todayRuns: [{ miles: 6.2, duration_minutes: 52, avg_hr_bpm: 148, hoursSince: 4 }],
+    recentTraining: {
+      sessions7: 4, sessions14: 7, volume7: 48200, miles7: 22.5, miles14: 41,
+      priorMiles7: 18.5, longestRun: 10.2, restDays7: 1, plannedMiles: 25, trend: 'ramping',
+    },
+  }
+
+  it('renders the last session with elapsed time and top sets', () => {
+    const text = buildContextBlock(TRAINED)
+    expect(text).toMatch(/LAST SESSION — Lower — Posterior, 3h ago, 62 min, 12400 volume/)
+    expect(text).toMatch(/barbellHipThrust 100x8 @RIR2/)
+    expect(text).toMatch(/pullUp BWx8 @RIR1/)
+  })
+
+  it('switches to days for a session more than two days back', () => {
+    const text = buildContextBlock({ ...TRAINED, lastSession: { ...TRAINED.lastSession, hoursSince: 72 } })
+    expect(text).toMatch(/LAST SESSION — .*, 3d ago/)
+  })
+
+  it("renders today's runs with duration and heart rate", () => {
+    expect(buildContextBlock(TRAINED)).toMatch(/TODAY'S RUNS — 6\.2 mi, 52 min, 148 bpm, 4h ago/)
+  })
+
+  it('renders the rollup with the trend and the prior week for comparison', () => {
+    const text = buildContextBlock(TRAINED)
+    expect(text).toMatch(/RECENT TRAINING — 7d: 4 sessions, 22\.5 mi, 1 rest day; 14d: 7 sessions, 41 mi/)
+    expect(text).toMatch(/mileage ramping \(22\.5 vs 18\.5 prior 7d\)/)
+    expect(text).toMatch(/plan 25 mi/)
+  })
+
+  it('says none recorded rather than omitting the line', () => {
+    const text = buildContextBlock(CONTEXT)
+    expect(text).toMatch(/LAST SESSION — none recorded/)
+    expect(text).toMatch(/TODAY'S RUNS — none recorded/)
+  })
+
+  it('renders the race phase and the lifting scaling that follows from it', () => {
+    const text = buildContextBlock({
+      ...TRAINED,
+      mode: 'running',
+      raceContext: {
+        name: 'Ultra X', date: '2026-11-14', daysOut: 115, phase: 'build', weekNumber: 6,
+        scalingTier: { id: 'moderate', label: 'Moderate Volume', loadMultiplier: 0.925, dropSet: false },
+      },
+    })
+    expect(text).toMatch(/RACE — Ultra X, 2026-11-14, 115 days out, build week 6/)
+    expect(text).toMatch(/lifting scaled: Moderate Volume, 93% load/)
+  })
+
+  it('distinguishes no race configured from no race possible', () => {
+    // Running mode with no race is missing data and says so; strength mode has
+    // no race by definition, so the line is absent rather than empty.
+    expect(buildContextBlock({ ...TRAINED, mode: 'running' })).toMatch(/RACE — none configured/)
+    expect(buildContextBlock({ ...TRAINED, mode: 'strength' })).not.toMatch(/RACE —/)
   })
 })
 

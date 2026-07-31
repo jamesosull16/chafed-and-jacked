@@ -15,6 +15,21 @@
  */
 
 import { deriveGuardrails } from './guardrails.js'
+import {
+  summariseSession,
+  summariseRecentTraining,
+  buildRaceContext,
+  normaliseMileageDoc,
+  hoursSince,
+} from './training.js'
+
+/**
+ * How much history to pull for the rollup. 30 sessions and 21 mileage docs
+ * comfortably cover a 14-day window even in a heavy week, and both collections
+ * are small enough that a tighter limit would save nothing measurable.
+ */
+const SESSION_SCAN = 30
+const MILEAGE_SCAN = 21
 
 const num = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback)
 
@@ -93,9 +108,14 @@ function consumedFrom(entries = []) {
  * @param clientContext the advisory half, from the app
  */
 export async function buildTurnContext({ store, dateId, clientContext = {}, now = new Date() }) {
-  const [profile, log] = await Promise.all([
+  // Training reads are server-side and unconditional: advice about what the
+  // athlete did is worthless if the client can claim he did something else.
+  const [profile, log, sessions, mileageDocs, plans] = await Promise.all([
     store.getProfile(),
     store.getDoc('nutritionLogs', dateId),
+    store.query('workoutSessions', { orderField: 'date', direction: 'desc', limit: SESSION_SCAN }),
+    store.query('dailyMileage', { orderField: 'date', direction: 'desc', limit: MILEAGE_SCAN }),
+    store.query('mileageLogs', { orderField: 'weekStart', direction: 'desc', limit: 2 }),
   ])
 
   const entries = log?.entries || []
@@ -103,10 +123,36 @@ export async function buildTurnContext({ store, dateId, clientContext = {}, now 
   const targets = macroSet(clientContext.targets)
 
   const guardrails = deriveGuardrails(profile, now)
+  const mode = profile?.mode || 'strength'
+
+  const completed = (sessions || []).filter((s) => s.completed !== false)
+  const recentTraining = summariseRecentTraining({
+    sessions: completed,
+    mileageDocs: mileageDocs || [],
+    plans: plans || [],
+    now,
+  })
+
+  const todayMileage = normaliseMileageDoc(
+    (mileageDocs || []).find((d) => d.date === dateId) || null
+  )
 
   return {
     date: dateId,
-    mode: profile?.mode || 'strength',
+    mode,
+    // Most recent completed session, with hours elapsed — the difference
+    // between "you lifted" and "you finished lifting two hours ago".
+    lastSession: summariseSession(completed[0], now),
+    todayRuns: (todayMileage?.runs || []).map((r) => ({
+      miles: r.miles,
+      duration_minutes: r.duration_minutes ?? null,
+      avg_hr_bpm: r.avg_hr_bpm ?? null,
+      hoursSince: r.enteredAt ? hoursSince(r.enteredAt, now) : null,
+    })),
+    todayMiles: todayMileage?.miles ?? 0,
+    recentTraining,
+    // Running mode only — there is no race in a strength block.
+    raceContext: mode === 'running' ? buildRaceContext(profile, recentTraining.miles7, now) : null,
     targets,
     consumed,
     remaining: targets

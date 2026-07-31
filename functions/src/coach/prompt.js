@@ -206,6 +206,170 @@ export function buildSystemPrompt(mode) {
   return COMPOSED[mode] || COMPOSED.strength
 }
 
+// ── Context block ─────────────────────────────────────────────
+//
+// One renderer per section, each returning an array of lines — empty when the
+// section has nothing to say, so composition is a flatMap with no special cases.
+// Split up because this block only grows — every new thing the coach can see
+// lands here — and a single function accumulating them becomes unreadable and
+// untestable long before it becomes long.
+//
+// The shared rule across all of them: when data is missing, say so. A silent
+// omission reads to the model as "nothing happened", which is a different
+// claim from "not recorded", and it is the one that produces invented
+// sessions and invented meals.
+
+const macros = (m) => `${Math.round(m.kcal)} kcal / ${Math.round(m.protein_g)}P / ${Math.round(m.carbs_g)}C / ${Math.round(m.fat_g)}F`
+
+const ago = (hours) => {
+  if (hours == null) return 'time unknown'
+  if (hours < 48) return `${Math.round(hours)}h ago`
+  return `${Math.round(hours / 24)}d ago`
+}
+
+function renderMacros({ targets, consumed, remaining, derivation }) {
+  if (!targets || !consumed) return ["TODAY'S MACROS — unavailable (no bodyweight on record)"]
+  const lines = [
+    `TODAY'S MACROS — target ${targets.kcal} kcal / ${Math.round(targets.protein_g)}P / ${Math.round(targets.carbs_g)}C / ${Math.round(targets.fat_g)}F`,
+    `  consumed ${macros(consumed)}`,
+    `  remaining ${macros(remaining)}`,
+  ]
+  if (derivation?.basis) lines.push(`  basis: ${derivation.basis}`)
+  return lines
+}
+
+function renderMeals({ meals }) {
+  if (!meals?.length) return ['LOGGED TODAY — nothing yet']
+  const list = meals.map((m) => `${m.label} (${Math.round(m.kcal)} kcal, id ${m.id})`).join('; ')
+  return [`LOGGED TODAY — ${list}`]
+}
+
+function renderBlock({ block }) {
+  if (!block) return []
+  return [`BLOCK — week ${block.blockWeek} of ${block.totalWeeks}, mesocycle ${block.mesocycle} week ${block.weekInMesocycle}, ${block.phase}, target RIR ${block.rirTarget}`]
+}
+
+function renderPlannedSession({ session }) {
+  if (!session) return ["TODAY'S SESSION — rest day"]
+  const prefix = session.isToday ? '' : `(next, ${session.dayLabel}) `
+  const exercises = session.exercises
+    .map((e) => `${e.name} ${e.sets}x${e.repRange[0]}-${e.repRange[1]}`)
+    .join(', ')
+  const lines = [`TODAY'S SESSION — ${prefix}${session.name}: ${exercises}`]
+  if (session.substitutions?.length) {
+    const swaps = session.substitutions.map((s) => `${s.with} instead of ${s.replaced}`).join('; ')
+    lines.push(`  guardrail swaps: ${swaps}`)
+  }
+  return lines
+}
+
+/** Training actually completed, as distinct from today's plan above. */
+function renderLastSession({ lastSession }) {
+  if (!lastSession) return ['LAST SESSION — none recorded']
+  const detail = [
+    lastSession.duration ? `${lastSession.duration} min` : null,
+    lastSession.totalVolume ? `${lastSession.totalVolume} volume` : null,
+  ].filter(Boolean)
+  const suffix = detail.length ? `, ${detail.join(', ')}` : ''
+  const lines = [
+    `LAST SESSION — ${lastSession.dayType || 'session'}, ${ago(lastSession.hoursSince)}${suffix}`,
+  ]
+  const tops = lastSession.exercises
+    .filter((e) => e.top)
+    .map((e) => {
+      const load = e.top.isBodyweight ? 'BW' : e.top.weight
+      const rir = e.top.rir == null ? '' : ` @RIR${e.top.rir}`
+      return `${e.id} ${load}x${e.top.reps}${rir}`
+    })
+  if (tops.length) lines.push(`  top sets: ${tops.join('; ')}`)
+  return lines
+}
+
+function renderTodayRuns({ todayRuns }) {
+  if (!todayRuns?.length) return ["TODAY'S RUNS — none recorded"]
+  const list = todayRuns
+    .map((r) =>
+      [
+        `${r.miles} mi`,
+        r.duration_minutes ? `${r.duration_minutes} min` : null,
+        r.avg_hr_bpm ? `${r.avg_hr_bpm} bpm` : null,
+        r.hoursSince == null ? null : ago(r.hoursSince),
+      ]
+        .filter(Boolean)
+        .join(', ')
+    )
+    .join('; ')
+  return [`TODAY'S RUNS — ${list}`]
+}
+
+function renderRecentTraining({ recentTraining: t }) {
+  if (!t) return []
+  const extra = [
+    t.longestRun ? `longest run ${t.longestRun} mi` : null,
+    t.volume7 ? `lifting volume ${t.volume7}` : null,
+    `mileage ${t.trend} (${t.miles7} vs ${t.priorMiles7} prior 7d)`,
+    t.plannedMiles == null ? null : `plan ${t.plannedMiles} mi`,
+  ].filter(Boolean)
+  return [
+    `RECENT TRAINING — 7d: ${t.sessions7} sessions, ${t.miles7} mi, ${t.restDays7} rest ${t.restDays7 === 1 ? 'day' : 'days'}; 14d: ${t.sessions14} sessions, ${t.miles14} mi`,
+    `  ${extra.join(' · ')}`,
+  ]
+}
+
+function renderRace({ raceContext, mode }) {
+  // Absent in strength mode because there is no race in a strength block —
+  // that is a different thing from a running block with no race configured,
+  // which is missing data and says so.
+  if (!raceContext) return mode === 'running' ? ['RACE — none configured'] : []
+  const tier = raceContext.scalingTier
+  return [
+    `RACE — ${raceContext.name}, ${raceContext.date}, ${raceContext.daysOut} days out, ${raceContext.phase} week ${raceContext.weekNumber}`,
+    `  lifting scaled: ${tier.label}, ${Math.round(tier.loadMultiplier * 100)}% load${tier.dropSet ? ', drop a set' : ''}`,
+  ]
+}
+
+function renderBalance({ balance }) {
+  if (!balance) return []
+  const lines = [
+    `CHAIN BALANCE — ${balance.ratio ?? 'n/a'}:1 posterior:anterior (${balance.posteriorSets} vs ${balance.anteriorSets} sets), ${balance.status}`,
+  ]
+  if (balance.perMuscle) {
+    const notable = Object.entries(balance.perMuscle)
+      .filter(([, v]) => v.status !== 'optimal')
+      .map(([m, v]) => `${m} ${v.sets} (${v.status}${v.capped ? ', capped for rehab' : ''})`)
+    if (notable.length) lines.push(`  off target: ${notable.join(', ')}`)
+  }
+  return lines
+}
+
+function renderGuardrails({ injuryFlags, hamstringStage }) {
+  if (!injuryFlags?.length) return []
+  const lines = [`ACTIVE GUARDRAILS — ${injuryFlags.join(', ')}`]
+  if (hamstringStage) {
+    lines.push(`  hamstring rehab stage ${hamstringStage.stage} of 3: ${hamstringStage.label}`)
+  }
+  return lines
+}
+
+function renderWeight({ metrics }) {
+  if (!metrics?.rateOfGain) return []
+  return [`WEIGHT TREND — ${metrics.rateOfGain.message}`]
+}
+
+const CONTEXT_SECTIONS = [
+  renderMacros,
+  renderMeals,
+  renderBlock,
+  renderPlannedSession,
+  renderLastSession,
+  renderTodayRuns,
+  renderRecentTraining,
+  renderRace,
+  renderBalance,
+  renderGuardrails,
+  renderWeight,
+]
+
 /**
  * Per-turn context. Deliberately separate from the cached system prompt — it
  * changes every turn, and folding it into the prefix would invalidate the cache
@@ -213,78 +377,5 @@ export function buildSystemPrompt(mode) {
  */
 export function buildContextBlock(context) {
   if (!context) return 'No app data available for this turn.'
-
-  const lines = []
-  const { targets, consumed, remaining, session, block, balance, metrics, meals } = context
-
-  if (targets && consumed) {
-    lines.push(
-      `TODAY'S MACROS — target ${targets.kcal} kcal / ${Math.round(targets.protein_g)}P / ${Math.round(targets.carbs_g)}C / ${Math.round(targets.fat_g)}F`,
-      `  consumed ${Math.round(consumed.kcal)} kcal / ${Math.round(consumed.protein_g)}P / ${Math.round(consumed.carbs_g)}C / ${Math.round(consumed.fat_g)}F`,
-      `  remaining ${Math.round(remaining.kcal)} kcal / ${Math.round(remaining.protein_g)}P / ${Math.round(remaining.carbs_g)}C / ${Math.round(remaining.fat_g)}F`
-    )
-    if (context.derivation?.basis) lines.push(`  basis: ${context.derivation.basis}`)
-  } else {
-    lines.push("TODAY'S MACROS — unavailable (no bodyweight on record)")
-  }
-
-  if (meals?.length) {
-    lines.push(
-      `LOGGED TODAY — ${meals
-        .map((m) => `${m.label} (${Math.round(m.kcal)} kcal, id ${m.id})`)
-        .join('; ')}`
-    )
-  } else {
-    lines.push('LOGGED TODAY — nothing yet')
-  }
-
-  if (block) {
-    lines.push(
-      `BLOCK — week ${block.blockWeek} of ${block.totalWeeks}, mesocycle ${block.mesocycle} week ${block.weekInMesocycle}, ${block.phase}, target RIR ${block.rirTarget}`
-    )
-  }
-
-  if (session) {
-    lines.push(
-      `TODAY'S SESSION — ${session.isToday ? '' : `(next, ${session.dayLabel}) `}${session.name}: ${session.exercises
-        .map((e) => `${e.name} ${e.sets}x${e.repRange[0]}-${e.repRange[1]}`)
-        .join(', ')}`
-    )
-    if (session.substitutions?.length) {
-      lines.push(
-        `  guardrail swaps: ${session.substitutions
-          .map((s) => `${s.with} instead of ${s.replaced}`)
-          .join('; ')}`
-      )
-    }
-  } else {
-    lines.push('TODAY\'S SESSION — rest day')
-  }
-
-  if (balance) {
-    lines.push(
-      `CHAIN BALANCE — ${balance.ratio ?? 'n/a'}:1 posterior:anterior (${balance.posteriorSets} vs ${balance.anteriorSets} sets), ${balance.status}`
-    )
-    if (balance.perMuscle) {
-      const notable = Object.entries(balance.perMuscle)
-        .filter(([, v]) => v.status !== 'optimal')
-        .map(([m, v]) => `${m} ${v.sets} (${v.status}${v.capped ? ', capped for rehab' : ''})`)
-      if (notable.length) lines.push(`  off target: ${notable.join(', ')}`)
-    }
-  }
-
-  if (context.injuryFlags?.length) {
-    lines.push(`ACTIVE GUARDRAILS — ${context.injuryFlags.join(', ')}`)
-    if (context.hamstringStage) {
-      lines.push(
-        `  hamstring rehab stage ${context.hamstringStage.stage} of 3: ${context.hamstringStage.label}`
-      )
-    }
-  }
-
-  if (metrics?.rateOfGain) {
-    lines.push(`WEIGHT TREND — ${metrics.rateOfGain.message}`)
-  }
-
-  return lines.join('\n')
+  return CONTEXT_SECTIONS.flatMap((render) => render(context)).join('\n')
 }
