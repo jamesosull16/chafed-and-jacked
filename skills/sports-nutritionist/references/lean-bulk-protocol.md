@@ -169,6 +169,46 @@ Target: **0.25-0.5% bodyweight/week** (`weeklyRateRange: [0.0025, 0.005]`). For 
 - Compare like with like: same time of day, ideally first thing, post-bathroom, pre-food.
 - `get_body_metrics({weeks: 4})` returns the trend. Use the trend line, not the endpoints.
 
+### Working from sparse or messy weigh-in data
+
+Most athletes don't weigh daily, and the guardrail still has to function. The question is how
+many readings are enough to distinguish a real 200-400 g/week signal from day-to-day noise of
+1-2 kg — and the honest answer is that it depends heavily on how often they step on the scale.
+
+| Weigh-in frequency | Minimum window before the trend means anything | Method |
+|---|---|---|
+| Daily | 2-3 weeks | 7-day rolling average, compare week 1 average to week 3 average |
+| 3-4×/week | 3-4 weeks | Weekly average of whatever readings exist |
+| 1-2×/week | 4-6 weeks | Fit the direction across all points; do not compare individual weeks |
+| Less than weekly, or irregular | Not usable | Ask for a fortnight of consistent morning weigh-ins before changing anything |
+
+**Rules that make sparse data usable:**
+
+1. **Same conditions, or the reading is worthless.** First thing, after the bathroom, before
+   food or fluid, minimal clothing. A weigh-in at 6pm after dinner isn't a weak data point; it's
+   a different measurement.
+2. **Drop obvious outliers, but say you did.** A single reading 1.5 kg above the neighbouring
+   points, the morning after a restaurant meal or a long-haul flight, is a water event — exclude
+   it and tell the athlete why rather than silently smoothing it away.
+3. **Never act on fewer than 6 readings** spread over at least 3 weeks. Saying "there isn't
+   enough data yet, keep going and we'll look again in a fortnight" is a real answer and a
+   better one than a change made on noise.
+4. **When the direction is clear but the rate isn't**, act on the direction only, and in the
+   smallest increment — ±150 kcal, then re-check.
+5. **Look at training data alongside.** If loads are progressing well, an ambiguous weight trend
+   is much less urgent. The scale is one input, not the verdict.
+
+**When the athlete won't weigh in at all.** Some won't, and pushing it can do more harm than the
+missing data does. Use proxies: how clothing fits, training-load progression, photographs at
+fixed intervals, and their own read on leanness. These are cruder — expect to need 6-8 weeks
+rather than 3-4 to see anything — so make the surplus deliberately conservative (+200 rather
+than +300) and hold it. A smaller surplus you can't measure beats a larger one you can't
+correct. Never invent a trend from proxies and present it as a number.
+
+Section 9 of `situations.md` lists the specific anomalies that produce a fake trend — water
+events, creatine loading, the first fortnight of a surplus, illness, travel — and what each one
+looks like.
+
 ### Adjustment table
 
 | 3-4 week trend | Diagnosis | Action |
@@ -194,7 +234,80 @@ Target: **0.25-0.5% bodyweight/week** (`weeklyRateRange: [0.0025, 0.005]`). For 
 
 ---
 
-## 5. Nutrient timing
+## 5. Changing the goal, and changing the mode
+
+Two different changes, often confused. `SKILL.md` Step 9 holds the decision procedure; this is
+the arithmetic.
+
+### Goal changes — the surplus moves, the model doesn't
+
+| Goal | kcal delta | Weekly rate target | Protein | Carbs |
+|---|---|---|---|---|
+| Aggressive bulk | +600 | +0.5-0.75% | 2.0 g/kg | 5.5-6.5 g/kg training days |
+| **Lean bulk (default)** | **+300** | **+0.25-0.5%** | **2.0 g/kg** | **5.5-6 g/kg training days** |
+| Recomp | 0 | ~0, lean mass up | 2.0-2.2 g/kg | 4.5-5.5 g/kg |
+| Cut | −400 | −0.5-0.75% | 2.2-2.4 g/kg | 3-4 g/kg, training days at the top |
+
+Protein rises as calories fall, which is the opposite of most people's instinct. In a deficit it
+does two jobs — protecting lean mass and providing satiety — and both matter more when there's
+less of everything else (Helms et al. 2014).
+
+**Worked transition, 80 kg athlete, lean bulk → cut:**
+
+```
+Lean bulk (training day)   3,504 kcal · 160 P · 440 C · 123 F
+Cut target                 3,204 − 400 = 2,804 kcal
+  protein     80 × 2.3 = 184 g                        =   736 kcal
+  carbs       80 × 4.0 = 320 g                        = 1,280 kcal
+  remaining                                           =   788 kcal
+  fat         788 / 9  = 88 g       (floor 64 g — clear)
+
+Cut (training day)         2,804 kcal · 184 P · 320 C · 88 F
+```
+
+Move it in two steps a week apart rather than in one jump, and expect the first fortnight's
+weight change to be glycogen and water rather than tissue in either direction.
+
+### Mode changes — the TDEE model itself changes
+
+This is the January handover and it's a different kind of change. Strength mode and running mode
+are two separate accounting systems, and the most common error is mixing them, which
+double-counts the same activity.
+
+| | Strength mode | Running mode |
+|---|---|---|
+| Activity factor | ~1.5 — absorbs NEAT *and* general activity | ~1.2 — base only |
+| Session kcal line | Lifting sessions, ~5-8 kcal/min | Run kcal, added explicitly |
+| Run kcal estimate | n/a | ~1 kcal per kg per km (so ~0.8-1.0 kcal/kg/km; 80 kg × 10 km ≈ 800 kcal) |
+| Carbs | 4-6 g/kg | 5-8 g/kg, scaling with volume; higher again in a race build |
+| Protein | 2.0 g/kg | 1.8-2.0 g/kg — does not drop |
+| Typical goal | Lean bulk +300 | Recomp or a small surplus |
+
+**Worked comparison, 80 kg athlete, BMR 1,856:**
+
+```
+Strength mode, lifting day
+  TDEE = (1,856 × 1.5) + 420 = 3,204 kcal
+
+Running mode, 12 km easy run + a lifting session
+  TDEE = (1,856 × 1.2) + 960 + 420 = 3,607 kcal
+        base 2,227      run   lift
+```
+
+The base factor drops by 0.3 (≈ 557 kcal) while the run adds 960 — so a run day in running mode
+is genuinely bigger, but nothing like as much bigger as adding a run line to the strength-mode
+factor would have suggested. That error is worth several hundred kcal a day and it always runs
+in the direction of overfeeding.
+
+**Transition rules.** Change mode once, at the point running becomes regular rather than
+occasional — not on the first run back. During the walk-run weeks, run kcal are small enough to
+ignore; stay in strength mode. Switch when weekly running exceeds roughly 20 km or 2.5 hours.
+Recalculate, hold for 3 weeks, then judge it on the trend. `endurance-running-coach` owns
+run-specific and in-run fuelling from that point.
+
+---
+
+## 6. Nutrient timing
 
 Timing is a small effect on top of a large one. Total daily intake is the large one.
 
@@ -224,7 +337,7 @@ a deload is not a mini-cut.
 
 ---
 
-## 6. Supplements — the short list
+## 7. Supplements — the short list
 
 Only what has evidence worth the money:
 
@@ -239,7 +352,7 @@ Everything else is optional. Get the diet, sleep, and training right first.
 
 ---
 
-## 7. Hydration
+## 8. Hydration
 
 - ~35 ml/kg/day baseline, plus ~500-750 ml per training hour.
 - At 80 kg that's ~2.8 L baseline, ~3.5 L on lifting days.
@@ -249,7 +362,7 @@ Everything else is optional. Get the diet, sleep, and training right first.
 
 ---
 
-## 8. References
+## 9. References
 
 - Jäger et al. (2017), *ISSN Position Stand: Protein and Exercise*, JISSN — 1.4-2.0 g/kg for muscle gain.
 - Morton et al. (2018), *Br J Sports Med* — protein dose-response meta-analysis; plateau ~1.6 g/kg, CI to 2.2.
@@ -260,4 +373,4 @@ Everything else is optional. Get the diet, sleep, and training right first.
 - Katch & McArdle — lean-mass-based BMR.
 - Kreider et al. (2017), *ISSN Position Stand: Creatine*.
 - Mountjoy et al. (2018), *IOC Consensus Statement on RED-S* — relevant if energy availability is ever in question despite a nominal surplus.
-- Garthe et al. (2011) — rate of gain and body composition outcomes in athletes; supports the conservative surplus.
+- Garthe et al. (2013), *Int J Sport Nutr Exerc Metab* — rate of weight gain and body composition outcomes in elite athletes; supports the conservative surplus. (Garthe et al. 2011 is the companion study on rates of weight *loss*.)

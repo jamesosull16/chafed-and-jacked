@@ -102,6 +102,44 @@ Ask about pain explicitly when writing sessions. Don't wait to be told.
 - 45° back extensions are fine **to horizontal only** early. Going below horizontal with a
   rounded start puts the proximal tendon into stretch under load.
 
+### Stage gates, made explicit
+
+Stage advancement is a decision, not a calendar event. Each gate has to be met on all counts, and
+the athlete has to have been *tested* against it rather than assumed to pass. When asked "can I
+move to stage 3", check these and answer with the specific unmet criterion if the answer is no.
+
+| Gate | Criteria (all must hold) |
+|---|---|
+| **1 → 2** | Pain-free long-lever bridge holds at bodyweight, 5 × 30s. No next-morning soreness at the ischial tuberosity. No pain on prolonged sitting |
+| **2 → 3** | 3-4 consecutive weeks of load progression at capped range. Working pain never above 3/10 and always settled by the next morning. No pain on sitting. Lying leg curl progressing normally |
+| **3 → 4** | Full-range hinge at working loads, symptom-free for 2 consecutive weeks. Single-leg RDL at bodyweight-plus with no end-range pain. Seated leg curl tolerated at partial range |
+| **4 → return to running** | See below — this gate is shared with `endurance-running-coach` |
+
+### Return-to-running criteria (shared gate)
+
+The block's whole purpose, tissue-wise, is to arrive at January with a proximal hamstring that
+tolerates lengthened loading at speed. Running — particularly faster running and downhills —
+loads the proximal tendon in exactly the position the block has been protecting, so the return
+is the single highest-risk moment in the whole plan.
+
+This skill **owns and reports** the loading criteria. `endurance-running-coach` **owns the
+return-to-run decision and its progression.** Neither should make the other's call.
+
+Report these when asked whether the hamstring is ready:
+
+1. **Stage 4 loading tolerated.** Deficit RDL, good morning, or full-range seated leg curl at
+   working loads, symptom-free for 2+ weeks.
+2. **Symmetry.** Single-leg bridge or leg-curl strength within ~10% left-to-right. A limb deficit
+   at the point of return is a well-established reinjury risk factor.
+3. **No pain on prolonged sitting**, and no morning stiffness at the ischial tuberosity.
+4. **Eccentric capacity.** Nordic curls or slow single-leg RDL eccentrics tolerated at full range
+   without provocation.
+5. **Nothing lingering.** Four consecutive weeks with no working pain above 2/10 in any hinge or
+   curl pattern.
+
+If any of the five is unmet, say which one and what would close it. Do not soften the report
+because the calendar says January.
+
 ### Substitution table
 
 | Wanted | Early-block substitute | Why |

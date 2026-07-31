@@ -8,9 +8,10 @@ leg press, hack squat, hamstring curl (lying and seated), and hip thrust machine
 - **Chain** — `post` posterior, `ant` anterior, `neu` neutral/both.
 - **Pattern** — movement pattern for balance accounting.
 - **Ham-len** — hamstring **lengthened-load risk**: how much the movement loads the proximal
-  hamstring in a lengthened, hip-flexed position. **low** = safe from week 1. **mod** = stage 2-3,
-  introduce with controlled range. **high** = stage 4 only, late block, after symptom-free
-  full-range loading.
+  hamstring in a lengthened, hip-flexed position. Gated on the **rehab stage**, not the block
+  week. **low** = available from stage 1. **mod** = stage 2-3, introduce with controlled range.
+  **high** = stage 4 only, after symptom-free full-range loading. Stage gates are in
+  `injury-guardrails.md` §1.
 - **Knee** — knee flexion demand: low / mod / high. High = deep flexion under load; manage volume.
 - **DF** — ankle dorsiflexion demand: low / mod / high. High = restricted ankles will limit it;
   elevate heels or substitute.
@@ -171,6 +172,56 @@ the growth and the dorsiflexion range come from.
 Concentric-only work (sled) is the conditioning of choice in this block: no eccentric damage, so
 it doesn't compete with lifting recovery.
 
+## Aerobic maintenance modalities
+
+Two sessions a week, 20-30 min, easy. Selected to keep eccentric load and impact low so the
+aerobic stimulus doesn't compete with lifting recovery. Full protocol in
+`conditioning-and-recovery.md`.
+
+| Modality | Chain | Ham-len | Knee | DF | Notes |
+|---|---|---|---|---|---|
+| Stationary / assault bike | neu | low | low | low | Default. Zone 2, conversational. No eccentric load at all |
+| Sled push | ant | low | mod | mod | Concentric-only. 6-10 × 20 m, 60-90s rest. Doubles as quad work |
+| Sled drag (backward) | ant | low | mod | low | Knee-friendly. 15-20 min continuous is a full session |
+| Incline treadmill walk | post | low | low | mod | 10-15% grade, 5-6 km/h. Loads calves and glutes in a running-adjacent way |
+| Rucking (weighted walk) | post | low | low | low | Start at 10% bodyweight. Best posterior-chain aerobic option |
+| Rower / ski erg | neu | **mod** | mod | mod | Keep the catch shallow — a deep catch is a loaded hip-flexed position |
+| Elliptical | neu | low | low | low | Unexciting, works |
+| Stair machine | ant | low | **high** | mod | Not while the knee flag is active |
+| Easy running | post | **mod** | mod | mod | The thing this block is avoiding. Only once `endurance-running-coach` has cleared it |
+| HIIT / conditioning circuits | — | varies | varies | varies | No. High interference and high fatigue for no maintenance benefit |
+
+## Minimal-equipment substitutes
+
+For travel, hotel gyms, and home setups. Every entry preserves the pattern and the chain and
+stays inside the active flags — nothing here reintroduces a lengthened-hamstring position or
+deep knee flexion. Full substitution tables by equipment level are in `program-design.md` §8.
+
+| Exercise | Chain | Pattern | Ham-len | Knee | DF | Notes |
+|---|---|---|---|---|---|---|
+| DB hip thrust off a bench | post | hip extension | low | low | low | The travel glute driver. Load with one heavy DB across the hips |
+| Single-leg glute bridge | post | hip extension | low | low | low | 15-25 reps with a 3s hold at the top. Bodyweight-only glute work that actually counts |
+| Banded hip thrust | post | hip extension | low | low | low | Band over the hips, feet on the floor. High reps |
+| DB RDL, capped range | post | hinge | mod | low | low | Stop where the full-gym range stops. Range doesn't expand because the equipment shrank |
+| Slider / towel leg curl | post | knee flexion | **low** | mod | low | Hip extended throughout — a legitimate lying-curl substitute. 3s eccentric |
+| Nordic curl to a bench | post | knee flexion | mod | high | low | Stage 3+ only, heavy assistance. Skip it if in doubt |
+| Heel-elevated goblet squat | ant | squat | low | mod | low | Heels on books, plates, or a folded towel |
+| DB split squat, short stride | ant | lunge | low | mod | low | Shorter stride than a Bulgarian — less knee flexion |
+| Tempo bodyweight squat | ant | squat | low | mod | low | 4s eccentric, heels elevated. 15-25 reps |
+| Feet-elevated push-up | ant | horizontal push | low | low | low | Add tempo and a deficit before adding reps past ~20 |
+| Pike push-up | ant | vertical push | low | low | low | Vertical press substitute |
+| Inverted row (table or bar) | post | horizontal pull | low | low | low | Feet elevated to add load |
+| Single-arm DB row | post | horizontal pull | low | low | low | Chest supported on a bench where possible |
+| DB pullover | post | vertical pull | low | low | low | Vertical pull substitute when there's no bar |
+| Banded pulldown | post | vertical pull | low | low | low | Anchor high on a door |
+| Single-leg calf raise off a step | post | plantarflexion | low | low | low | 20-30 reps, 2s pause at the bottom. Full-range and it doubles as DF work |
+| Side-lying / banded abduction | post | abduction | low | low | low | Glute medius without a machine |
+| Suitcase carry (one DB) | neu | carry | low | low | low | Anti-lateral flexion, and it needs one dumbbell |
+
+**Making these count.** Absolute load is lower, so the stimulus has to come from proximity to
+failure and time under tension — RIR 0-2, higher rep ranges, 3-4s eccentrics, and unilateral
+versions by default. See `program-design.md` §8.
+
 ## Mobility
 
 | Drill | Target | Dose | Notes |
@@ -253,10 +304,30 @@ your recommendations and the app's exercise selection agree by construction.
 | `pallofPress` | Pallof Press | neutral | core | core | low | low | low |
 | `farmersCarry` | Farmer's Carry | neutral | carry | traps, core | low | low | low |
 
-**Reading the risk columns.** `Ham. stretch` is loaded lengthening of the
-*proximal* hamstring: `high` is blocked until block week 13, `moderate` until
-week 5, `low` is available from week 1. `Knee flexion` `high` is blocked
-outright while the knee flag is set; `moderate` is permitted with a capped ROM
-and a 3-second eccentric. `Ankle DF` never blocks — anything above `low` gets
-heel elevation.
+**Reading the risk columns.** These are the app's own filter values, and they're coarser than
+the body tables above — where the two disagree, **the body tables and
+`injury-guardrails.md` win**, because they carry the stage reasoning. Known coarsenings, in both
+directions:
+
+| exerciseId | Decode table | Body table | Which to follow |
+|---|---|---|---|
+| `seatedLegCurl` | ham `moderate` | ham **high**, stage 3+ only | Body table — this is the one that matters most |
+| `nordicCurl` | ham `moderate` | ham `mod-high` | Body table |
+| `bulgarianSplitSquat` | ham `low`, knee `moderate` | ham `mod`, knee **high** | Body table |
+| `backExtension45` | ham `moderate` | `low` **to horizontal only** | Body table, and hold the range cap |
+| `seatedCableRow` | ham `moderate` | `low` | Either — the difference doesn't change a prescription |
+
+`Ham. stretch` gates on the **rehab stage, not the block week** — stage advancement is a
+decision made against the gates in `injury-guardrails.md` §1, not a calendar event. `low` is
+available from stage 1, `moderate` from stage 2-3, `high` from stage 4 only. The block-phase
+table in `program-design.md` §1 shows roughly when each stage is expected, which is a forecast
+rather than a permission.
+
+`Knee flexion` `high` is blocked while the knee flag is set, **with one deliberate exception**:
+Nordic curls and slow single-leg RDL eccentrics stay available from stage 3, because full-range
+eccentric capacity is itself a return-to-running gate criterion (H4). Load them slowly and cap
+the volume rather than removing them. `moderate` is permitted with a capped ROM and a 3-second
+eccentric.
+
+`Ankle DF` never blocks — anything above `low` gets heel elevation.
 

@@ -63,7 +63,7 @@ sessions in both directions is the point — glutes and hamstrings under a rebui
 
 | # | Slot | Sets × reps | RIR | Rest |
 |---|---|---|---|---|
-| 0 | Mobility block (thoracic + hips) | 5-6 min | — | — |
+| 0 | Mobility block (thoracic + hips) | 6-8 min | — | — |
 | 1 | Incline dumbbell press *or* barbell bench | 4 × 6-10 | meso RIR | 150s |
 | 2 | Chest-supported row (balance set, kept in) | 3 × 8-12 | meso RIR | 120s |
 | 3 | Machine shoulder press *or* seated DB press | 3 × 8-12 | meso RIR | 120s |
@@ -87,7 +87,7 @@ sessions in both directions is the point — glutes and hamstrings under a rebui
 
 | # | Slot | Sets × reps | RIR | Rest |
 |---|---|---|---|---|
-| 0 | Mobility block (thoracic + hips) | 5-6 min | — | — |
+| 0 | Mobility block (thoracic + hips) | 6-8 min | — | — |
 | 1 | Weighted pull-up *or* lat pulldown | 4 × 6-10 | meso RIR | 150s |
 | 2 | Barbell / T-bar row | 3 × 8-12 | meso RIR | 150s |
 | 3 | Single-arm cable row (left/right corrective slot) | 3 × 10-12/side | meso RIR | 90s |
@@ -189,9 +189,107 @@ The block ends, it doesn't stop dead. In the final two weeks:
 - Mobility work continues unchanged. Running does not improve ankle dorsiflexion or hip
   extension; it consumes them.
 
+**The handover.** From week 21, `endurance-running-coach` owns the run build and this skill owns
+the lifting that continues alongside it. Hand over three things explicitly: current lifting
+volume per muscle, the hamstring's rehab stage from `injury-guardrails.md` §1, and the last four
+weeks of conditioning. Conditioning ramps ahead of the handover — see
+`conditioning-and-recovery.md` §4.
+
+**Maintenance split after the block** (2 days/week, ~45 min, full body):
+
+| # | Slot | Sets × reps |
+|---|---|---|
+| 1 | Hip thrust *or* RDL at cleared range | 3 × 6-10 |
+| 2 | Heel-elevated squat pattern or leg press | 3 × 8-12 |
+| 3 | Horizontal or vertical press | 3 × 6-12 |
+| 4 | Horizontal or vertical pull | 3 × 6-12 |
+| 5 | Lying leg curl | 2-3 × 10-15 |
+| 6 | **Eccentric hamstring** — Nordic curl or slow single-leg RDL eccentric | 3 × 5-8, 3-4s lowering |
+| 7 | Calf raise — **standing in one session, seated in the other** | 3 × 10-20, 2s pause at the bottom |
+
+Roughly one-third of accumulation volume, and enough to hold strength through a running build.
+Rotate the press and pull between sessions so both patterns get covered weekly.
+
+**Slots 6 and 7 are not optional once running has resumed**, and they're the two most commonly
+dropped. The eccentric hamstring slot runs twice weekly because full-range eccentric capacity is
+a standing return-to-run criterion, not a one-off gate — losing it means losing the clearance.
+And the calf work needs both knee angles plus a third weekly exposure —
+`endurance-running-coach/references/running-injury-guardrails.md` §4 asks for three sessions a
+week, at least a day apart. Two of them are slots 7 here; the third goes wherever it fits, as a
+standalone slot or tacked onto the end of an easy run. **Coordinate the total across both skills
+rather than each prescribing its own three.**
+
 ---
 
-## 8. Evidence notes
+## 8. Reduced equipment and alternative environments
+
+A hotel gym, a home setup, or a busy commercial gym at 6pm all produce the same problem: the
+prescribed exercise isn't available. The rule that keeps the block intact is to **preserve the
+movement pattern and the chain, not the exercise.** A session that hits hip extension, knee
+flexion, a squat pattern, a horizontal push and a horizontal pull is the day's session,
+regardless of what the equipment was.
+
+### Substitution by pattern and equipment level
+
+| Pattern | Full gym | Dumbbells + bench | Bands only | Bodyweight only |
+|---|---|---|---|---|
+| Hip extension (glutes) | Barbell hip thrust | DB hip thrust off bench; single-leg hip thrust | Banded hip thrust; banded glute bridge | Single-leg glute bridge, 15-25 reps, 3s pause at top |
+| Hinge (capped range) | Standing RDL, cable pull-through | DB RDL, capped range | Banded pull-through, banded RDL | Long-lever bridge hold (isometric); single-leg hip hinge to a box |
+| Knee flexion | Lying leg curl | Slider / towel leg curl; DB hamstring curl on a bench | Banded leg curl (prone) | Slider leg curl; assisted Nordic to a bench |
+| Squat | Heel-elevated hack squat, leg press | Heel-elevated goblet squat; DB split squat | Banded squat, high reps | Heel-elevated bodyweight squat, 1.5-reps or 4s eccentrics |
+| Horizontal push | Incline DB press, bench | DB press (incline or flat) | Banded press | Push-up variants — feet elevated, tempo, deficit |
+| Vertical push | Machine press | Seated DB press | Banded overhead press | Pike push-up |
+| Horizontal pull | Chest-supported row | Single-arm DB row; chest-supported DB row on incline bench | Banded row | Inverted row under a table or a bar |
+| Vertical pull | Pull-up, lat pulldown | DB pullover; pull-up if a bar exists | Banded pulldown | Pull-up / negatives / towel rows |
+| Calves | Standing + seated calf raise | Single-leg DB calf raise off a step | Banded calf raise | Single-leg calf raise off a step, 20-30 reps, 2s pause |
+| Core | Cable crunch, ab wheel | DB Pallof / suitcase carry | Banded Pallof | Plank, side plank, hollow hold, Copenhagen |
+| Abduction | Hip abduction machine | Side-lying abduction | Banded lateral walk, seated banded abduction | Side-lying abduction, 20-30 reps |
+
+Every entry here stays inside the active injury flags — nothing in the reduced-equipment columns
+introduces a lengthened-hamstring position or deep knee flexion that the full-gym prescription
+was avoiding. Slider and Nordic-style leg curls are the one place to be careful: they're
+knee-flexion-dominant with the hip extended, so they're `Ham-len: low` and fine, but the Nordic
+is a hard eccentric — heavy assistance or skip it.
+
+### Making low load count
+
+Reduced equipment means lower absolute load, and the way to keep the stimulus is proximity to
+failure and time under tension, not more sets:
+
+- Take sets to **RIR 0-2** rather than the mesocycle target. Low-load training produces
+  comparable hypertrophy to heavy training when sets go near failure (Schoenfeld et al. 2017),
+  which is what makes a dumbbell week salvageable at all.
+- **Rep ranges go up**: 15-30 on lower body, 12-20 on upper.
+- Add **tempo** before adding sets — 3-4s eccentrics, 1-2s pauses in the stretched position,
+  1.5-reps. It's the cheapest way to make a light dumbbell feel like a working set.
+- **Unilateral by default.** A single-leg version of anything roughly doubles the effective load
+  per limb and doubles as left/right corrective work.
+
+### Two-session travel template (full body, ~45 min)
+
+Run this instead of trying to compress a 4-day split into a trip.
+
+| # | Session A | Session B |
+|---|---|---|
+| 0 | Mobility block, 6 min | Mobility block, 6 min |
+| 1 | Hip extension — 4 × 10-20 | Hinge or knee flexion — 3 × 12-20 |
+| 2 | Horizontal push — 3 × 10-20 | Vertical or horizontal pull — 4 × 8-15 |
+| 3 | Horizontal pull — 4 × 10-15 | Squat pattern — 3 × 15-25 |
+| 4 | Squat pattern — 3 × 15-25 | Horizontal push — 3 × 12-20 |
+| 5 | Calves — 3 × 20-30 | Calves — 3 × 20-30 |
+| 6 | Core — 2 sets | Lateral raise / abduction — 3 × 20 |
+
+Log these as reduced sessions so the weekly set count reflects reality rather than flattering it.
+
+### Busy-gym contingency
+
+Different problem, same principle. When the squat rack or the leg curl is occupied, don't wait
+and don't reorder into a worse session — substitute within the pattern and note it. The one
+thing worth waiting for is the day's primary compound, since it carries the progression decision.
+
+---
+
+## 9. Evidence notes
 
 - **Volume landmarks** — Schoenfeld et al. (2017) dose-response meta-analysis and subsequent
   volume-landmark work support ~10-20 sets/muscle/week for trained lifters, with a flattening
@@ -201,7 +299,14 @@ The block ends, it doesn't stop dead. In the final two weeks:
 - **Rep range** — hypertrophy is comparable across ~5-30 reps when sets are taken near failure
   (Schoenfeld et al. 2021). The ranges here are chosen for joint tolerance and time efficiency,
   not because a magic range exists.
-- **Autoregulation by RIR** — Helms et al. (2016) RPE/RIR-based load prescription; RIR scales
-  are accurate enough in trained lifters within ~1 rep near failure.
+- **Autoregulation by RIR** — Helms et al. (2016) RPE/RIR-based load prescription. RIR scales
+  are accurate to within ~1 rep in trained lifters *close to failure on isolation work*; the
+  error grows the further a set sits from failure and on multi-joint movements, which is why
+  `SKILL.md` Step 5 runs a calibration set each mesocycle rather than trusting reported RIR.
 - **Deload** — Israetel's fatigue-management model: volume accumulates stimulus and fatigue
   together; the deload realises the adaptation.
+- **Low-load training** — Schoenfeld et al. (2017) meta-analysis: loads below 60% 1RM produce
+  comparable hypertrophy to heavy loads when sets are taken near failure. This is what makes a
+  dumbbell-only or band-only week a real training week rather than a write-off.
+- **Concurrent training** — Wilson et al. (2012): interference scales with modality, duration,
+  frequency, and intensity. Full treatment in `conditioning-and-recovery.md` §3.
