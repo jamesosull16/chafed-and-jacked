@@ -893,6 +893,43 @@ export const STRENGTH_EXERCISES = {
     notes: 'Loaded, progressible abdominal flexion.',
     cue: 'Flex the spine — this is not a hip hinge.',
   },
+  // Bodyweight core, so the session's finisher survives outside a full gym.
+  // Every other core movement needs a cable or a bar, which left the pull day
+  // with no finisher at all on the homeGym and minimal setups.
+  deadBug: {
+    id: 'deadBug',
+    name: 'Dead Bug',
+    shortName: 'Dead Bug',
+    chain: CHAINS.NEUTRAL,
+    pattern: PATTERNS.CORE,
+    tier: 'isolation',
+    muscles: { primary: ['core'], secondary: [] },
+    equipment: [],
+    equipmentLevel: 'minimal',
+    isUnilateral: false,
+    weightIncrement: 0,
+    // Knees stay bent, so unlike a straight-leg raise this never loads the
+    // proximal hamstring at length — available at every rehab stage.
+    demands: D('low', 'low', 'low', 'low'),
+    notes: 'Anti-extension. Ribs down, low back flat to the floor throughout.',
+    cue: 'Move slowly. If the back arches, shorten the reach.',
+  },
+  sidePlank: {
+    id: 'sidePlank',
+    name: 'Side Plank',
+    shortName: 'Side Plank',
+    chain: CHAINS.NEUTRAL,
+    pattern: PATTERNS.CORE,
+    tier: 'isolation',
+    muscles: { primary: ['core'], secondary: ['glutes'] },
+    equipment: [],
+    equipmentLevel: 'minimal',
+    isUnilateral: true,
+    weightIncrement: 0,
+    demands: D('low', 'low', 'low', 'low'),
+    notes: 'Anti-lateral flexion. Also loads glute medius, which serves the hip work.',
+    cue: 'Stack the hips. Push the floor away.',
+  },
   hangingLegRaise: {
     id: 'hangingLegRaise',
     name: 'Hanging Leg Raise',

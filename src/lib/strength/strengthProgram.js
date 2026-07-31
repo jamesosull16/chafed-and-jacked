@@ -26,6 +26,26 @@ const SECONDS_PER_SET_WORK = 45
 const slot = (role, sets, candidates, opts = {}) => ({ role, sets, candidates, ...opts })
 
 /**
+ * Every session ends on core work.
+ *
+ * Two sets, not three, and deliberately so. Direct core was already at ~7.5
+ * weekly sets against an MAV band of 6-12 (see VOLUME_LANDMARKS); putting three
+ * on all four days would take it past 13 and toward the MRV of 16, spending
+ * recovery the block wants for hypertrophy. Two on every day lands near 9.5 —
+ * more frequent than before, similar total, and comfortably inside the band.
+ *
+ * The candidate order across the 4-day split is chosen so the week spans the
+ * core's actual jobs rather than repeating one: flexion on the posterior day,
+ * anti-extension on push, anti-rotation on quad day, loaded carry on pull.
+ *
+ * Left `optional` like the originals, which means it is the first thing dropped
+ * when a session runs over its time budget. That is the right order — core is
+ * not one of the block's five objectives — and at the default 75-minute budget
+ * sessions land at 48-57 minutes, so it survives in practice.
+ */
+const coreFinisher = (candidates) => slot('Core finisher', 2, candidates, { optional: true })
+
+/**
  * Day templates. Candidate order encodes preference: the first entry is the
  * best choice for a healthy athlete, later entries are the fallbacks that the
  * guardrails will reach for.
@@ -47,7 +67,7 @@ export const DAY_TEMPLATES = {
       ]),
       slot('Glute accessory', 3, ['cableKickback', 'hipAbductionMachine', 'gluteBridge']),
       slot('Calf', 4, ['seatedCalfRaise', 'singleLegCalfRaise']),
-      slot('Core', 3, ['cableCrunch', 'pallofPress', 'hangingLegRaise'], { optional: true }),
+      coreFinisher(['cableCrunch', 'pallofPress', 'hangingLegRaise', 'deadBug']),
     ],
   },
   upperPush: {
@@ -62,6 +82,7 @@ export const DAY_TEMPLATES = {
       slot('Side delts', 4, ['lateralRaise']),
       slot('Triceps', 3, ['overheadCableExtension', 'triceptPushdown']),
       slot('Rear delts', 3, ['facePull', 'rearDeltFly']),
+      coreFinisher(['hangingLegRaise', 'cableCrunch', 'pallofPress', 'deadBug']),
     ],
   },
   lowerQuad: {
@@ -75,7 +96,7 @@ export const DAY_TEMPLATES = {
       slot('Quad isolation', 3, ['legExtension', 'spanishSquat']),
       slot('Glute', 3, ['cableKickback', 'hipAbductionMachine', 'singleLegHipThrust']),
       slot('Calf', 4, ['standingCalfRaise', 'singleLegCalfRaise']),
-      slot('Core', 3, ['pallofPress', 'cableCrunch'], { optional: true }),
+      coreFinisher(['pallofPress', 'cableCrunch', 'sidePlank', 'deadBug']),
     ],
   },
   upperPull: {
@@ -90,6 +111,7 @@ export const DAY_TEMPLATES = {
       slot('Lat isolation', 3, ['straightArmPulldown', 'latPulldown']),
       slot('Biceps', 3, ['inclineDbCurl', 'barbellCurl', 'hammerCurl']),
       slot('Rear delts / traps', 3, ['rearDeltFly', 'facePull', 'farmersCarry']),
+      coreFinisher(['farmersCarry', 'sidePlank', 'pallofPress', 'deadBug']),
     ],
   },
   fullBody: {
@@ -104,6 +126,7 @@ export const DAY_TEMPLATES = {
       slot('Pull', 3, ['latPulldown', 'chestSupportedRow', 'pullUp']),
       slot('Hamstring', 3, ['lyingLegCurl', 'hamstringBridgeIsometric']),
       slot('Calf', 3, ['seatedCalfRaise', 'standingCalfRaise']),
+      coreFinisher(['pallofPress', 'cableCrunch', 'deadBug', 'sidePlank']),
     ],
   },
 }
@@ -144,6 +167,12 @@ function resolveSlot(slotDef, context) {
   let firstBlocked = null
 
   for (const id of slotDef.candidates) {
+    // Already prescribed by an earlier slot. Candidate lists overlap by design
+    // — farmers' carry is both a trap accessory and a loaded carry — and
+    // without this a day whose earlier slot fell through to a shared fallback
+    // would prescribe the same movement twice.
+    if (context.taken?.has(id)) continue
+
     const exercise = STRENGTH_EXERCISES[id]
     if (!exercise) continue
     if (!isAvailable(exercise, context.equipment)) continue
@@ -219,7 +248,7 @@ export function buildSession({
   const volumeMultiplier = blockStatus?.volumeMultiplier ?? 1
   const loadMultiplier = blockStatus?.loadMultiplier ?? 1
   const rirTarget = blockStatus?.rirTarget ?? 2
-  const context = { injuryFlags, blockWeek, equipment }
+  const context = { injuryFlags, blockWeek, equipment, taken: new Set() }
 
   const laggingSet = new Set(laggingMuscles.map((m) => m.muscle || m))
 
@@ -231,6 +260,7 @@ export function buildSession({
     if (!resolved) continue
 
     const { exercise } = resolved
+    context.taken.add(exercise.id)
 
     // Volume: mesocycle progression, plus one extra set when this movement
     // trains a muscle the athlete is behind on.

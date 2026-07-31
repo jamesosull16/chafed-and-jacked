@@ -141,7 +141,14 @@ export function allowedExercises({ injuryFlags = [], blockWeek = 1, equipment = 
  */
 export function substituteFor(exercise, context = {}) {
   if (!exercise) return null
-  const candidates = allowedExercises(context).filter((e) => e.id !== exercise.id)
+  const candidates = allowedExercises(context)
+    .filter((e) => e.id !== exercise.id)
+    // Nor anything the session has already prescribed. Without this a day
+    // whose slots both fall through to the catalogue can land on the same
+    // substitute twice — reachable today on a minimal setup, where the
+    // posterior day's glute and hinge slots both resolved to the single-leg
+    // hip thrust and it was programmed as two separate exercises.
+    .filter((e) => !context.taken?.has(e.id))
   const primary = exercise.muscles.primary
 
   const scored = candidates
