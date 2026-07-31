@@ -15,6 +15,26 @@ import { useAuth } from '../contexts/AuthContext'
 const HISTORY_LIMIT = 60
 
 /**
+ * Whether the optimistic bubble should still be on screen.
+ *
+ * The user's message is written to Firestore before the model is called, but
+ * the subscription drops documents whose `serverTimestamp()` hasn't resolved
+ * yet — so there is a window where the message exists and is invisible, and
+ * the optimistic bubble is what covers it. Once the written document arrives
+ * the two are the same message and showing both is a duplicate, which is
+ * exactly what it looked like: the same text twice, resolving to one when the
+ * reply landed.
+ *
+ * Matched on document id rather than content, so sending the same text twice
+ * in a row still shows the second one.
+ */
+export function visiblePending(pending, messages) {
+  if (!pending) return null
+  if (pending.docId && messages.some((m) => m.id === pending.docId)) return null
+  return pending
+}
+
+/**
  * Coach conversation state.
  *
  * The thread lives in Firestore so it persists across devices, and is
@@ -66,11 +86,12 @@ export function useCoachChat({ buildContext }) {
 
   const write = useCallback(
     async (message) => {
-      if (!user) return
-      await addDoc(collection(db, 'users', user.uid, 'coachChat'), {
+      if (!user) return null
+      const ref = await addDoc(collection(db, 'users', user.uid, 'coachChat'), {
         ...message,
         createdAt: serverTimestamp(),
       })
+      return ref.id
     },
     [user]
   )
@@ -89,13 +110,16 @@ export function useCoachChat({ buildContext }) {
       setPending({ role: 'user', content: text || '', photoPreview: photo?.previewUrl || null })
 
       try {
-        await write({
+        const docId = await write({
           role: 'user',
           content: text || '',
           // The thumbnail, never the full image — a chat document has to stay
           // under Firestore's 1MB cap.
           ...(photo?.thumbnailUrl && { photoPreview: photo.thumbnailUrl }),
         })
+        // Lets the optimistic bubble retire the moment its own document shows
+        // up, rather than sitting alongside it until the reply arrives.
+        setPending((p) => (p ? { ...p, docId } : p))
 
         const callable = httpsCallable(functions, 'coachTurn', { timeout: 180_000 })
         // History is no longer sent. The server reads the thread itself — it is
@@ -129,7 +153,15 @@ export function useCoachChat({ buildContext }) {
     [user, sending, write]
   )
 
-  return { messages, pending, loading, sending, error, send, clearError: () => setError(null) }
+  return {
+    messages,
+    pending: visiblePending(pending, messages),
+    loading,
+    sending,
+    error,
+    send,
+    clearError: () => setError(null),
+  }
 }
 
 export default useCoachChat

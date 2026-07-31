@@ -13,6 +13,7 @@
  */
 
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https'
+import { logger } from 'firebase-functions'
 import { defineSecret } from 'firebase-functions/params'
 import { initializeApp, getApps } from 'firebase-admin/app'
 import Anthropic from '@anthropic-ai/sdk'
@@ -184,7 +185,7 @@ export const coachTurn = onCall({ ...RUNTIME, timeoutSeconds: 180 }, async (requ
     // cached prefix is actually being read, and how much history got replayed.
     // No message text — this is a training-and-food diary, and the logs are not
     // the place for it.
-    console.log('coachTurn', {
+    logger.info('coach turn', {
       tier: result.tier,
       tools: result.toolsUsed,
       historyMessages: history.length,
