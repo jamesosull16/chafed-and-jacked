@@ -57,6 +57,47 @@ describe('buildCoachContext', () => {
     expect(context.targets).toEqual(TARGETS)
   })
 
+  it('sends a null ratio for a week with no quad volume, rather than Infinity', () => {
+    // Firebase's callable encoder throws on any non-finite number before the
+    // request leaves the device, so an infinite chain ratio took the whole
+    // turn down — photo, message and all — with "Data cannot be encoded in
+    // JSON: Infinity". The status still says what the ratio can't.
+    const context = buildCoachContext({
+      isStrength: true,
+      targets: TARGETS,
+      advice: ADVICE,
+      session: null,
+      block: {
+        ...BLOCK,
+        balance: {
+          chain: { ratio: Infinity, posteriorSets: 14, anteriorSets: 0, status: 'posteriorOnly' },
+          volume: [],
+        },
+      },
+    })
+
+    expect(context.balance.ratio).toBeNull()
+    expect(context.balance.status).toBe('posteriorOnly')
+    expect(context.balance.posteriorSets).toBe(14)
+    expect(() => JSON.stringify(context)).not.toThrow()
+  })
+
+  it('scrubs non-finite numbers anywhere in the payload, not just the ratio', () => {
+    // Any future average that divides by an empty week would otherwise break
+    // chat entirely, with an error that says nothing about training.
+    const context = buildCoachContext({
+      isStrength: true,
+      targets: { ...TARGETS, kcal: NaN },
+      advice: ADVICE,
+      session: { name: 'Push', exercises: [{ id: 'bench', sets: -Infinity }] },
+      block: BLOCK,
+    })
+
+    expect(context.targets.kcal).toBeNull()
+    expect(context.session.exercises[0].sets).toBeNull()
+    expect(context.session.exercises[0].id).toBe('bench')
+  })
+
   it('always carries targets and the calorie derivation', () => {
     for (const isStrength of [true, false]) {
       const context = buildCoachContext({

@@ -161,6 +161,35 @@ export function buildSessionContext({ isStrength, strengthSession, runningSessio
   }
 }
 
+/**
+ * Strip the numbers JSON has no spelling for, so the turn can be sent at all.
+ *
+ * Firebase's callable encoder walks the payload and throws on any non-finite
+ * number — `Data cannot be encoded in JSON: Infinity` — before the request
+ * leaves the device. It fires on the whole payload, so one unrepresentable
+ * number three levels down takes the entire message with it, photo and all.
+ *
+ * The one that actually fired was the chain ratio: `chainRatio` returns
+ * Infinity for posterior volume against zero quad volume, which is a real
+ * training week, not a bad state. Nothing is lost by sending null — the
+ * accompanying `status` is 'posteriorOnly' and the set counts are right there,
+ * so the server renders "n/a:1 posterior:anterior (14 vs 0 sets)", which is
+ * what an infinite ratio means anyway.
+ *
+ * Applied to the whole context rather than to that one field, because the
+ * failure mode is what makes this worth generalising: any future ratio or
+ * average that divides by an empty week breaks chat entirely, and does it with
+ * an error message that says nothing about training.
+ */
+export function jsonSafe(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (Array.isArray(value)) return value.map(jsonSafe)
+  if (value && typeof value === 'object' && !(value instanceof Date)) {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, jsonSafe(v)]))
+  }
+  return value
+}
+
 export function buildCoachContext({ isStrength, targets, advice, session, block, upcoming }) {
   const context = {
     targets,
@@ -197,5 +226,5 @@ export function buildCoachContext({ isStrength, targets, advice, session, block,
     }
   }
 
-  return context
+  return jsonSafe(context)
 }
