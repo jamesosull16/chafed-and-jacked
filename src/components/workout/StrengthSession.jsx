@@ -316,8 +316,16 @@ function ExerciseCard({
 
 export default function StrengthSession({ searchParams }) {
   const navigate = useNavigate()
-  const { loading, blockStatus, todaysSession, getSession, saveSession, weekSchedule } =
-    useStrengthBlock()
+  const {
+    loading,
+    blockStatus,
+    todaysSession,
+    getSession,
+    saveSession,
+    updateSession,
+    weekSchedule,
+    sessions,
+  } = useStrengthBlock()
 
   const requestedDay = searchParams.get('day')
   const isReview = searchParams.get('review') === '1'
@@ -345,20 +353,64 @@ export default function StrengthSession({ searchParams }) {
   const dayId = session?.dayId ?? null
   const expanded = expandedOverride === undefined ? firstExerciseId : expandedOverride
 
+  /**
+   * The document behind a completed day, when one is being reviewed.
+   *
+   * `session` above is the *prescription* — what the block says to do on this
+   * split index, rebuilt from scratch every time. It carries no record of what
+   * was actually lifted. Review mode was rendering that prescription with
+   * `readOnly` set and nothing else, which is why a completed session opened as
+   * an empty form: there were no logged sets on screen to edit, because none
+   * had been loaded.
+   *
+   * Matched through weekSchedule, which already pairs each training day with
+   * the session logged against it, so the definition of "this day is done"
+   * stays in one place instead of being re-derived here and drifting.
+   */
+  const loggedSession = useMemo(() => {
+    if (!isReview || requestedDay == null) return null
+    const splitIndex = Number.parseInt(requestedDay, 10)
+    const day = weekSchedule.find((d) => d.splitIndex === splitIndex && d.sessionId)
+    return day ? sessions.find((s) => s.id === day.sessionId) || null : null
+  }, [isReview, requestedDay, weekSchedule, sessions])
+
+  // Put the logged sets on screen. Every set is marked completed, which is what
+  // SetRow reads to render itself locked with the pencil affordance — the edit
+  // control has been there the whole time, waiting on data that never arrived.
+  useEffect(() => {
+    if (!loggedSession) return
+    // Hydrating React state from data fetched outside it — the documented
+    // exception to the rule, and the reason it is disabled on the line below
+    // rather than on the effect, which is where it actually reports.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSessionData(
+      Object.fromEntries(
+        (loggedSession.exercises || []).map((ex) => [
+          ex.id,
+          { sets: (ex.sets || []).map((s) => ({ ...s, completed: true })) },
+        ])
+      )
+    )
+    setMobilityDone(loggedSession.mobilityCompleted || [])
+  }, [loggedSession])
+
   // Restore an in-progress session once per day, so locking the phone
   // mid-workout doesn't lose the sets already logged.
   //
   // This hydrates React state from an external store (localStorage) on mount.
   // It can't be a lazy useState initializer because the draft is keyed by
   // dayId, which isn't known until the block data has loaded.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
-    if (!dayId) return
+    // Never in review mode: the draft is today's unfinished work, and pasting
+    // it over a session from earlier in the week would show sets against a day
+    // they were not performed on.
+    if (!dayId || isReview) return
     try {
       const raw = localStorage.getItem(DRAFT_KEY)
       if (!raw) return
       const draft = JSON.parse(raw)
       if (draft.dayId === dayId && Date.now() - draft.savedAt < DRAFT_TTL_MS) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setSessionData(draft.sessionData || {})
         setMobilityDone(draft.mobilityDone || [])
         setStartTime(draft.startTime)
@@ -369,11 +421,14 @@ export default function StrengthSession({ searchParams }) {
     } catch {
       // Corrupt draft — start clean.
     }
-  }, [dayId])
+  }, [dayId, isReview])
 
   // Persist progress so a phone lock mid-session doesn't lose the work.
   useEffect(() => {
-    if (!session || saved) return
+    // An amendment is written straight through on save; letting it into the
+    // draft would leave a past session's sets waiting to be restored onto the
+    // next new one.
+    if (!session || saved || isReview) return
     const hasData =
       Object.values(sessionData).some((ex) => ex?.sets?.some((s) => s?.completed)) ||
       mobilityDone.length > 0
@@ -388,7 +443,7 @@ export default function StrengthSession({ searchParams }) {
         savedAt: Date.now(),
       })
     )
-  }, [sessionData, mobilityDone, session, startTime, saved])
+  }, [sessionData, mobilityDone, session, startTime, saved, isReview])
 
   const handleLogSet = useCallback(
     (exerciseId, index, setData) => {
@@ -422,6 +477,19 @@ export default function StrengthSession({ searchParams }) {
   async function handleFinish() {
     if (!session || saving) return
     setSaving(true)
+
+    if (loggedSession) {
+      // No duration recomputed: the clock started when this page opened, so
+      // measuring it would record how long the correction took rather than how
+      // long he trained.
+      const result = await updateSession(loggedSession.id, session, sessionData, {
+        mobilityCompleted: mobilityDone,
+      })
+      if (result) setSaved({ ...result, durationMinutes: result.duration, amended: true })
+      setSaving(false)
+      return
+    }
+
     const durationMinutes = Math.max(1, Math.round((Date.now() - startTime) / 60000))
     const result = await saveSession(session, sessionData, {
       durationMinutes,
@@ -442,14 +510,16 @@ export default function StrengthSession({ searchParams }) {
         <div className="w-16 h-16 rounded-2xl bg-success-subtle flex items-center justify-center mb-4">
           <Check className="w-8 h-8 text-success-strong" aria-hidden="true" />
         </div>
-        <h2 className="text-xl font-semibold text-text">Session logged</h2>
+        <h2 className="text-xl font-semibold text-text">
+          {saved.amended ? 'Session updated' : 'Session logged'}
+        </h2>
         <p className="text-sm text-muted mt-1">{saved.name}</p>
 
         <div className="grid grid-cols-3 gap-3 w-full max-w-sm mt-6">
           {[
             { label: 'Volume', value: saved.totalVolume.toLocaleString(), unit: 'lbs' },
-            { label: 'Duration', value: saved.durationMinutes, unit: 'min' },
-            { label: 'Mobility', value: saved.mobilityCompleted.length, unit: 'drills' },
+            { label: 'Duration', value: saved.durationMinutes ?? '—', unit: 'min' },
+            { label: 'Mobility', value: (saved.mobilityCompleted || []).length, unit: 'drills' },
           ].map((stat) => (
             <Card key={stat.label} className="text-center">
               <p className="text-xs text-muted">{stat.label}</p>
@@ -497,6 +567,11 @@ export default function StrengthSession({ searchParams }) {
   ).length
   const anyLogged = Object.values(sessionData).some((ex) => ex?.sets?.some((s) => s?.completed))
 
+  let finishLabel
+  if (loggedSession) finishLabel = 'Save changes'
+  else if (completedCount === session.exercises.length) finishLabel = 'Finish session'
+  else finishLabel = `Finish early (${completedCount}/${session.exercises.length})`
+
   return (
     <div className="space-y-3 pb-4">
       <div className="pt-1">
@@ -532,6 +607,18 @@ export default function StrengthSession({ searchParams }) {
 
         {restored && (
           <p className="text-xs text-brand mt-2">Session restored — pick up where you left off.</p>
+        )}
+
+        {loggedSession && (
+          <p className="text-xs text-muted mt-2">
+            Logged{' '}
+            {new Date(loggedSession.date).toLocaleDateString('en-US', {
+              weekday: 'long',
+              month: 'short',
+              day: 'numeric',
+            })}
+            . Tap the pencil on any set to correct it.
+          </p>
         )}
       </div>
 
@@ -587,11 +674,7 @@ export default function StrengthSession({ searchParams }) {
 
       {anyLogged && (
         <Button size="lg" fullWidth onClick={handleFinish} disabled={saving}>
-          {saving
-            ? 'Saving…'
-            : completedCount === session.exercises.length
-              ? 'Finish session'
-              : `Finish early (${completedCount}/${session.exercises.length})`}
+          {saving ? 'Saving…' : finishLabel}
         </Button>
       )}
     </div>

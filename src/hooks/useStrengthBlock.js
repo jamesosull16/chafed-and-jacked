@@ -10,6 +10,25 @@ import { mobilityAdherence } from '../lib/strength/mobility'
 import { STRENGTH_EXERCISES } from '../lib/strength/exercises'
 import { notifyWorkoutLogged } from '../lib/coachTrigger'
 
+/** The logged sets, in document shape. Shared by the save and update paths. */
+function collectResults(session, sessionData) {
+  return session.exercises
+    .filter((ex) => sessionData[ex.id]?.sets?.some((s) => s?.completed))
+    .map((ex) => ({
+      id: ex.id,
+      sets: (sessionData[ex.id]?.sets || []).filter((s) => s?.completed),
+    }))
+}
+
+function computeVolume(exerciseResults) {
+  return exerciseResults.reduce((total, ex) => {
+    const multiplier = STRENGTH_EXERCISES[ex.id]?.weightMultiplier || 1
+    return (
+      total + ex.sets.reduce((t, set) => t + (set.reps || 0) * (set.weight || 0) * multiplier, 0)
+    )
+  }, 0)
+}
+
 /**
  * Strength-mode counterpart to useWorkout.
  *
@@ -163,6 +182,78 @@ export function useStrengthBlock() {
   }, [sessions])
 
   /**
+   * Amend a session that has already been logged.
+   *
+   * Deliberately not `saveSession` with an id bolted on. Saving appends: it
+   * stamps today's date, reads the current block week, and pushes a new entry
+   * onto each exercise's history. Every one of those is wrong for a correction
+   * — re-saving Tuesday's session on Thursday would move it to Thursday, tag it
+   * with the wrong block week, and leave the athlete with two sessions where he
+   * trained once, which is a number the whole dashboard reads from.
+   *
+   * So the stored date, block week, mesocycle, phase and duration are carried
+   * through untouched, and the history entry for this session is rewritten in
+   * place rather than appended. What actually changes is the sets, and what the
+   * sets imply: volume, and the weight the next session suggests.
+   */
+  async function updateSession(sessionId, session, sessionData, { mobilityCompleted } = {}) {
+    if (!user || !sessionId) return null
+
+    const existing = sessions.find((s) => s.id === sessionId)
+    if (!existing) return null
+
+    const exerciseResults = collectResults(session, sessionData)
+    if (exerciseResults.length === 0) return null
+
+    const doc = {
+      ...existing,
+      exercises: exerciseResults,
+      totalVolume: Math.round(computeVolume(exerciseResults)),
+      ...(mobilityCompleted && { mobilityCompleted }),
+    }
+    delete doc.id
+
+    await setDocument(`workoutSessions/${sessionId}`, doc)
+
+    // Rewrite this session's history entry rather than adding one. Matched on
+    // the stored date, so a correction to an older session doesn't disturb the
+    // entries after it — and if no entry matches, nothing is invented.
+    for (const ex of exerciseResults) {
+      const topSet = ex.sets.reduce(
+        (best, s) => ((s.weight || 0) > (best?.weight || 0) ? s : best),
+        null
+      )
+      const history = exerciseHistory[ex.id]?.history || []
+      const idx = history.findIndex((h) => h.date === existing.date)
+      if (idx === -1) continue
+
+      const updated = [...history]
+      updated[idx] = {
+        ...updated[idx],
+        weight: topSet?.weight || 0,
+        reps: ex.sets.map((s) => s.reps),
+        rir: ex.sets.map((s) => s.rir ?? null),
+      }
+
+      // Only the newest entry drives the next session's suggestion, so
+      // correcting an older one must not roll the current weight backwards.
+      const isLatest = idx === history.length - 1
+      await setDocument(`exerciseProgress/${ex.id}`, {
+        ...(isLatest && {
+          currentWeight: topSet?.weight || 0,
+          lastReps: ex.sets.map((s) => s.reps),
+          lastRir: ex.sets.map((s) => s.rir ?? null),
+        }),
+        history: updated,
+      })
+    }
+
+    await loadData()
+
+    return { id: sessionId, ...doc }
+  }
+
+  /**
    * Persist a completed session.
    *
    * Sets are stored with their RIR and side intact — chainBalance needs both,
@@ -171,22 +262,11 @@ export function useStrengthBlock() {
   async function saveSession(session, sessionData, { durationMinutes, mobilityCompleted = [] }) {
     if (!user) return null
 
-    const exerciseResults = session.exercises
-      .filter((ex) => sessionData[ex.id]?.sets?.some((s) => s?.completed))
-      .map((ex) => ({
-        id: ex.id,
-        sets: (sessionData[ex.id]?.sets || []).filter((s) => s?.completed),
-      }))
+    const exerciseResults = collectResults(session, sessionData)
 
     if (exerciseResults.length === 0) return null
 
-    const totalVolume = exerciseResults.reduce((total, ex) => {
-      const multiplier = STRENGTH_EXERCISES[ex.id]?.weightMultiplier || 1
-      return (
-        total +
-        ex.sets.reduce((t, set) => t + (set.reps || 0) * (set.weight || 0) * multiplier, 0)
-      )
-    }, 0)
+    const totalVolume = computeVolume(exerciseResults)
 
     const doc = {
       date: new Date().toISOString(),
@@ -259,6 +339,7 @@ export function useStrengthBlock() {
     todayLiftStats,
     getSession,
     saveSession,
+    updateSession,
     refresh: loadData,
   }
 }
