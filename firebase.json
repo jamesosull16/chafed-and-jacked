@@ -5,8 +5,24 @@
     "rewrites": [{ "source": "**", "destination": "/index.html" }],
     "headers": [
       {
-        "source": "/service-worker.js",
+        "//": "vite-plugin-pwa emits sw.js. This rule said service-worker.js, a file that has never been built, so it matched nothing and the real service worker shipped with Hosting's default max-age=3600. A browser honours the HTTP cache for a service worker script whenever max-age is under a day, so for an hour after any deploy the phone re-read the old sw.js, saw no change, and kept serving the previous bundle from precache. The laptop picked fixes up and the installed PWA did not.",
+        "source": "/sw.js",
         "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "//": "The registration script points at the service worker; a stale copy is the same stall one step earlier.",
+        "source": "/registerSW.js",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "//": "Names the bundles to load. Every asset it references is content-hashed, so caching the shell is what pins an old app.",
+        "source": "/index.html",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "//": "Hashed filenames — a change is a new URL, so these can be held forever.",
+        "source": "/assets/**",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
       }
     ]
   },
