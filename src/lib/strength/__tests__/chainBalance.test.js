@@ -258,6 +258,61 @@ describe('leftRightBalance', () => {
   })
 })
 
+describe('injury-capped muscles', () => {
+  const CAPPED = { injuryFlags: ['highHamstring'], hamstringStage: 1, now: NOW }
+
+  it('counts only lengthened loading against the rehab ceiling', () => {
+    // Hip thrusts and lying curls are hamstringStretch 'low' — the guardrail
+    // picks them precisely because they don't load the proximal tendon long.
+    // They must not consume an allowance that exists to limit that loading.
+    const s = session([
+      ['barbellHipThrust', 4],
+      ['lyingLegCurl', 4],
+    ])
+    const ham = assessVolume([s], CAPPED).find((v) => v.muscle === 'hamstrings')
+    expect(ham.sets).toBe(0)
+    expect(ham.total).toBe(6)
+  })
+
+  it('does consume the allowance on lengthened work', () => {
+    // seatedLegCurl is 'moderate' — the hip is flexed, so the tendon is long.
+    const s = session([['seatedLegCurl', 5]])
+    const ham = assessVolume([s], CAPPED).find((v) => v.muscle === 'hamstrings')
+    expect(ham.sets).toBe(5)
+    expect(ham.status).toBe('optimal')
+  })
+
+  it('never reports a capped muscle as under-trained', () => {
+    // The whole failure was here: an empty allowance read as a deficit, which
+    // is an instruction to load an injured tendon.
+    const ham = assessVolume([], CAPPED).find((v) => v.muscle === 'hamstrings')
+    expect(ham.sets).toBe(0)
+    expect(ham.status).toBe('optimal')
+    expect(ham.deficit).toBe(0)
+  })
+
+  it('still flags going over the ceiling', () => {
+    const s = session([['romanianDeadlift', 12]])
+    const ham = assessVolume([s], CAPPED).find((v) => v.muscle === 'hamstrings')
+    expect(ham.sets).toBe(12)
+    expect(ham.status).toBe('excessive')
+  })
+
+  it('keeps a capped muscle out of the lagging list', () => {
+    // laggingMuscles feeds the +1-set bonus in buildSession. A capped muscle
+    // reaching it is the guardrail asking for more of what it restricts.
+    expect(laggingMuscles([], CAPPED).map((v) => v.muscle)).not.toContain('hamstrings')
+  })
+
+  it('leaves the muscle uncapped once the flag clears', () => {
+    const s = session([['lyingLegCurl', 4]])
+    const ham = assessVolume([s], { now: NOW }).find((v) => v.muscle === 'hamstrings')
+    expect(ham.capped).toBe(false)
+    expect(ham.sets).toBe(4)
+    expect(ham.status).toBe('under')
+  })
+})
+
 describe('pushPullBalance', () => {
   it('reports balance around 1:1', () => {
     const s = session([

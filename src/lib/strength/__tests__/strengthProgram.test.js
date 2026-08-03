@@ -173,6 +173,50 @@ describe('volume progression and bias', () => {
     expect(gluteSets(biased)).toBeGreaterThan(gluteSets(base))
   })
 
+  it('never adds the lagging bonus to a muscle under an injury ceiling', () => {
+    // The cap lowers the muscle's MEV, which made it read as behind, which
+    // handed it an extra set — the guardrail arguing for more volume on the
+    // thing it exists to restrict. On the first day of a week every muscle
+    // reads zero, so this fired almost every Monday.
+    const base = buildSession({ ...ATHLETE, splitIndex: 0, blockStatus: statusForWeek(1) })
+    const biased = buildSession({
+      ...ATHLETE,
+      splitIndex: 0,
+      blockStatus: statusForWeek(1),
+      hamstringStage: 1,
+      laggingMuscles: [{ muscle: 'hamstrings' }],
+    })
+    const hamSets = (s) =>
+      s.exercises
+        .filter((e) => e.muscles.primary.includes('hamstrings'))
+        .reduce((t, e) => t + e.sets, 0)
+    expect(hamSets(biased)).toBe(hamSets(base))
+  })
+
+  it('holds the prescription inside what remains of the rehab ceiling', () => {
+    // The guardrail governed which movements were allowed, never how many sets
+    // of them, so one session could prescribe more than the whole week's cap.
+    const spent = buildSession({
+      ...ATHLETE,
+      splitIndex: 0,
+      blockStatus: statusForWeek(1),
+      hamstringStage: 1,
+      // Most of the week's allowance already used.
+      cappedUsage: { hamstrings: 7 },
+    })
+
+    const consumed = spent.exercises
+      .filter((e) => ['moderate', 'high'].includes(e.demands?.hamstringStretch))
+      .reduce((t, e) => {
+        if (e.muscles.primary.includes('hamstrings')) return t + e.sets
+        if ((e.muscles.secondary || []).includes('hamstrings')) return t + e.sets * 0.5
+        return t
+      }, 0)
+
+    // Stage-1 ceiling is 8; 7 is already spent, so at most 1 may be prescribed.
+    expect(consumed).toBeLessThanOrEqual(1)
+  })
+
   it('plans posterior-priority weekly volume above the anterior', () => {
     const planned = plannedWeeklySets({ ...ATHLETE, blockStatus: statusForWeek(1) })
     expect(planned.glutes).toBeGreaterThan(planned.quads)

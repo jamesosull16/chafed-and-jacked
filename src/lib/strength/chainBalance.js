@@ -44,15 +44,23 @@ export const VOLUME_LANDMARKS = {
 }
 
 /**
- * Hamstring volume is capped while the proximal strain is being managed — the
- * landmark says 12-18, but stage 1 has almost no permitted movements, so the
- * dashboard would otherwise scream "under-trained" at an athlete doing exactly
- * the right thing.
+ * Volume ceilings while an injury flag is active.
+ *
+ * `consumes` is what actually eats the allowance, and it is narrower than "all
+ * sets for that muscle" on purpose. A high hamstring tendinopathy is aggravated
+ * by load in a lengthened position, not by hip extension — which is why the
+ * guardrail selects hip thrusts and lying curls in the first place. Counting
+ * every hamstring set against the cap meant the movements chosen *because* they
+ * are safe consumed the allowance, and the athlete was told he had over-trained
+ * an injury by doing exactly what the programme prescribed.
  */
 export const INJURY_VOLUME_CAPS = {
   highHamstring: {
-    1: { hamstrings: { mev: 4, mav: [4, 8], mrv: 10 } },
-    2: { hamstrings: { mev: 6, mav: [8, 12], mrv: 14 } },
+    consumes: { demand: 'hamstringStretch', levels: ['moderate', 'high'] },
+    stages: {
+      1: { hamstrings: { mev: 4, mav: [4, 8], mrv: 10 } },
+      2: { hamstrings: { mev: 6, mav: [8, 12], mrv: 14 } },
+    },
   },
 }
 
@@ -60,10 +68,23 @@ export function landmarksFor(muscle, { injuryFlags = [], hamstringStage = 3 } = 
   const base = VOLUME_LANDMARKS[muscle]
   if (!base) return null
   if (injuryFlags.includes('highHamstring')) {
-    const cap = INJURY_VOLUME_CAPS.highHamstring[hamstringStage]?.[muscle]
-    if (cap) return { ...base, ...cap, capped: true }
+    const cap = INJURY_VOLUME_CAPS.highHamstring.stages[hamstringStage]?.[muscle]
+    if (cap) {
+      return { ...base, ...cap, capped: true, consumes: INJURY_VOLUME_CAPS.highHamstring.consumes }
+    }
   }
   return base
+}
+
+/** Whether this exercise's sets eat into a capped muscle's allowance. */
+export function consumesAllowance(def, consumes) {
+  if (!consumes) return true
+  return consumes.levels.includes(def.demands?.[consumes.demand])
+}
+
+/** Every muscle currently under an injury ceiling. */
+export function cappedMuscles(opts = {}) {
+  return Object.keys(VOLUME_LANDMARKS).filter((m) => landmarksFor(m, opts)?.capped)
 }
 
 /** A set counts as working volume if it was taken meaningfully close to failure. */
@@ -254,13 +275,54 @@ export function chainRatio(sessions = [], opts = {}) {
  */
 export function assessVolume(sessions = [], opts = {}) {
   const { perMuscle } = countSets(sessions, opts)
+  const scoped = scopeSessions(sessions, { weeks: 1, now: new Date(), ...opts })
+
+  /** Sets of the kind a capped muscle's ceiling is actually about. */
+  const allowanceUsed = (muscle, consumes) => {
+    let used = 0
+    for (const session of scoped) {
+      for (const ex of session.exercises || []) {
+        const def = STRENGTH_EXERCISES[ex.id]
+        if (!def || !consumesAllowance(def, consumes)) continue
+        const credit = creditedSets(def, ex.sets)
+        if (def.muscles.primary.includes(muscle)) used += credit
+        else if ((def.muscles.secondary || []).includes(muscle)) used += credit * 0.5
+      }
+    }
+    return Math.round(used * 2) / 2
+  }
 
   return Object.keys(VOLUME_LANDMARKS)
     .map((muscle) => {
       const lm = landmarksFor(muscle, opts)
-      const sets = perMuscle[muscle] || 0
       const [mavMin, mavMax] = lm.mav
 
+      // A capped muscle is measured against a CEILING, not a target. Reporting
+      // it 'under' would tell an athlete mid-rehab to add the exact loading the
+      // cap exists to restrict, and would mark the muscle lagging — which is
+      // what was handing it a bonus set every Monday. There is no such thing as
+      // too little lengthened hamstring work while the flag is up.
+      if (lm.capped) {
+        const sets = allowanceUsed(muscle, lm.consumes)
+        let status
+        if (sets <= mavMax) status = 'optimal'
+        else if (sets <= lm.mrv) status = 'high'
+        else status = 'excessive'
+
+        return {
+          muscle,
+          sets,
+          total: perMuscle[muscle] || 0,
+          status,
+          landmarks: lm,
+          target: lm.mav,
+          deficit: 0,
+          priority: lm.priority,
+          capped: true,
+        }
+      }
+
+      const sets = perMuscle[muscle] || 0
       let status
       if (sets < lm.mev) status = 'under'
       else if (sets < mavMin) status = 'minimal'
@@ -271,12 +333,13 @@ export function assessVolume(sessions = [], opts = {}) {
       return {
         muscle,
         sets,
+        total: sets,
         status,
         landmarks: lm,
         target: lm.mav,
         deficit: Math.max(0, mavMin - sets),
         priority: lm.priority,
-        capped: !!lm.capped,
+        capped: false,
       }
     })
     .sort((a, b) => a.priority - b.priority || b.deficit - a.deficit)
@@ -388,6 +451,10 @@ export function analyzeBalance(sessions = [], opts = {}) {
  */
 export function laggingMuscles(sessions = [], opts = {}) {
   return assessVolume(sessions, opts)
+    // A capped muscle can never be lagging. Belt-and-braces alongside the
+    // ceiling-only status above: nothing downstream should be able to conclude
+    // that an injured muscle needs more volume.
+    .filter((v) => !v.capped)
     .filter((v) => v.status === 'under' || v.status === 'minimal')
     .slice(0, 4)
 }

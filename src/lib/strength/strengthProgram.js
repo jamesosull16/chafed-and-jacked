@@ -19,6 +19,7 @@
 import { STRENGTH_EXERCISES, repRangeFor, restFor, isAvailable } from './exercises.js'
 import { isExerciseAllowed, substituteFor } from './injuryGuardrails.js'
 import { getMobilityBlock } from './mobility.js'
+import { landmarksFor, cappedMuscles, consumesAllowance } from './chainBalance.js'
 
 /** Average seconds of actual work per set, for time estimates. */
 const SECONDS_PER_SET_WORK = 45
@@ -264,6 +265,11 @@ export function buildSession({
   sessionMinutes = 75,
   exerciseHistory = {},
   laggingMuscles = [],
+  hamstringStage = 3,
+  // Allowance already spent this week on capped muscles, so the ceiling is
+  // budgeted across the week rather than per session. Without it every session
+  // would be free to prescribe the full week's cap.
+  cappedUsage = {},
 } = {}) {
   const template = getDayTemplate(daysPerWeek, splitIndex)
   if (!template) return null
@@ -275,6 +281,7 @@ export function buildSession({
   const context = { injuryFlags, blockWeek, equipment, taken: new Set() }
 
   const laggingSet = new Set(laggingMuscles.map((m) => m.muscle || m))
+  const cappedSet = new Set(cappedMuscles({ injuryFlags, hamstringStage }))
 
   const exercises = []
   const substitutions = []
@@ -291,8 +298,13 @@ export function buildSession({
     // The lagging-muscle bonus is for the muscles the block is built around.
     // Core is a fixed finisher, so it neither grows on a deficit nor exceeds
     // its cap when the mesocycle ramps.
+    //
+    // Never for a muscle under an injury ceiling. The cap lowers that muscle's
+    // MEV, which made it read as behind, which handed it an extra set — the
+    // guardrail was arguing for more volume on the thing it exists to limit.
     const trainsLagging =
-      slotDef.group !== 'core' && exercise.muscles.primary.some((m) => laggingSet.has(m))
+      slotDef.group !== 'core' &&
+      exercise.muscles.primary.some((m) => laggingSet.has(m) && !cappedSet.has(m))
     let sets = Math.max(1, Math.round(slotDef.sets * volumeMultiplier) + (trainsLagging ? 1 : 0))
     if (slotDef.maxSets) sets = Math.min(sets, slotDef.maxSets)
 
@@ -325,6 +337,42 @@ export function buildSession({
         with: exercise.shortName,
         reason: resolved.blockedReason,
       })
+    }
+  }
+
+  // Hold the session inside what remains of each injury ceiling.
+  //
+  // The guardrail used to govern only *which* movements were allowed, never how
+  // many sets of them — so the posterior day could prescribe more hamstring
+  // volume in one session than the stage-1 cap allows for the entire week, and
+  // then the dashboard would report the athlete as having over-trained an
+  // injury by following the programme exactly.
+  //
+  // Trimmed from the largest contributor down, and never below a single set:
+  // an exercise the guardrail already judged safe to include shouldn't vanish
+  // because the budget is tight, and dropping it silently would hide the
+  // squeeze rather than show it.
+  for (const muscle of cappedSet) {
+    const lm = landmarksFor(muscle, { injuryFlags, hamstringStage })
+    const budget = Math.max(0, lm.mav[1] - (cappedUsage[muscle] || 0))
+
+    const contribution = (ex) => {
+      if (!consumesAllowance(ex, lm.consumes)) return 0
+      if (ex.muscles.primary.includes(muscle)) return ex.sets
+      if ((ex.muscles.secondary || []).includes(muscle)) return ex.sets * 0.5
+      return 0
+    }
+
+    let total = exercises.reduce((t, ex) => t + contribution(ex), 0)
+    let guard = 100
+    while (total > budget && guard-- > 0) {
+      const worst = exercises
+        .filter((ex) => contribution(ex) > 0 && ex.sets > 1)
+        .sort((a, b) => contribution(b) - contribution(a))[0]
+      if (!worst) break
+      worst.sets -= 1
+      worst.cappedFor = muscle
+      total = exercises.reduce((t, ex) => t + contribution(ex), 0)
     }
   }
 

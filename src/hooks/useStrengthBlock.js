@@ -111,17 +111,32 @@ export function useStrengthBlock() {
     [injuryFlags, blockStatus.blockWeek]
   )
 
+  /**
+   * Allowance already spent this week on any injury-capped muscle, so the
+   * builder can budget the ceiling across the week rather than letting each
+   * session prescribe the full amount.
+   */
+  const cappedUsage = useMemo(
+    () =>
+      Object.fromEntries(
+        balance.volume.filter((v) => v.capped).map((v) => [v.muscle, v.sets])
+      ),
+    [balance.volume]
+  )
+
   const sessionParams = useMemo(
     () => ({
       blockStatus,
       injuryFlags,
+      hamstringStage: analysisOpts.hamstringStage,
       equipment: strength.equipment,
       daysPerWeek: strength.trainingDaysPerWeek,
       sessionMinutes: strength.sessionMinutes,
       exerciseHistory,
       laggingMuscles: lagging,
+      cappedUsage,
     }),
-    [blockStatus, injuryFlags, strength, exerciseHistory, lagging]
+    [blockStatus, injuryFlags, analysisOpts, strength, exerciseHistory, lagging, cappedUsage]
   )
 
   /** Build a session for a given split index. */

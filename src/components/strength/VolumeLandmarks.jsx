@@ -40,27 +40,42 @@ export default function VolumeLandmarks({ volume, limit = 6 }) {
                 <span className="text-xs font-medium text-text">
                   {MUSCLE_LABELS[row.muscle]}
                   {row.capped && (
-                    <span className="text-subtle font-normal"> · capped for rehab</span>
+                    <span className="text-subtle font-normal"> · rehab ceiling</span>
                   )}
                 </span>
                 <span className="text-xs tabular-nums text-muted">
                   <span className={cn('font-semibold', status.text)}>{row.sets}</span>
-                  <span className="text-subtle"> / {mavMin}–{mavMax}</span>
+                  {/* A capped muscle has a ceiling, not a target — reading it
+                      as "x of a range" invites topping it up, which is the
+                      opposite of the point. */}
+                  <span className="text-subtle">
+                    {row.capped ? ` / ${mavMax} allowed` : ` / ${mavMin}–${mavMax}`}
+                  </span>
                 </span>
               </div>
 
               <div className="relative h-2 rounded-full bg-surface-2 overflow-hidden">
-                {/* MAV band — the productive range. */}
-                <div
-                  className="absolute inset-y-0 bg-surface-3"
-                  style={{ left: pct(mavMin), width: `calc(${pct(mavMax)} - ${pct(mavMin)})` }}
-                  aria-hidden="true"
-                />
+                {/* The productive range. A capped muscle has none — everything
+                    up to the ceiling is fine, so the band would be a target
+                    where there isn't one. */}
+                {!row.capped && (
+                  <div
+                    className="absolute inset-y-0 bg-surface-3"
+                    style={{ left: pct(mavMin), width: `calc(${pct(mavMax)} - ${pct(mavMin)})` }}
+                    aria-hidden="true"
+                  />
+                )}
                 <div
                   className={cn('absolute inset-y-0 left-0 rounded-full transition-all duration-500', status.bar)}
                   style={{ width: pct(row.sets) }}
                 />
               </div>
+
+              {row.capped && row.total > row.sets && (
+                <p className="text-[11px] text-subtle mt-0.5">
+                  {row.total} total sets, but only lengthened loading counts here
+                </p>
+              )}
             </div>
           )
         })}
