@@ -35,3 +35,7 @@ chat-mockup.html
 #  intent is obvious. Holds ANTHROPIC_API_KEY, USDA_API_KEY, MCP_SHARED_SECRET
 #  for the Functions emulator.)
 functions/.secret.local
+
+# Pre-image backups written by scripts/backfill-per-side.mjs. Generated, and
+# they hold logged training sessions — keep them local.
+scripts/per-side-backfill-backup-*.json
