@@ -119,7 +119,7 @@ export function useStrengthBlock() {
   const cappedUsage = useMemo(
     () =>
       Object.fromEntries(
-        balance.volume.filter((v) => v.capped).map((v) => [v.muscle, v.sets])
+        balance.volume.filter((v) => v.capped).map((v) => [v.muscle, v.allowanceUsed])
       ),
     [balance.volume]
   )

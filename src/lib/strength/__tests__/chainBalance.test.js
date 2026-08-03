@@ -270,14 +270,18 @@ describe('injury-capped muscles', () => {
       ['lyingLegCurl', 4],
     ])
     const ham = assessVolume([s], CAPPED).find((v) => v.muscle === 'hamstrings')
-    expect(ham.sets).toBe(0)
-    expect(ham.total).toBe(6)
+    expect(ham.allowanceUsed).toBe(0)
+    // The muscle still did the work — a lying curl is four primary hamstring
+    // sets whether or not it touches the ceiling, and the card says "sets by
+    // muscle". Reporting 0 here was the bug behind the bug.
+    expect(ham.sets).toBe(6)
   })
 
   it('does consume the allowance on lengthened work', () => {
     // seatedLegCurl is 'moderate' — the hip is flexed, so the tendon is long.
     const s = session([['seatedLegCurl', 5]])
     const ham = assessVolume([s], CAPPED).find((v) => v.muscle === 'hamstrings')
+    expect(ham.allowanceUsed).toBe(5)
     expect(ham.sets).toBe(5)
     expect(ham.status).toBe('optimal')
   })
@@ -286,7 +290,7 @@ describe('injury-capped muscles', () => {
     // The whole failure was here: an empty allowance read as a deficit, which
     // is an instruction to load an injured tendon.
     const ham = assessVolume([], CAPPED).find((v) => v.muscle === 'hamstrings')
-    expect(ham.sets).toBe(0)
+    expect(ham.allowanceUsed).toBe(0)
     expect(ham.status).toBe('optimal')
     expect(ham.deficit).toBe(0)
   })
@@ -294,7 +298,7 @@ describe('injury-capped muscles', () => {
   it('still flags going over the ceiling', () => {
     const s = session([['romanianDeadlift', 12]])
     const ham = assessVolume([s], CAPPED).find((v) => v.muscle === 'hamstrings')
-    expect(ham.sets).toBe(12)
+    expect(ham.allowanceUsed).toBe(12)
     expect(ham.status).toBe('excessive')
   })
 

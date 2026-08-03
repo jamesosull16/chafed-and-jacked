@@ -31,7 +31,10 @@ export default function VolumeLandmarks({ volume, limit = 6 }) {
         {rows.map((row) => {
           const status = STATUS_COPY[row.status] || STATUS_COPY.optimal
           const [mavMin, mavMax] = row.target
-          const scale = row.landmarks.mrv
+          // A capped row's bar shows the work done, scaled against ordinary
+          // volume for that muscle — not against the rehab ceiling, which is a
+          // much smaller number and would render honest volume as a full bar.
+          const scale = (row.capped ? row.baseLandmarks : row.landmarks).mrv
           const pct = (n) => `${Math.min(100, (n / scale) * 100)}%`
 
           return (
@@ -44,12 +47,15 @@ export default function VolumeLandmarks({ volume, limit = 6 }) {
                   )}
                 </span>
                 <span className="text-xs tabular-nums text-muted">
-                  <span className={cn('font-semibold', status.text)}>{row.sets}</span>
-                  {/* A capped muscle has a ceiling, not a target — reading it
-                      as "x of a range" invites topping it up, which is the
-                      opposite of the point. */}
+                  {/* The sets the muscle actually did — a lying leg curl is
+                      hamstring work whether or not it touches the rehab
+                      ceiling. A capped muscle gets no target range, because a
+                      ceiling isn't something to top up to. */}
+                  <span className={cn('font-semibold', row.capped ? 'text-text' : status.text)}>
+                    {row.sets}
+                  </span>
                   <span className="text-subtle">
-                    {row.capped ? ` / ${mavMax} allowed` : ` / ${mavMin}–${mavMax}`}
+                    {row.capped ? ' sets' : ` / ${mavMin}–${mavMax}`}
                   </span>
                 </span>
               </div>
@@ -71,9 +77,13 @@ export default function VolumeLandmarks({ volume, limit = 6 }) {
                 />
               </div>
 
-              {row.capped && row.total > row.sets && (
-                <p className="text-[11px] text-subtle mt-0.5">
-                  {row.total} total sets, but only lengthened loading counts here
+              {row.capped && (
+                <p className="text-[11px] text-subtle mt-1">
+                  Rehab ceiling:{' '}
+                  <span className={cn('font-medium tabular-nums', status.text)}>
+                    {row.allowanceUsed} / {row.allowanceCeiling}
+                  </span>{' '}
+                  lengthened-loading sets. Hip extension doesn&apos;t count against it.
                 </p>
               )}
             </div>

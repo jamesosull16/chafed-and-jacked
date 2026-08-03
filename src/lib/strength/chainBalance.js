@@ -297,24 +297,38 @@ export function assessVolume(sessions = [], opts = {}) {
       const lm = landmarksFor(muscle, opts)
       const [mavMin, mavMax] = lm.mav
 
-      // A capped muscle is measured against a CEILING, not a target. Reporting
-      // it 'under' would tell an athlete mid-rehab to add the exact loading the
-      // cap exists to restrict, and would mark the muscle lagging — which is
-      // what was handing it a bonus set every Monday. There is no such thing as
-      // too little lengthened hamstring work while the flag is up.
+      // A capped muscle carries two separate facts, and collapsing them into
+      // one number gets whichever you dropped wrong.
+      //
+      //   sets      how much work the muscle did — what "sets by muscle" means,
+      //             and it counts a lying leg curl like any other primary set.
+      //   allowance how much of that was the lengthened loading the ceiling
+      //             governs, which for a well-chosen rehab session is little or
+      //             none of it.
+      //
+      // Status comes from the allowance, because that is the fact with a limit.
+      // It is never 'under': a ceiling is not a target, and reporting a deficit
+      // would tell an athlete mid-rehab to add the exact loading the cap exists
+      // to restrict — which also marked the muscle lagging and handed it a
+      // bonus set every Monday.
       if (lm.capped) {
-        const sets = allowanceUsed(muscle, lm.consumes)
+        const used = allowanceUsed(muscle, lm.consumes)
         let status
-        if (sets <= mavMax) status = 'optimal'
-        else if (sets <= lm.mrv) status = 'high'
+        if (used <= mavMax) status = 'optimal'
+        else if (used <= lm.mrv) status = 'high'
         else status = 'excessive'
 
         return {
           muscle,
-          sets,
-          total: perMuscle[muscle] || 0,
+          sets: perMuscle[muscle] || 0,
+          allowanceUsed: used,
+          allowanceCeiling: mavMax,
           status,
           landmarks: lm,
+          // The uncapped landmarks, so the bar can be scaled against ordinary
+          // hamstring volume rather than against the rehab ceiling — 6 sets
+          // would otherwise render as a nearly-full bar.
+          baseLandmarks: VOLUME_LANDMARKS[muscle],
           target: lm.mav,
           deficit: 0,
           priority: lm.priority,
