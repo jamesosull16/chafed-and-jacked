@@ -228,12 +228,18 @@ function resolveSlot(slotDef, context) {
   return null
 }
 
-/** Estimated wall-clock minutes for a list of prescribed exercises. */
+/**
+ * Estimated wall-clock minutes for a list of prescribed exercises.
+ *
+ * A per-side movement is performed twice per prescribed set, so it costs twice
+ * the working time. Rest is not doubled: the second side is what the first side
+ * rests through, which is how the movement is actually run.
+ */
 export function estimateSessionMinutes(exercises, mobilityMinutes = 0) {
-  const seconds = exercises.reduce(
-    (total, ex) => total + ex.sets * (ex.restSeconds + SECONDS_PER_SET_WORK),
-    0
-  )
+  const seconds = exercises.reduce((total, ex) => {
+    const work = SECONDS_PER_SET_WORK * (ex.perSide ? 2 : 1)
+    return total + ex.sets * (ex.restSeconds + work)
+  }, 0)
   return Math.round(seconds / 60) + mobilityMinutes
 }
 

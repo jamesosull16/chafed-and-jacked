@@ -19,6 +19,31 @@ import SetRow from './SetRow'
 const DRAFT_KEY = 'cj_strength_session'
 const DRAFT_TTL_MS = 6 * 60 * 60 * 1000
 
+/**
+ * The rows an exercise needs, and what each one is.
+ *
+ * A per-side movement is performed once per limb, so a four-set prescription is
+ * eight rows: 1L, 1R, 2L, 2R… The side is a property of the row rather than
+ * something the athlete picks, which is both fewer taps and the only way the
+ * second side can be logged at all — the old layout gave four rows for eight
+ * sets of work and made you choose which half to record.
+ *
+ * Everything that asks "is this exercise finished?" has to count rows, not
+ * prescribed sets, or a per-side exercise reads as complete at the halfway
+ * point.
+ */
+function setRowsFor(exercise) {
+  if (!exercise.perSide) {
+    return Array.from({ length: exercise.sets }, (_, i) => ({ setNumber: i + 1, side: null }))
+  }
+  return Array.from({ length: exercise.sets * 2 }, (_, i) => ({
+    setNumber: Math.floor(i / 2) + 1,
+    side: i % 2 === 0 ? 'left' : 'right',
+  }))
+}
+
+const rowCount = (exercise) => exercise.sets * (exercise.perSide ? 2 : 1)
+
 function RestTimer({ seconds, onDone }) {
   const [remaining, setRemaining] = useState(seconds)
   const intervalRef = useRef(null)
@@ -148,7 +173,7 @@ function CoreSection({ exercises, sessionData, rirTarget, expanded, onExpand, on
   if (!exercises?.length) return null
 
   const done = exercises.filter(
-    (ex) => (sessionData[ex.id]?.sets || []).filter((s) => s?.completed).length >= ex.sets
+    (ex) => (sessionData[ex.id]?.sets || []).filter((s) => s?.completed).length >= rowCount(ex)
   ).length
 
   return (
@@ -203,7 +228,7 @@ function ExerciseCard({
   nested = false,
 }) {
   const done = (data?.sets || []).filter((s) => s?.completed).length
-  const allDone = done >= exercise.sets
+  const allDone = done >= rowCount(exercise)
 
   // Inside the core block these sit within a Card already, so they drop to a
   // filled panel instead — a bordered card inside a bordered card reads as a
@@ -246,7 +271,7 @@ function ExerciseCard({
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-xs text-subtle tabular-nums">
-            {done}/{exercise.sets}
+            {done}/{rowCount(exercise)}
           </span>
           <ChevronDown
             className={cn('w-4 h-4 text-subtle transition-transform', expanded && 'rotate-180')}
@@ -284,8 +309,15 @@ function ExerciseCard({
             </p>
           )}
 
+          {exercise.perSide && (
+            <p className="text-xs text-muted">
+              {exercise.sets} sets each side — {rowCount(exercise)} logged sets, counted as{' '}
+              {exercise.sets} toward weekly volume.
+            </p>
+          )}
+
           <div className="flex items-center gap-2 px-2 pt-1 text-[11px] text-subtle">
-            <span className="w-6" />
+            <span className={exercise.perSide ? 'w-9' : 'w-6'} />
             <span className="w-16 text-center">Weight</span>
             <span className="w-3" />
             <span className="w-16 text-center">Reps</span>
@@ -293,15 +325,22 @@ function ExerciseCard({
           </div>
 
           <div className="space-y-1">
-            {Array.from({ length: exercise.sets }).map((_, i) => (
+            {setRowsFor(exercise).map((row, i) => (
               <SetRow
-                key={i}
+                key={`${row.setNumber}-${row.side ?? 'both'}`}
                 index={i}
+                label={row.setNumber}
+                side={row.side}
                 exercise={exercise}
                 data={data?.sets?.[i]}
                 rirTarget={rirTarget}
+                // Carry the weight forward from the same side's previous set,
+                // two rows back — the other side's load is not the reference,
+                // and on a genuine imbalance it is the wrong starting number.
                 suggestedWeight={
-                  data?.sets?.[i - 1]?.weight || exercise.recommendedWeight || undefined
+                  data?.sets?.[i - (exercise.perSide ? 2 : 1)]?.weight ||
+                  exercise.recommendedWeight ||
+                  undefined
                 }
                 onLog={(setData) => onLogSet(exercise.id, i, setData)}
                 readOnly={readOnly}
@@ -458,8 +497,8 @@ export default function StrengthSession({ searchParams }) {
         const done = (id) => (next[id]?.sets || []).filter((s) => s?.completed).length
         const list = session?.exercises || []
         const idx = list.findIndex((e) => e.id === exerciseId)
-        if (idx !== -1 && done(exerciseId) >= list[idx].sets) {
-          const upcoming = list.slice(idx + 1).find((e) => done(e.id) < e.sets)
+        if (idx !== -1 && done(exerciseId) >= rowCount(list[idx])) {
+          const upcoming = list.slice(idx + 1).find((e) => done(e.id) < rowCount(e))
           if (upcoming) setExpanded(upcoming.id)
         }
         return next
@@ -563,7 +602,7 @@ export default function StrengthSession({ searchParams }) {
   const coreExercises = session.exercises.filter((ex) => ex.group === 'core')
 
   const completedCount = session.exercises.filter(
-    (ex) => (sessionData[ex.id]?.sets || []).filter((s) => s?.completed).length >= ex.sets
+    (ex) => (sessionData[ex.id]?.sets || []).filter((s) => s?.completed).length >= rowCount(ex)
   ).length
   const anyLogged = Object.values(sessionData).some((ex) => ex?.sets?.some((s) => s?.completed))
 

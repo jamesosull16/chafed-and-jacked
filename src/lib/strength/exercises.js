@@ -22,6 +22,25 @@
  * demands.kneeFlexion  — deep-knee-flexion demand ('high'|'moderate'|'low')
  * demands.ankleDorsiflexion — how much dorsiflexion the position needs
  * demands.axialLoad    — spinal compression, for low-back flags
+ *
+ * isUnilateral vs perSide — related, and not the same question:
+ *
+ *   isUnilateral  the limbs are loaded independently, so the movement can
+ *                 expose a left/right difference. Descriptive.
+ *   perSide       the movement is performed one limb at a time, so a
+ *                 prescribed set is performed twice. Behavioural.
+ *
+ * A dumbbell incline press is unilateral but not perSide: the arms are loaded
+ * independently, and you press both at once — one set covers both. A single-leg
+ * hip thrust is both. Conflating them is what made a four-set prescription
+ * loggable only four times when the athlete had performed eight, and it made
+ * the app demand a left/right pick on a two-dumbbell press, where the answer is
+ * "both" and any pick invents an asymmetry.
+ *
+ * `perSide` drives two things that must agree: the session logs a left and a
+ * right row per prescribed set, and `countSets` credits each of those as half a
+ * set — because the weekly landmarks are per-side. Four sets of single-leg hip
+ * thrust is four sets of glute volume for each leg, not eight.
  */
 
 export const CHAINS = { POSTERIOR: 'posterior', ANTERIOR: 'anterior', NEUTRAL: 'neutral' }
@@ -119,6 +138,7 @@ export const STRENGTH_EXERCISES = {
     equipment: ['bench', 'dumbbell'],
     equipmentLevel: 'minimal',
     isUnilateral: true,
+    perSide: true,
     weightIncrement: 5,
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Unilateral glute work that also exposes left/right asymmetry.',
@@ -151,6 +171,7 @@ export const STRENGTH_EXERCISES = {
     equipment: ['cable'],
     equipmentLevel: 'fullGym',
     isUnilateral: true,
+    perSide: true,
     weightIncrement: 5,
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Pure hip extension with no spinal load. Ideal high-rep glute finisher.',
@@ -183,6 +204,7 @@ export const STRENGTH_EXERCISES = {
     equipment: ['dumbbell', 'bench'],
     equipmentLevel: 'minimal',
     isUnilateral: true,
+    perSide: true,
     weightIncrement: 5,
     weightLabel: '/hand',
     weightMultiplier: 2,
@@ -275,6 +297,7 @@ export const STRENGTH_EXERCISES = {
     equipment: ['dumbbell'],
     equipmentLevel: 'minimal',
     isUnilateral: true,
+    perSide: true,
     weightIncrement: 5,
     demands: D('moderate', 'low', 'low', 'moderate'),
     notes:
@@ -446,6 +469,7 @@ export const STRENGTH_EXERCISES = {
     equipment: ['dumbbell'],
     equipmentLevel: 'minimal',
     isUnilateral: true,
+    perSide: true,
     weightIncrement: 5,
     weightLabel: '/hand',
     weightMultiplier: 2,
@@ -464,6 +488,7 @@ export const STRENGTH_EXERCISES = {
     equipment: ['dumbbell', 'box'],
     equipmentLevel: 'minimal',
     isUnilateral: true,
+    perSide: true,
     weightIncrement: 5,
     weightLabel: '/hand',
     weightMultiplier: 2,
@@ -518,6 +543,7 @@ export const STRENGTH_EXERCISES = {
     equipment: ['dumbbell', 'step'],
     equipmentLevel: 'minimal',
     isUnilateral: true,
+    perSide: true,
     weightIncrement: 5,
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Exposes side-to-side calf asymmetry that bilateral work hides.',
@@ -672,6 +698,7 @@ export const STRENGTH_EXERCISES = {
     equipment: ['dumbbell', 'bench'],
     equipmentLevel: 'minimal',
     isUnilateral: true,
+    perSide: true,
     weightIncrement: 5,
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Unilateral back work — the main left/right balance check for the upper body.',
@@ -788,6 +815,7 @@ export const STRENGTH_EXERCISES = {
     equipment: ['cable'],
     equipmentLevel: 'fullGym',
     isUnilateral: true,
+    perSide: true,
     weightIncrement: 5,
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Side delt width — the single biggest lever on upper-body visual definition.',
@@ -926,6 +954,7 @@ export const STRENGTH_EXERCISES = {
     equipment: [],
     equipmentLevel: 'minimal',
     isUnilateral: true,
+    perSide: true,
     weightIncrement: 0,
     // A hold, not a rep — the card and the set logger both read isTimeBased
     // and switch the unit to seconds. Without it a side plank prescribes
@@ -963,6 +992,7 @@ export const STRENGTH_EXERCISES = {
     equipment: ['cable'],
     equipmentLevel: 'fullGym',
     isUnilateral: true,
+    perSide: true,
     weightIncrement: 5,
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Anti-rotation.',

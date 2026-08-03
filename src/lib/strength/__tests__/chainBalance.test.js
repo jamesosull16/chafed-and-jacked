@@ -57,6 +57,37 @@ describe('countSets', () => {
     expect(countSets(sessions, { weeks: 4, now: NOW }).perMuscle.glutes).toBe(6)
   })
 
+  it('credits a per-side exercise once per pair, not once per row', () => {
+    // A four-set single-leg hip thrust is logged eight times — left and right
+    // for each set — but each leg received four. Counting the rows raw would
+    // report double the volume actually trained and trip 'excessive' on a week
+    // that was on target.
+    const { perMuscle } = countSets([session([['singleLegHipThrust', 8]])], { now: NOW })
+    expect(perMuscle.glutes).toBe(4)
+  })
+
+  it('matches the bilateral count for the same work per limb', () => {
+    // Four sets of a bilateral hip thrust and four sets each side of the
+    // single-leg version are the same weekly glute stimulus. The numbers have
+    // to agree or the landmarks mean different things per exercise.
+    const bilateral = countSets([session([['barbellHipThrust', 4]])], { now: NOW })
+    const unilateral = countSets([session([['singleLegHipThrust', 8]])], { now: NOW })
+    expect(unilateral.perMuscle.glutes).toBe(bilateral.perMuscle.glutes)
+  })
+
+  it('halves an odd number of per-side rows rather than rounding a pair away', () => {
+    // Three rows logged out of four is a set and a half per side, not one.
+    const { perMuscle } = countSets([session([['singleLegHipThrust', 3]])], { now: NOW })
+    expect(perMuscle.glutes).toBe(1.5)
+  })
+
+  it('leaves an independently-loaded but simultaneous lift counted in full', () => {
+    // A dumbbell incline press is unilateral — the arms load separately — but
+    // both press at once, so one row is one set. Only `perSide` halves.
+    const { perMuscle } = countSets([session([['inclineDbPress', 4]])], { now: NOW })
+    expect(perMuscle.chest).toBe(4)
+  })
+
   it('ignores unknown exercise ids rather than throwing', () => {
     expect(countSets([session([['notARealExercise', 3]])], { now: NOW }).totalSets).toBe(0)
   })
@@ -235,6 +266,20 @@ describe('pushPullBalance', () => {
     ])
     const r = pushPullBalance([s], { now: NOW })
     expect(r.status).toBe('balanced')
+  })
+
+  it('does not let a per-side row mask a push-heavy week', () => {
+    // Eight single-arm row rows is four sets of pulling, not eight. Counted
+    // raw it reads as balanced against four presses when the week is in fact
+    // pressing twice as much as it pulls.
+    const s = session([
+      ['barbellBenchPress', 8],
+      ['singleArmRow', 8],
+    ])
+    const r = pushPullBalance([s], { now: NOW })
+    expect(r.pull).toBe(4)
+    expect(r.push).toBe(8)
+    expect(r.status).toBe('pushHeavy')
   })
 
   it('flags a pressing bias', () => {

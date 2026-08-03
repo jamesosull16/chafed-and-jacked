@@ -108,6 +108,26 @@ function scopeSessions(sessions, { weeks = 1, now = new Date(), weekStartsOn = 1
 }
 
 /**
+ * Working sets credited toward the weekly landmarks.
+ *
+ * A `perSide` movement is logged twice per prescribed set — left and right —
+ * so the raw row count is double the training stimulus any one limb received.
+ * The landmarks in VOLUME_LANDMARKS are per-side figures, so the pair credits
+ * as one: four sets of single-leg hip thrust is four sets of glute volume for
+ * each leg, not eight. Counting the rows raw would have every unilateral
+ * session reporting roughly double its true volume, tripping 'excessive' on a
+ * week that was actually on target — and it would disagree with
+ * plannedWeeklySets, which counts the prescription, not the rows.
+ *
+ * Halved rather than counted in pairs so an odd count degrades sensibly: three
+ * rows logged out of four credits 1.5, not 1.
+ */
+function creditedSets(def, sets) {
+  const working = (sets || []).filter(isWorkingSet).length
+  return def.perSide ? working / 2 : working
+}
+
+/**
  * Count working sets per muscle across the given sessions.
  *
  * @param sessions logged workoutSessions docs
@@ -127,7 +147,7 @@ export function countSets(sessions = [], { weeks = 1, now = new Date(), weekStar
     for (const ex of session.exercises || []) {
       const def = STRENGTH_EXERCISES[ex.id]
       if (!def) continue
-      const working = (ex.sets || []).filter(isWorkingSet).length
+      const working = creditedSets(def, ex.sets)
       if (working === 0) continue
 
       totalSets += working
@@ -149,7 +169,17 @@ export function countSets(sessions = [], { weeks = 1, now = new Date(), weekStar
     perMuscle[k] = Math.round(perMuscle[k] * 2) / 2
   }
 
-  return { perMuscle, totalSets, posteriorSets, anteriorSets, neutralSets }
+  // The chain totals need the same treatment now that a per-side pair credits
+  // as one — an odd number of logged rows lands them on a quarter otherwise.
+  const half = (n) => Math.round(n * 2) / 2
+
+  return {
+    perMuscle,
+    totalSets: half(totalSets),
+    posteriorSets: half(posteriorSets),
+    anteriorSets: half(anteriorSets),
+    neutralSets: half(neutralSets),
+  }
 }
 
 export const CHAIN_RATIO_TARGET = 1.2
@@ -310,7 +340,10 @@ export function pushPullBalance(sessions = [], opts = {}) {
     for (const ex of session.exercises || []) {
       const def = STRENGTH_EXERCISES[ex.id]
       if (!def) continue
-      const working = (ex.sets || []).filter(isWorkingSet).length
+      // Same per-side credit as countSets: a single-arm row logged left and
+      // right is one set of pulling, or it would read as twice the pulling
+      // volume it was and mask a genuinely push-heavy week.
+      const working = creditedSets(def, ex.sets)
       if (def.pattern === 'horizontalPush' || def.pattern === 'verticalPush') push += working
       if (def.pattern === 'horizontalPull' || def.pattern === 'verticalPull') pull += working
     }
