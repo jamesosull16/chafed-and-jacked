@@ -47,10 +47,16 @@ export function calculateProgression(exerciseId, completedReps, usedWeight) {
   // Check if any set failed to hit bottom of rep range
   const anyBelowMin = completedReps.some((r) => r < minRep)
   if (anyBelowMin) {
-    const reduction = Math.max(increment, Math.round(usedWeight * 0.075)) // ~7.5% or one increment
+    const reduction = Math.max(increment, Math.round(Math.abs(usedWeight) * 0.075)) // ~7.5% or one increment
+    // The floor at zero is right for a load on the bar and wrong for a load
+    // being taken off: on an assisted pull-up `usedWeight` is negative, and
+    // clamping would wipe the assistance he needs rather than deepen it.
+    const reduced = usedWeight - reduction
     return {
-      nextWeight: Math.max(0, usedWeight - reduction),
-      reason: `Missed bottom of range (${minRep} reps) — reduce by ${reduction} lbs`,
+      nextWeight: usedWeight < 0 ? reduced : Math.max(0, reduced),
+      reason: `Missed bottom of range (${minRep} reps) — ${
+        usedWeight < 0 ? `add ${reduction} lbs of assistance` : `reduce by ${reduction} lbs`
+      }`,
       direction: 'down',
     }
   }

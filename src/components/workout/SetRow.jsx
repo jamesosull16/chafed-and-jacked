@@ -119,8 +119,9 @@ export default function SetRow({
       isBodyweight: isBW,
       // What was actually loaded, kept apart from the total because it is the
       // half that progresses — the athlete's bodyweight is not a training
-      // variable, the bar is.
-      ...(isBW && addedLbs > 0 && { addedWeight: addedLbs }),
+      // variable, the bar is. Negative is the assist machine taking weight off,
+      // which is the same quantity pointing the other way.
+      ...(isBW && addedLbs !== 0 && { addedWeight: addedLbs }),
       ...(rowSide && { side: rowSide }),
       completed: true,
     })
@@ -174,10 +175,11 @@ export default function SetRow({
           <Input
             type="number"
             inputMode="decimal"
-            aria-label={`${describe} weight added on top of bodyweight`}
+            aria-label={`${describe} weight added to bodyweight — negative for machine assistance`}
+            title="Added weight, or negative for assistance"
             value={added}
             onChange={(e) => setAddedOverride(e.target.value)}
-            placeholder="+0"
+            placeholder="±0"
             disabled={locked}
             className="w-full text-center px-0.5 rounded-l-none"
           />
