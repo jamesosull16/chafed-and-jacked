@@ -6,8 +6,33 @@
  * arguments derived from user text — can reach another user's data.
  */
 
+import { readFileSync } from 'node:fs'
+import { initializeApp, cert, applicationDefault, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 import { randomUUID } from 'node:crypto'
+
+/**
+ * Initialise the default app, if nothing has yet.
+ *
+ * Lives here rather than in the caller because `firebase-admin` keeps its app
+ * registry per module instance, and this repo has two copies of the package —
+ * one under `functions/`, one under `mcp/`. A caller that initialises through
+ * its own copy registers an app `createStore` cannot see, and the failure is a
+ * baffling "the default Firebase app does not exist" from a process that
+ * plainly just created one. Initialising from the same module that reads it
+ * makes that impossible.
+ *
+ * A no-op inside Cloud Functions, where the runtime has already done it.
+ */
+export function ensureApp({ serviceAccountPath = null, projectId = null } = {}) {
+  if (getApps().length > 0) return
+  initializeApp({
+    credential: serviceAccountPath
+      ? cert(JSON.parse(readFileSync(serviceAccountPath, 'utf8')))
+      : applicationDefault(),
+    ...(projectId && { projectId }),
+  })
+}
 
 export function createStore(uid) {
   if (!uid) throw new Error('createStore requires a uid')

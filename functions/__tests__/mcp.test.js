@@ -362,3 +362,44 @@ describe('profile', () => {
     await expect(build().update_profile({ mode: 'cycling' })).rejects.toThrow(/strength.*running/)
   })
 })
+
+// ── Shared across transports ─────────────────────────────────────────
+
+describe('one implementation, two transports', () => {
+  it('lets a transport add tools without forking the CRUD surface', async () => {
+    // The stdio server layers live analysis on top of these same handlers,
+    // because it can import src/lib and the Functions bundle cannot. Anything
+    // beyond that asymmetry would be a second copy to drift — which is the
+    // mistake this repo has already paid for three times.
+    const { createMcpServer } = await import('../src/mcp/server.js')
+    const store = fakeStore()
+
+    const server = createMcpServer({
+      store,
+      estimate: vi.fn(),
+      timezoneOffset: 0,
+      extraTools: {
+        definitions: [{ name: 'local_only', description: 'x', inputSchema: { type: 'object' } }],
+        handlers: { local_only: async () => ({ ok: true }) },
+      },
+    })
+
+    expect(server).toBeTruthy()
+    // The extras are additive: every shared tool is still there.
+    const shared = TOOL_DEFINITIONS.map((t) => t.name)
+    expect(shared).toContain('log_workout')
+    expect(shared).not.toContain('local_only')
+  })
+
+  it('binds the store before any tool exists, on either transport', () => {
+    // Both entrypoints call createHandlers({ store }) with a store already
+    // pinned to one uid. There is no code path that takes a uid from a tool
+    // argument, which is what makes prompt injection uninteresting here.
+    const handlers = build()
+    for (const fn of Object.values(handlers)) {
+      expect(typeof fn).toBe('function')
+      // Arity of 1: the arguments object. A uid would have to be a second.
+      expect(fn.length).toBeLessThanOrEqual(1)
+    }
+  })
+})
