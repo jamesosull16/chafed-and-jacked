@@ -51,11 +51,14 @@ function RestTimer({ seconds, onComplete }) {
   )
 }
 
-function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweight, onUpdate, isActive, isCompleted, userBodyweight, reviewMode, weightLabel }) {
+function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweight, addedWeight, onUpdate, isActive, isCompleted, userBodyweight, reviewMode, weightLabel }) {
   const [isBW, setIsBW] = useState(isBodyweight || false)
   const [localWeight, setLocalWeight] = useState(
     isBodyweight ? '' : (weight || '')
   )
+  // The plate on top of the athlete, kept apart from `localWeight` so toggling
+  // BW off doesn't hand the weight field a number that was never the whole load.
+  const [localAdded, setLocalAdded] = useState(addedWeight || '')
   const [localReps, setLocalReps] = useState(reps || '')
   const [localRpe, setLocalRpe] = useState(rpe || '')
   const [editing, setEditing] = useState(false)
@@ -65,12 +68,17 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweig
   }, [weight])
 
   function handleComplete() {
-    const resolvedWeight = isBW ? (userBodyweight || 0) : (parseFloat(localWeight) || 0)
+    // Bodyweight adds to the plate rather than replacing it — a weighted
+    // pull-up is the athlete plus the belt, and storing only the belt made a
+    // loaded set read lighter than an unloaded one. Matches the strength row.
+    const added = parseFloat(localAdded) || 0
+    const resolvedWeight = isBW ? (userBodyweight || 0) + added : (parseFloat(localWeight) || 0)
     onUpdate({
       weight: resolvedWeight,
       reps: parseInt(localReps) || 0,
       rpe: localRpe ? parseInt(localRpe) : null,
       isBodyweight: isBW,
+      ...(isBW && added > 0 && { addedWeight: added }),
       completed: true,
     })
     setEditing(false)
@@ -91,13 +99,26 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweig
         {isCompleted && !editing ? '✓' : setIndex + 1}
       </span>
       {isBW ? (
-        <button
-          onClick={!inputsDisabled ? toggleBW : undefined}
-          disabled={inputsDisabled}
-          className="w-16 bg-brand/20 border border-brand/40 rounded-lg px-2 py-2 text-center text-sm text-brand font-semibold disabled:opacity-50"
-        >
-          BW
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={!inputsDisabled ? toggleBW : undefined}
+            disabled={inputsDisabled}
+            title={userBodyweight ? `Bodyweight — ${userBodyweight} lbs` : 'Bodyweight'}
+            className="bg-brand/20 border border-brand/40 rounded-l-lg px-1.5 py-2 text-center text-xs text-brand font-semibold disabled:opacity-50"
+          >
+            BW
+          </button>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={localAdded}
+            onChange={(e) => setLocalAdded(e.target.value)}
+            placeholder="+0"
+            aria-label="Weight added on top of bodyweight"
+            disabled={inputsDisabled}
+            className="w-11 bg-bg border border-border-strong border-l-0 rounded-r-lg px-1 py-2 text-center text-sm text-text focus:outline-none focus:border-brand disabled:opacity-50"
+          />
+        </div>
       ) : (
         <div className="flex items-center gap-0.5">
           <input
@@ -271,6 +292,11 @@ function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onTogg
                   reps={setData?.completed ? setData.reps : ''}
                   rpe={setData?.completed ? setData.rpe : ''}
                   isBodyweight={setData?.isBodyweight || false}
+                  addedWeight={
+                    setData?.completed
+                      ? setData.addedWeight
+                      : sessionData?.sets?.[i - 1]?.addedWeight || exercise.lastAddedWeight || ''
+                  }
                   onUpdate={(data) => onSetComplete(exercise.id, i, data)}
                   isActive={i === completedSets.length}
                   isCompleted={!!setData?.completed}
@@ -607,19 +633,21 @@ export default function RunningWorkout({ searchParams }) {
       const reps = ex.sets.map((s) => s.reps)
       const weight = ex.sets[0]?.weight || 0
       const isBW = ex.sets[0]?.isBodyweight || false
+      const added = ex.sets[0]?.addedWeight || 0
       const history = exerciseHistory[ex.id]?.history || []
       // Update the most recent history entry instead of appending
       const updatedHistory = [...history]
       if (updatedHistory.length > 0) {
         const last = updatedHistory[updatedHistory.length - 1]
         if (last.date === reviewSession.date) {
-          updatedHistory[updatedHistory.length - 1] = { ...last, weight, reps, isBodyweight: isBW }
+          updatedHistory[updatedHistory.length - 1] = { ...last, weight, reps, isBodyweight: isBW, addedWeight: added }
         }
       }
       await setDocument(`exerciseProgress/${ex.id}`, {
         currentWeight: weight,
         lastReps: reps,
         isBodyweight: isBW,
+        currentAddedWeight: added,
         lastSessionDate: reviewSession.date,
         history: updatedHistory,
       })

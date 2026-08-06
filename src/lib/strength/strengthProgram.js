@@ -329,8 +329,19 @@ export function buildSession({
         history?.currentWeight && !history?.isBodyweight
           ? roundToIncrement(history.currentWeight * loadMultiplier, exercise.weightIncrement || 5)
           : 0,
+      // The bodyweight counterpart: what to put on the bar *on top of* the
+      // athlete. This is the half that progresses, so it takes the week's load
+      // multiplier — a deload lightens the plate, not the person.
+      recommendedAddedWeight:
+        history?.isBodyweight && history?.currentAddedWeight
+          ? roundToIncrement(
+              history.currentAddedWeight * loadMultiplier,
+              exercise.weightIncrement || 5
+            )
+          : 0,
       lastWeight: history?.currentWeight || 0,
       lastIsBodyweight: !!history?.isBodyweight,
+      lastAddedWeight: history?.currentAddedWeight || 0,
       lastReps: history?.lastReps || [],
       modification: resolved.modification,
       substitutedFor: resolved.substitutedFor,

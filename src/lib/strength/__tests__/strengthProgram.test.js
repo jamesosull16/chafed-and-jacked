@@ -388,6 +388,36 @@ describe('bodyweight loading', () => {
     expect(exercise.lastWeight).toBe(178)
   })
 
+  it('prescribes the plate, not the person, when a bodyweight set was loaded', () => {
+    const core = findCore(sessionWith({}))
+    const session = sessionWith({
+      // 174.5 lb athlete with a 45 lb bar: 219.5 effective, 45 on the bar.
+      [core.id]: {
+        currentWeight: 219.5,
+        currentAddedWeight: 45,
+        isBodyweight: true,
+        lastReps: [20, 20],
+      },
+    })
+    const exercise = session.exercises.find((e) => e.id === core.id)
+
+    // No total prescription — the row stays on BW.
+    expect(exercise.recommendedWeight).toBe(0)
+    // But the bar carries forward, near what was lifted rather than near 220.
+    expect(exercise.recommendedAddedWeight).toBeGreaterThan(0)
+    expect(exercise.recommendedAddedWeight).toBeLessThan(60)
+    expect(exercise.lastAddedWeight).toBe(45)
+    expect(exercise.lastWeight).toBe(219.5)
+  })
+
+  it('leaves the added load at zero for an unloaded bodyweight movement', () => {
+    const core = findCore(sessionWith({}))
+    const session = sessionWith({
+      [core.id]: { currentWeight: 174.5, isBodyweight: true, lastReps: [30] },
+    })
+    expect(session.exercises.find((e) => e.id === core.id).recommendedAddedWeight).toBe(0)
+  })
+
   it('still prescribes from a real external load', () => {
     const core = findCore(sessionWith({}))
     const session = sessionWith({

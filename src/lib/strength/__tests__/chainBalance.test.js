@@ -424,3 +424,40 @@ describe('sessionTonnage', () => {
     expect(sessionTonnage([{ id: 'notAnExercise', sets: [{ reps: 5, weight: 100 }] }])).toBe(500)
   })
 })
+
+describe('sessionTonnage with bodyweight sets', () => {
+  // The case that motivated added load: two sets of standing calf raise at
+  // bodyweight, two with a 45 lb bar, 174.5 lb athlete. Sets carry the
+  // effective load, so this needs no knowledge of how it was arrived at.
+  const BW = 174.5
+
+  it('counts a loaded bodyweight set as heavier than an unloaded one', () => {
+    const tonnage = sessionTonnage([
+      {
+        id: 'standingCalfRaise',
+        sets: [
+          { reps: 20, weight: BW },
+          { reps: 20, weight: BW },
+          { reps: 20, weight: BW + 45, addedWeight: 45 },
+          { reps: 20, weight: BW + 45, addedWeight: 45 },
+        ],
+      },
+    ])
+    expect(tonnage).toBe(20 * BW * 2 + 20 * (BW + 45) * 2)
+
+    // The regression this replaces: storing the bar alone made the loaded sets
+    // read lighter than the unloaded ones, and adding weight lowered tonnage.
+    const asItWas = sessionTonnage([
+      {
+        id: 'standingCalfRaise',
+        sets: [
+          { reps: 20, weight: BW },
+          { reps: 20, weight: BW },
+          { reps: 20, weight: 45 },
+          { reps: 20, weight: 45 },
+        ],
+      },
+    ])
+    expect(tonnage).toBeGreaterThan(asItWas)
+  })
+})

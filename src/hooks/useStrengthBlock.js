@@ -239,6 +239,7 @@ export function useStrengthBlock() {
         ...updated[idx],
         weight: topSet?.weight || 0,
         isBodyweight: !!topSet?.isBodyweight,
+        addedWeight: topSet?.addedWeight || 0,
         reps: ex.sets.map((s) => s.reps),
         rir: ex.sets.map((s) => s.rir ?? null),
       }
@@ -250,6 +251,7 @@ export function useStrengthBlock() {
         ...(isLatest && {
           currentWeight: topSet?.weight || 0,
           isBodyweight: !!topSet?.isBodyweight,
+          currentAddedWeight: topSet?.addedWeight || 0,
           lastReps: ex.sets.map((s) => s.reps),
           lastRir: ex.sets.map((s) => s.rir ?? null),
         }),
@@ -301,11 +303,15 @@ export function useStrengthBlock() {
       const topSet = topSetOf(ex.sets)
       const previous = exerciseHistory[ex.id]?.history || []
       await setDocument(`exerciseProgress/${ex.id}`, {
+        // The effective load — bodyweight included where it applied.
         currentWeight: topSet?.weight || 0,
         // Recorded so the next session knows the load was the athlete rather
         // than a number to progress from — without it, a side plank logged at
         // BW comes back next week prescribing "180 lbs".
         isBodyweight: !!topSet?.isBodyweight,
+        // The half that actually progresses. Bodyweight is not a training
+        // variable; the bar on top of it is.
+        currentAddedWeight: topSet?.addedWeight || 0,
         lastReps: ex.sets.map((s) => s.reps),
         lastRir: ex.sets.map((s) => s.rir ?? null),
         lastSessionDate: doc.date,
@@ -315,6 +321,7 @@ export function useStrengthBlock() {
             date: doc.date,
             weight: topSet?.weight || 0,
             isBodyweight: !!topSet?.isBodyweight,
+            addedWeight: topSet?.addedWeight || 0,
             reps: ex.sets.map((s) => s.reps),
             rir: ex.sets.map((s) => s.rir ?? null),
             blockWeek: blockStatus.blockWeek,

@@ -227,6 +227,19 @@ function CoreSection({
   )
 }
 
+/**
+ * How last session's top set reads on the card.
+ *
+ * A bodyweight set shows what it resolved to, because "BW" alone is unreadable
+ * six weeks later when the athlete has gained five pounds — and where a plate
+ * was added, that is the number he is actually trying to beat.
+ */
+function describeLastLoad({ lastWeight, lastIsBodyweight, lastAddedWeight }) {
+  if (!lastIsBodyweight) return `${lastWeight} lbs`
+  if (lastAddedWeight > 0) return `BW +${lastAddedWeight} (${lastWeight} lbs)`
+  return `BW (${lastWeight} lbs)`
+}
+
 function ExerciseCard({
   exercise,
   data,
@@ -262,6 +275,13 @@ function ExerciseCard({
     const previous = data?.sets?.[i - (exercise.perSide ? 2 : 1)]
     const carried = previous && !previous.isBodyweight ? previous.weight : null
     return carried || exercise.recommendedWeight || undefined
+  }
+
+  /** The same carry-forward for the plate on top of a bodyweight set. */
+  const suggestedAddedFor = (i) => {
+    const previous = data?.sets?.[i - (exercise.perSide ? 2 : 1)]
+    const carried = previous?.isBodyweight ? previous.addedWeight : null
+    return carried || exercise.recommendedAddedWeight || undefined
   }
 
   // Inside the core block these sit within a Card already, so they drop to a
@@ -339,10 +359,7 @@ function ExerciseCard({
 
           {exercise.lastWeight > 0 && (
             <p className="text-xs text-muted tabular-nums">
-              Last:{' '}
-              {exercise.lastIsBodyweight ? `BW (${exercise.lastWeight} lbs)` : `${exercise.lastWeight} lbs`}
-              {' × '}
-              {exercise.lastReps.join('/')}
+              Last: {describeLastLoad(exercise)} × {exercise.lastReps.join('/')}
             </p>
           )}
 
@@ -372,6 +389,7 @@ function ExerciseCard({
                 data={data?.sets?.[i]}
                 rirTarget={rirTarget}
                 suggestedWeight={suggestedFor(i)}
+                suggestedAddedWeight={suggestedAddedFor(i)}
                 bodyweight={bodyweight}
                 defaultBodyweight={defaultBodyweight}
                 onLog={(setData) => onLogSet(exercise.id, i, setData)}

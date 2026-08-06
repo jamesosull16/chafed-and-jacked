@@ -774,7 +774,12 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
               exercises: (session.exercises || []).map((e) => ({
                 id: e.id,
                 sets: (e.sets || []).map((s) => ({
+                  // The effective load. On a bodyweight set that is the athlete
+                  // plus whatever was added, so `added` is what he actually
+                  // loaded — without it, "219 lbs" on a calf raise reads as a
+                  // machine stack rather than a man holding a 45.
                   weight: Number(s.weight) || 0,
+                  ...(s.isBodyweight && { added: Number(s.addedWeight) || 0 }),
                   reps: Number(s.reps) || 0,
                   rir: s.rir == null ? null : Number(s.rir),
                   side: s.side || null,
