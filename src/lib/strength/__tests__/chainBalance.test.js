@@ -8,6 +8,7 @@ import {
   laggingMuscles,
   landmarksFor,
   sessionTonnage,
+  SECONDS_PER_REP,
   CHAIN_RATIO_TARGET,
 } from '../chainBalance'
 import { STRENGTH_EXERCISES } from '../exercises'
@@ -395,15 +396,16 @@ describe('sessionTonnage', () => {
     expect(tonnage).toBe(10 * 225 + 8 * 225)
   })
 
-  it('excludes timed holds, whose reps are seconds', () => {
-    // The trap bodyweight logging opens: a 30-second side plank at a 178 lb
-    // bodyweight is 5,340 "lbs of volume" from an isometric that moves nothing,
-    // which would dwarf the real work on the same session.
-    const withPlank = sessionTonnage([
-      { id: 'barbellHipThrust', sets: [{ reps: 10, weight: 225 }] },
-      { id: 'sidePlank', sets: [{ reps: 30, weight: 178 }, { reps: 30, weight: 178 }] },
-    ])
-    expect(withPlank).toBe(2250)
+  it('converts a timed hold rather than counting its seconds as reps', () => {
+    // Raw, a 30-second hold at bodyweight is 5,340 — more than a heavy set of
+    // hip thrusts, from an isometric that moves nothing. Converted, a hold is
+    // worth real work without a longer hold beating a heavier bar.
+    const hold = { reps: 30, weight: 178 }
+    const raw = 30 * 178
+    const one = sessionTonnage([{ id: 'sidePlank', sets: [hold] }])
+
+    expect(one).toBe(raw / SECONDS_PER_REP)
+    expect(one).toBeLessThan(sessionTonnage([{ id: 'barbellHipThrust', sets: [{ reps: 10, weight: 225 }] }]))
   })
 
   it('is unchanged for the unloaded holds logged before BW existed', () => {
@@ -459,5 +461,78 @@ describe('sessionTonnage with bodyweight sets', () => {
       },
     ])
     expect(tonnage).toBeGreaterThan(asItWas)
+  })
+})
+
+describe('sessionTonnage: bodyweight fraction and timed holds', () => {
+  const BW = 174.5
+
+  it('counts a hold in converted reps rather than raw seconds', () => {
+    const plank = [
+      { id: 'sidePlank', sets: [{ reps: 60, weight: BW, isBodyweight: true }] },
+    ]
+    const fraction = STRENGTH_EXERCISES.sidePlank.bodyweightLoad
+    expect(sessionTonnage(plank)).toBeCloseTo((60 / SECONDS_PER_REP) * BW * fraction, 5)
+
+    // Raw seconds at full bodyweight is what this replaces: it made four
+    // 60-second planks worth three times the session's heaviest lift.
+    expect(sessionTonnage(plank)).toBeLessThan(60 * BW)
+  })
+
+  it('charges only the fraction of him the movement actually resists', () => {
+    const set = [{ reps: 10, weight: BW, isBodyweight: true }]
+    const plank = sessionTonnage([{ id: 'sidePlank', sets: set }])
+    const calf = sessionTonnage([{ id: 'standingCalfRaise', sets: set }])
+
+    // Standing on his feet is all of him; propped on a forearm is not.
+    expect(STRENGTH_EXERCISES.standingCalfRaise.bodyweightLoad).toBe(1)
+    expect(plank).toBeLessThan(calf)
+  })
+
+  it('applies the per-hand multiplier to the plate and never to the athlete', () => {
+    // deadBug is weightMultiplier 2 and carries no bodyweight fraction, so a
+    // bodyweight set there falls back to the whole athlete plus doubled plates.
+    const def = { weightMultiplier: 2, bodyweightLoad: 1 }
+    const load = sessionTonnage([{ id: 'x', sets: [{ reps: 1, weight: BW + 10, addedWeight: 10, isBodyweight: true }] }], {
+      catalogue: { x: def },
+    })
+    // 174.5 (him, undoubled) + 20 (two 10s), not (174.5 + 10) × 2.
+    expect(load).toBe(BW + 20)
+  })
+
+  it('leaves an ordinary loaded set exactly as it was', () => {
+    expect(sessionTonnage([{ id: 'barbellHipThrust', sets: [{ reps: 10, weight: 90 }] }])).toBe(900)
+  })
+
+  it("reproduces Monday's session, with the planks no longer worth nothing", () => {
+    // 2026-08-03 Lower — Posterior, as logged. Saved at 26,290 under the old
+    // rule, which credited the four side planks with zero.
+    const session = [
+      { id: 'barbellHipThrust', sets: [60, 65, 70, 90, 90].map((w) => ({ reps: 10, weight: w })) },
+      { id: 'lyingLegCurl', sets: Array.from({ length: 5 }, () => ({ reps: 10, weight: 80 })) },
+      {
+        id: 'singleLegHipThrust',
+        sets: [9, 9, 12, 12, 10, 10, 10, 10].map((r) => ({ reps: r, weight: 20 })),
+      },
+      { id: 'cableKickback', sets: Array.from({ length: 8 }, () => ({ reps: 15, weight: 40 })) },
+      { id: 'seatedCalfRaise', sets: Array.from({ length: 5 }, () => ({ reps: 20, weight: 45 })) },
+      { id: 'cableCrunch', sets: Array.from({ length: 2 }, () => ({ reps: 20, weight: 90 })) },
+      { id: 'pallofPress', sets: Array.from({ length: 4 }, () => ({ reps: 20, weight: 50 })) },
+      {
+        id: 'sidePlank',
+        sets: Array.from({ length: 4 }, () => ({ reps: 60, weight: BW, isBodyweight: true })),
+      },
+    ]
+
+    const loaded = session.filter((e) => e.id !== 'sidePlank')
+    expect(Math.round(sessionTonnage(loaded))).toBe(26290)
+
+    const planks = 4 * (60 / SECONDS_PER_REP) * BW * STRENGTH_EXERCISES.sidePlank.bodyweightLoad
+    expect(Math.round(sessionTonnage(session))).toBe(Math.round(26290 + planks))
+
+    // Worth real work, and still not the biggest thing in the session.
+    const kickback = sessionTonnage([session.find((e) => e.id === 'cableKickback')])
+    expect(planks).toBeGreaterThan(kickback)
+    expect(planks).toBeLessThan(26290 / 2)
   })
 })
