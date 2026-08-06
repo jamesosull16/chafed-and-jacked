@@ -7,8 +7,10 @@ import {
   pushPullBalance,
   laggingMuscles,
   landmarksFor,
+  sessionTonnage,
   CHAIN_RATIO_TARGET,
 } from '../chainBalance'
+import { STRENGTH_EXERCISES } from '../exercises'
 
 const NOW = new Date('2026-07-24T12:00:00')
 
@@ -382,5 +384,43 @@ describe('laggingMuscles', () => {
       ['bulgarianSplitSquat', 6],
     ])
     expect(laggingMuscles([s], { now: NOW })).toEqual([])
+  })
+})
+
+describe('sessionTonnage', () => {
+  it('sums reps × load across exercises', () => {
+    const tonnage = sessionTonnage([
+      { id: 'barbellHipThrust', sets: [{ reps: 10, weight: 225 }, { reps: 8, weight: 225 }] },
+    ])
+    expect(tonnage).toBe(10 * 225 + 8 * 225)
+  })
+
+  it('excludes timed holds, whose reps are seconds', () => {
+    // The trap bodyweight logging opens: a 30-second side plank at a 178 lb
+    // bodyweight is 5,340 "lbs of volume" from an isometric that moves nothing,
+    // which would dwarf the real work on the same session.
+    const withPlank = sessionTonnage([
+      { id: 'barbellHipThrust', sets: [{ reps: 10, weight: 225 }] },
+      { id: 'sidePlank', sets: [{ reps: 30, weight: 178 }, { reps: 30, weight: 178 }] },
+    ])
+    expect(withPlank).toBe(2250)
+  })
+
+  it('is unchanged for the unloaded holds logged before BW existed', () => {
+    const before = sessionTonnage([{ id: 'sidePlank', sets: [{ reps: 30, weight: 0 }] }])
+    expect(before).toBe(0)
+  })
+
+  it('applies the exercise weight multiplier', () => {
+    const [id, def] = Object.entries(STRENGTH_EXERCISES).find(
+      ([, d]) => d.weightMultiplier && d.weightMultiplier !== 1 && !d.isTimeBased
+    )
+    expect(sessionTonnage([{ id, sets: [{ reps: 10, weight: 50 }] }])).toBe(
+      10 * 50 * def.weightMultiplier
+    )
+  })
+
+  it('treats an unknown exercise as an ordinary loaded lift', () => {
+    expect(sessionTonnage([{ id: 'notAnExercise', sets: [{ reps: 5, weight: 100 }] }])).toBe(500)
   })
 })

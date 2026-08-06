@@ -19,6 +19,11 @@ const SIDE_LABEL = { left: 'L', right: 'R' }
  * press, where both arms work at once and any answer invents an asymmetry the
  * athlete doesn't have. The session now lays out a left row and a right row per
  * prescribed set, so the side is a fact about which row this is.
+ *
+ * BW works the way it does in the running session: a toggle on the weight
+ * field that resolves to the athlete's latest logged bodyweight. A side plank
+ * or a pull-up is loaded by the body, and logging it at 0 lbs both understates
+ * the work and leaves the coach reading a set that looks unloaded.
  */
 export default function SetRow({
   index,
@@ -28,6 +33,8 @@ export default function SetRow({
   data,
   rirTarget,
   suggestedWeight,
+  bodyweight,
+  defaultBodyweight = false,
   onLog,
   readOnly,
 }) {
@@ -35,6 +42,7 @@ export default function SetRow({
   const [editing, setEditing] = useState(false)
   const [weightOverride, setWeightOverride] = useState(null)
   const [reps, setReps] = useState(data?.reps ?? '')
+  const [bwOverride, setBwOverride] = useState(null)
   // Prefill with the session's target RIR so logging is one tap (accept), while
   // staying fully editable and optional. Caveat: a prefilled target the athlete
   // blows past reads optimistic until they correct it — worth the friction win.
@@ -52,6 +60,19 @@ export default function SetRow({
   const weight = weightOverride ?? data?.weight ?? suggestedWeight ?? ''
   const setWeight = setWeightOverride
 
+  // Derived rather than held in state, for the same reason as the weight: every
+  // row of an exercise mounts at once when the card expands, so state seeded at
+  // mount would never see the athlete tap BW on set 1. A logged row states its
+  // own answer; an unlogged one inherits the last answer given for this
+  // exercise — this session's if there is one, otherwise last session's. A six
+  // row side plank is one tap, not six.
+  const isBW = bwOverride ?? data?.isBodyweight ?? defaultBodyweight
+  const setIsBW = setBwOverride
+
+  // Resolved at log time, not display time, so a set logged before the morning
+  // weigh-in keeps the number it was actually logged against.
+  const resolvedWeight = isBW ? bodyweight || 0 : parseFloat(weight) || 0
+
   const locked = completed && !editing
   const [repMin, repMax] = exercise.repRange
 
@@ -63,9 +84,12 @@ export default function SetRow({
 
   function handleLog() {
     onLog({
-      weight: parseFloat(weight) || 0,
+      weight: resolvedWeight,
       reps: parseInt(reps, 10) || 0,
       rir: rir === '' ? null : parseInt(rir, 10),
+      // Stored alongside the resolved number rather than instead of it, so the
+      // set stays analysable as a load *and* re-renders as BW when reopened.
+      isBodyweight: isBW,
       ...(rowSide && { side: rowSide }),
       completed: true,
     })
@@ -98,16 +122,48 @@ export default function SetRow({
         )}
       </span>
 
-      <Input
-        type="number"
-        inputMode="decimal"
-        aria-label={`${describe} weight`}
-        value={weight}
-        onChange={(e) => setWeight(e.target.value)}
-        placeholder="lbs"
-        disabled={locked}
-        className="w-16 text-center px-1"
-      />
+      {isBW ? (
+        <button
+          type="button"
+          onClick={() => setIsBW(false)}
+          disabled={locked}
+          aria-label={`${describe} loaded by bodyweight — switch to a weight`}
+          className={cn(
+            'w-20 shrink-0 rounded-xl border px-1 py-2 text-center text-sm font-semibold tabular-nums',
+            'border-brand-border bg-brand-subtle text-brand disabled:opacity-60'
+          )}
+        >
+          BW
+          {bodyweight ? <span className="ml-1 text-[10px] font-normal">{bodyweight}</span> : null}
+        </button>
+      ) : (
+        <div className="flex w-20 shrink-0">
+          <Input
+            type="number"
+            inputMode="decimal"
+            aria-label={`${describe} weight`}
+            value={weight}
+            onChange={(e) => setWeight(e.target.value)}
+            placeholder="lbs"
+            disabled={locked}
+            className="w-full text-center px-1 rounded-r-none"
+          />
+          <button
+            type="button"
+            onClick={() => setIsBW(true)}
+            disabled={locked}
+            aria-label={`Log ${describe.toLowerCase()} at bodyweight`}
+            title="Bodyweight"
+            className={cn(
+              'shrink-0 rounded-xl rounded-l-none border border-l-0 border-border-strong',
+              'bg-surface-2 px-1.5 text-[10px] font-medium text-muted',
+              'hover:text-brand disabled:opacity-50 transition-colors'
+            )}
+          >
+            BW
+          </button>
+        </div>
+      )}
 
       <span className="text-subtle text-xs shrink-0">×</span>
 
@@ -119,7 +175,7 @@ export default function SetRow({
         onChange={(e) => setReps(e.target.value)}
         placeholder={exercise.isTimeBased ? 's' : `${repMin}-${repMax}`}
         disabled={locked}
-        className="w-16 text-center px-1"
+        className="w-14 text-center px-1"
       />
 
       <Input
@@ -132,7 +188,7 @@ export default function SetRow({
         min="0"
         max="10"
         disabled={locked}
-        className="w-16 text-center px-1 text-xs"
+        className="w-14 text-center px-1 text-xs"
       />
 
       <div className="ml-auto flex items-center gap-2 shrink-0">

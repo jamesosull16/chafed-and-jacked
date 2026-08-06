@@ -149,6 +149,30 @@ function creditedSets(def, sets) {
 }
 
 /**
+ * Tonnage for one session's logged results: reps × load, summed.
+ *
+ * Timed holds are excluded. Their "reps" are seconds, so a 30-second side
+ * plank logged at bodyweight contributes 30 × 178 — more tonnage than a
+ * working set of hip thrusts, from an isometric that moves nothing. Before
+ * bodyweight logging existed these sets carried 0 lbs and contributed nothing
+ * anyway, so the exclusion changes no historical total; it stops the new
+ * number from swamping the one the block is steered by.
+ *
+ * @param exerciseResults [{ id, sets: [{ reps, weight }] }]
+ */
+export function sessionTonnage(exerciseResults = []) {
+  return exerciseResults.reduce((total, ex) => {
+    const def = STRENGTH_EXERCISES[ex.id]
+    if (def?.isTimeBased) return total
+    const multiplier = def?.weightMultiplier || 1
+    return (
+      total +
+      (ex.sets || []).reduce((t, set) => t + (set.reps || 0) * (set.weight || 0) * multiplier, 0)
+    )
+  }, 0)
+}
+
+/**
  * Count working sets per muscle across the given sessions.
  *
  * @param sessions logged workoutSessions docs

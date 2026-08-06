@@ -320,10 +320,17 @@ export function buildSession({
       repRange: [repMin, repMax],
       restSeconds: restFor(exercise),
       rirTarget,
-      recommendedWeight: history?.currentWeight
-        ? roundToIncrement(history.currentWeight * loadMultiplier, exercise.weightIncrement || 5)
-        : 0,
+      // A bodyweight load is a fact about the athlete, not a prescription.
+      // Scaling it by the week's load multiplier and rounding to the nearest
+      // 5 lbs would put "180 lbs" on a side plank card and prefill the weight
+      // field with it — see `lastIsBodyweight` in SetRow, which defaults the
+      // row back to BW instead.
+      recommendedWeight:
+        history?.currentWeight && !history?.isBodyweight
+          ? roundToIncrement(history.currentWeight * loadMultiplier, exercise.weightIncrement || 5)
+          : 0,
       lastWeight: history?.currentWeight || 0,
+      lastIsBodyweight: !!history?.isBodyweight,
       lastReps: history?.lastReps || [],
       modification: resolved.modification,
       substitutedFor: resolved.substitutedFor,

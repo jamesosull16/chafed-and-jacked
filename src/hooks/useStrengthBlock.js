@@ -4,10 +4,9 @@ import { useAuth } from '../contexts/AuthContext'
 import { useAppMode } from './useAppMode'
 import { getBlockStatus, getBlockProgress, getNextTrainingDay, getSplitIndexForDate, trainingDaysInWeek } from '../lib/strength/strengthPeriodization'
 import { buildSession, getSplitLabels, plannedWeeklySets } from '../lib/strength/strengthProgram'
-import { analyzeBalance, laggingMuscles } from '../lib/strength/chainBalance'
+import { analyzeBalance, laggingMuscles, sessionTonnage } from '../lib/strength/chainBalance'
 import { activeGuardrails, hamstringStageFor } from '../lib/strength/injuryGuardrails'
 import { mobilityAdherence } from '../lib/strength/mobility'
-import { STRENGTH_EXERCISES } from '../lib/strength/exercises'
 import { notifyWorkoutLogged } from '../lib/coachTrigger'
 
 /** The logged sets, in document shape. Shared by the save and update paths. */
@@ -20,13 +19,9 @@ function collectResults(session, sessionData) {
     }))
 }
 
-function computeVolume(exerciseResults) {
-  return exerciseResults.reduce((total, ex) => {
-    const multiplier = STRENGTH_EXERCISES[ex.id]?.weightMultiplier || 1
-    return (
-      total + ex.sets.reduce((t, set) => t + (set.reps || 0) * (set.weight || 0) * multiplier, 0)
-    )
-  }, 0)
+/** The heaviest logged set — what the next session's suggestion is built from. */
+function topSetOf(sets) {
+  return sets.reduce((best, s) => ((s.weight || 0) > (best?.weight || 0) ? s : best), null)
 }
 
 /**
@@ -223,7 +218,7 @@ export function useStrengthBlock() {
     const doc = {
       ...existing,
       exercises: exerciseResults,
-      totalVolume: Math.round(computeVolume(exerciseResults)),
+      totalVolume: Math.round(sessionTonnage(exerciseResults)),
       ...(mobilityCompleted && { mobilityCompleted }),
     }
     delete doc.id
@@ -234,10 +229,7 @@ export function useStrengthBlock() {
     // the stored date, so a correction to an older session doesn't disturb the
     // entries after it — and if no entry matches, nothing is invented.
     for (const ex of exerciseResults) {
-      const topSet = ex.sets.reduce(
-        (best, s) => ((s.weight || 0) > (best?.weight || 0) ? s : best),
-        null
-      )
+      const topSet = topSetOf(ex.sets)
       const history = exerciseHistory[ex.id]?.history || []
       const idx = history.findIndex((h) => h.date === existing.date)
       if (idx === -1) continue
@@ -246,6 +238,7 @@ export function useStrengthBlock() {
       updated[idx] = {
         ...updated[idx],
         weight: topSet?.weight || 0,
+        isBodyweight: !!topSet?.isBodyweight,
         reps: ex.sets.map((s) => s.reps),
         rir: ex.sets.map((s) => s.rir ?? null),
       }
@@ -256,6 +249,7 @@ export function useStrengthBlock() {
       await setDocument(`exerciseProgress/${ex.id}`, {
         ...(isLatest && {
           currentWeight: topSet?.weight || 0,
+          isBodyweight: !!topSet?.isBodyweight,
           lastReps: ex.sets.map((s) => s.reps),
           lastRir: ex.sets.map((s) => s.rir ?? null),
         }),
@@ -281,7 +275,7 @@ export function useStrengthBlock() {
 
     if (exerciseResults.length === 0) return null
 
-    const totalVolume = computeVolume(exerciseResults)
+    const totalVolume = sessionTonnage(exerciseResults)
 
     const doc = {
       date: new Date().toISOString(),
@@ -304,13 +298,14 @@ export function useStrengthBlock() {
 
     // Roll each exercise's progress forward for the next session's suggestion.
     for (const ex of exerciseResults) {
-      const topSet = ex.sets.reduce(
-        (best, s) => ((s.weight || 0) > (best?.weight || 0) ? s : best),
-        null
-      )
+      const topSet = topSetOf(ex.sets)
       const previous = exerciseHistory[ex.id]?.history || []
       await setDocument(`exerciseProgress/${ex.id}`, {
         currentWeight: topSet?.weight || 0,
+        // Recorded so the next session knows the load was the athlete rather
+        // than a number to progress from — without it, a side plank logged at
+        // BW comes back next week prescribing "180 lbs".
+        isBodyweight: !!topSet?.isBodyweight,
         lastReps: ex.sets.map((s) => s.reps),
         lastRir: ex.sets.map((s) => s.rir ?? null),
         lastSessionDate: doc.date,
@@ -319,6 +314,7 @@ export function useStrengthBlock() {
           {
             date: doc.date,
             weight: topSet?.weight || 0,
+            isBodyweight: !!topSet?.isBodyweight,
             reps: ex.sets.map((s) => s.reps),
             rir: ex.sets.map((s) => s.rir ?? null),
             blockWeek: blockStatus.blockWeek,
