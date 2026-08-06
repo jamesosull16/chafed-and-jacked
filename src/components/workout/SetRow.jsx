@@ -33,6 +33,7 @@ export default function SetRow({
   data,
   rirTarget,
   suggestedWeight,
+  suggestedAddedWeight,
   bodyweight,
   defaultBodyweight = false,
   onLog,
@@ -41,6 +42,7 @@ export default function SetRow({
   const completed = !!data?.completed
   const [editing, setEditing] = useState(false)
   const [weightOverride, setWeightOverride] = useState(null)
+  const [addedOverride, setAddedOverride] = useState(null)
   const [reps, setReps] = useState(data?.reps ?? '')
   const [bwOverride, setBwOverride] = useState(null)
   // Prefill with the session's target RIR so logging is one tap (accept), while
@@ -69,9 +71,28 @@ export default function SetRow({
   const isBW = bwOverride ?? data?.isBodyweight ?? defaultBodyweight
   const setIsBW = setBwOverride
 
-  // Resolved at log time, not display time, so a set logged before the morning
-  // weigh-in keeps the number it was actually logged against.
-  const resolvedWeight = isBW ? bodyweight || 0 : parseFloat(weight) || 0
+  // What went on the bar on top of the athlete. Only meaningful while BW is on;
+  // with it off, the weight field already is the whole load.
+  const added = addedOverride ?? data?.addedWeight ?? suggestedAddedWeight ?? ''
+  const addedLbs = parseFloat(added) || 0
+
+  /**
+   * What the muscle actually moved.
+   *
+   * Bodyweight adds to the bar rather than replacing it. A standing calf raise
+   * with a 45 lb bar is the athlete plus 45, and storing it as 45 made the
+   * loaded sets read lighter than the unloaded ones — which then picked a
+   * bodyweight set as the session's top set and told the next session the bar
+   * had been dropped.
+   *
+   * Resolved at log time, not display time, so a set logged before the morning
+   * weigh-in keeps the number it was actually logged against.
+   *
+   * Approximate where the athlete is partly supported — a push-up is nearer
+   * two-thirds of bodyweight than all of it. Exact for the movements this is
+   * reached for most: calf raises, pull-ups, dips.
+   */
+  const resolvedWeight = isBW ? (bodyweight || 0) + addedLbs : parseFloat(weight) || 0
 
   const locked = completed && !editing
   const [repMin, repMax] = exercise.repRange
@@ -84,12 +105,18 @@ export default function SetRow({
 
   function handleLog() {
     onLog({
+      // The effective load. Tonnage and top-set selection read this and need
+      // no knowledge of how it was arrived at.
       weight: resolvedWeight,
       reps: parseInt(reps, 10) || 0,
       rir: rir === '' ? null : parseInt(rir, 10),
       // Stored alongside the resolved number rather than instead of it, so the
       // set stays analysable as a load *and* re-renders as BW when reopened.
       isBodyweight: isBW,
+      // What was actually loaded, kept apart from the total because it is the
+      // half that progresses — the athlete's bodyweight is not a training
+      // variable, the bar is.
+      ...(isBW && addedLbs > 0 && { addedWeight: addedLbs }),
       ...(rowSide && { side: rowSide }),
       completed: true,
     })
@@ -123,19 +150,34 @@ export default function SetRow({
       </span>
 
       {isBW ? (
-        <button
-          type="button"
-          onClick={() => setIsBW(false)}
-          disabled={locked}
-          aria-label={`${describe} loaded by bodyweight — switch to a weight`}
-          className={cn(
-            'w-20 shrink-0 rounded-xl border px-1 py-2 text-center text-sm font-semibold tabular-nums',
-            'border-brand-border bg-brand-subtle text-brand disabled:opacity-60'
-          )}
-        >
-          BW
-          {bodyweight ? <span className="ml-1 text-[10px] font-normal">{bodyweight}</span> : null}
-        </button>
+        <div className="flex w-20 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsBW(false)}
+            disabled={locked}
+            aria-label={`${describe} loaded by bodyweight${
+              bodyweight ? ` (${bodyweight} lbs)` : ''
+            } — switch to a plain weight`}
+            title={bodyweight ? `Bodyweight — ${bodyweight} lbs` : 'Bodyweight'}
+            className={cn(
+              'shrink-0 rounded-xl rounded-r-none border border-r-0 px-1.5 py-2',
+              'text-[10px] font-semibold border-brand-border bg-brand-subtle text-brand',
+              'disabled:opacity-60'
+            )}
+          >
+            BW
+          </button>
+          <Input
+            type="number"
+            inputMode="decimal"
+            aria-label={`${describe} weight added on top of bodyweight`}
+            value={added}
+            onChange={(e) => setAddedOverride(e.target.value)}
+            placeholder="+0"
+            disabled={locked}
+            className="w-full text-center px-0.5 rounded-l-none"
+          />
+        </div>
       ) : (
         <div className="flex w-20 shrink-0">
           <Input

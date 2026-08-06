@@ -141,8 +141,15 @@ export function useWorkout() {
 
       return exercises.map((exercise) => {
         const history = exerciseHistory[exercise.id]
+        // Progression runs on the plate, not the person. `currentWeight` is the
+        // effective load — bodyweight included where it applied — so feeding it
+        // straight in would have a weighted pull-up progressing from ~220 lbs
+        // and prescribing a belt nobody owns.
+        const progressionWeight = history?.isBodyweight
+          ? history.currentAddedWeight || 0
+          : history?.currentWeight || 0
         const lastSession = history
-          ? { reps: history.lastReps || [], weight: history.currentWeight || 0 }
+          ? { reps: history.lastReps || [], weight: progressionWeight }
           : null
 
         const recommendation = getRecommendedWeight(
@@ -165,9 +172,10 @@ export function useWorkout() {
           baseRecommendedWeight: recommendation.baseWeight,
           progressionReason: recommendation.reason,
           progressionDirection: recommendation.direction,
-          lastWeight: lastSession?.weight || 0,
+          lastWeight: history?.currentWeight || 0,
           lastReps: lastSession?.reps || [],
           lastIsBodyweight: history?.isBodyweight || false,
+          lastAddedWeight: history?.currentAddedWeight || 0,
         }
       })
     },
@@ -220,6 +228,7 @@ export function useWorkout() {
       const reps = ex.sets.map((s) => s.reps)
       const weight = ex.sets[0]?.weight || 0
       const isBW = ex.sets[0]?.isBodyweight || false
+      const added = ex.sets[0]?.addedWeight || 0
       const history = exerciseHistory[ex.id]?.history || []
       const pr = checkForPR(ex.id, weight, reps, history)
 
@@ -227,10 +236,13 @@ export function useWorkout() {
         currentWeight: weight,
         lastReps: reps,
         isBodyweight: isBW,
+        // The half that progresses — see getWorkoutForDay, which feeds this to
+        // the progression engine rather than the effective load.
+        currentAddedWeight: added,
         lastSessionDate: new Date().toISOString(),
         history: [
           ...history,
-          { date: new Date().toISOString(), weight, reps, isBodyweight: isBW, pr: pr.isPR ? pr.type : null },
+          { date: new Date().toISOString(), weight, reps, isBodyweight: isBW, addedWeight: added, pr: pr.isPR ? pr.type : null },
         ],
       })
     }
