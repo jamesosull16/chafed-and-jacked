@@ -2,16 +2,25 @@
 
 Log food, log training, and read live data from a Claude conversation.
 
-There are two servers in this repo. **The hosted one is the current one.**
+**One implementation, two transports.** Every CRUD tool lives in
+`functions/src/mcp/` and both servers serve it. Neither is a copy of the other,
+so a fix lands in both or in neither.
 
-| | Hosted (`functions/src/mcp/`) | Local stdio (this directory) |
+| | Hosted (Cloud Function) | Local (this directory) |
 |---|---|---|
 | Transport | Streamable HTTP | stdio |
-| Reachable from | Any machine, phone, browser | The machine it is installed on |
+| Reachable from | Any machine, phone, browser | The machine it runs on |
 | Auth | Bearer token | Filesystem — the process is trusted |
-| Tools | 28, full CRUD | 10, mostly read-only |
-| Credentials | The function's own service account | A service-account JSON you manage |
-| Status | **Current** | Superseded — kept because it still works |
+| Public surface | An endpoint on the internet | None |
+| Credentials | The function's own service account | A service-account JSON, or your ADC |
+| CRUD tools | 28 (shared) | 28 (shared) |
+| Live analysis | — | 5 (`src/analysis.js`) |
+| Claude Desktop | No — OAuth only | Yes |
+
+The five extra tools are the one real asymmetry. A local process can import
+`src/lib`, so it computes the app's macro targets, chain balance and volume
+landmarks against current data; the Functions bundle cannot, because only
+`functions/` is uploaded on deploy, so it reads the figures the app stored.
 
 ---
 
@@ -122,11 +131,14 @@ can redirect a read or a write.
 
 ---
 
-## Local stdio server (superseded)
+## Local stdio server
 
-Still works, and still the only option if you want zero public surface. Ten
-tools, mostly reads. Needs its own service-account JSON and a `CJ_ESTIMATOR_URL`
-round trip that the hosted server no longer makes.
+Same 28 CRUD tools as the hosted one, plus five that compute the app's analysis
+live: `get_targets`, `get_block_status`, `get_chain_balance`,
+`get_training_summary`, `get_body_metrics`. 33 in total.
+
+It works in Claude Desktop — a local process needs no OAuth — and exposes
+nothing to the internet.
 
 ```bash
 cd mcp && npm install
@@ -150,9 +162,19 @@ cd mcp && npm install
 }
 ```
 
-This one *does* work in Claude Desktop — a local process needs no OAuth.
+Drop `CJ_SERVICE_ACCOUNT` to use application-default credentials instead
+(`gcloud auth application-default login`).
 
-**Two implementations of the same tools is a known liability.** The app's two
-logging surfaces have already needed the same fix three times this way. If the
-hosted server covers what you need, delete this directory rather than carrying
-both.
+The estimator variables are only needed by `log_meal`. Without them the server
+starts, warns, and everything else works — including `add_meal_manually`, which
+takes macros you already have and never calls the estimator at all. No API key
+ever reaches this process either way: estimation is delegated to the deployed
+function, which holds the keys.
+
+### One firebase-admin, deliberately
+
+`mcp/` no longer depends on `firebase-admin`. It initialises through
+`functions/src/store.js`, because the package keeps its app registry per module
+instance: initialising via a second copy registers an app `createStore` cannot
+see, and the symptom is a baffling "the default Firebase app does not exist"
+from a process that plainly just created one.
