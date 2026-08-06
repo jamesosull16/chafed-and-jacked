@@ -20,6 +20,7 @@ import { STRENGTH_EXERCISES, repRangeFor, restFor, isAvailable } from './exercis
 import { isExerciseAllowed, substituteFor } from './injuryGuardrails.js'
 import { getMobilityBlock } from './mobility.js'
 import { landmarksFor, cappedMuscles, consumesAllowance } from './chainBalance.js'
+import { getBlockStatus, trainingDaysInWeek } from './strengthPeriodization.js'
 
 /** Average seconds of actual work per set, for time estimates. */
 const SECONDS_PER_SET_WORK = 45
@@ -172,6 +173,71 @@ export function getSplitLabels(daysPerWeek = 4) {
     name: DAY_TEMPLATES[id].name,
     focus: DAY_TEMPLATES[id].focus,
   }))
+}
+
+/** Local YYYY-MM-DD. Matches how logged sessions store their date prefix. */
+function isoDay(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate()
+  ).padStart(2, '0')}`
+}
+
+/**
+ * One week of the block: which days are training days, what each one is, and
+ * where the week sits in the periodisation.
+ *
+ * `weekOffset` is weeks from today — 0 is this week, 1 is next. Lifted out of
+ * the hook so a week other than the current one is a parameter rather than a
+ * second implementation, and so this is testable without React.
+ *
+ * A future week reports the phase and RIR target it will actually carry, which
+ * is the whole point of looking ahead: week 7 being a deload changes how the
+ * week before it should be trained, and the schedule is where he sees that.
+ */
+export function buildWeekSchedule({
+  trainingDayIndices = [1, 2, 4, 5],
+  trainingDaysPerWeek = 4,
+  sessions = [],
+  blockStart,
+  blockEnd,
+  weekOffset = 0,
+  now = new Date(),
+} = {}) {
+  const anchor = new Date(now)
+  anchor.setDate(anchor.getDate() + weekOffset * 7)
+
+  const labels = getSplitLabels(trainingDaysPerWeek)
+  const status = getBlockStatus(blockStart, blockEnd, anchor)
+  const todayId = isoDay(now)
+
+  const days = trainingDaysInWeek(trainingDayIndices, anchor).map(({ date, splitIndex }) => {
+    const dateId = isoDay(date)
+    const logged = sessions.find(
+      (s) => s.date?.slice(0, 10) === dateId && s.splitIndex === splitIndex
+    )
+    return {
+      ...labels[splitIndex],
+      splitIndex,
+      date,
+      dateId,
+      isToday: dateId === todayId,
+      isPast: dateId < todayId,
+      completed: !!logged,
+      sessionId: logged?.id || null,
+    }
+  })
+
+  return {
+    weekOffset,
+    isCurrent: weekOffset === 0,
+    blockWeek: status.blockWeek,
+    totalWeeks: status.totalWeeks,
+    phase: status.phase,
+    mesocycle: status.mesocycle,
+    weekInMesocycle: status.weekInMesocycle,
+    rirTarget: status.rirTarget,
+    days,
+  }
 }
 
 /**
@@ -432,6 +498,11 @@ export function buildSession({
     substitutions,
     rirTarget,
     blockWeek,
+    // Carried so a session can say which week it belongs to without the caller
+    // re-deriving the block status — a preview of a future week needs to show
+    // its own phase, not today's.
+    phase: blockStatus?.phase || 'accumulation',
+    mesocycle: blockStatus?.mesocycle ?? null,
     estimatedMinutes: estimateSessionMinutes(kept, mobility.totalMinutes),
   }
 }

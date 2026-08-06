@@ -10,6 +10,7 @@ import {
   Sparkles,
   StretchHorizontal,
   Shield,
+  CalendarDays,
 } from 'lucide-react'
 import { useStrengthBlock } from '../../hooks/useStrengthBlock'
 import { Card, CardHeader, Button, Badge, SkeletonPage, ProgressBar, EmptyState } from '../ui'
@@ -417,12 +418,12 @@ export default function StrengthSession({ searchParams }) {
   const navigate = useNavigate()
   const {
     loading,
-    blockStatus,
     todaysSession,
     getSession,
     saveSession,
     updateSession,
     weekSchedule,
+    getWeekSchedule,
     sessions,
     bodyMetrics,
   } = useStrengthBlock()
@@ -434,6 +435,12 @@ export default function StrengthSession({ searchParams }) {
 
   const requestedDay = searchParams.get('day')
   const isReview = searchParams.get('review') === '1'
+  // Looking at a week that hasn't happened. Read-only by definition: there is
+  // nothing to log on a future day, and the loads are a projection off work he
+  // has not done yet.
+  const weekOffset = Number.parseInt(searchParams.get('week') || '0', 10) || 0
+  const isPreview = weekOffset > 0
+  const locked = isReview || isPreview
 
   const [sessionData, setSessionData] = useState({})
   const [mobilityDone, setMobilityDone] = useState([])
@@ -451,8 +458,19 @@ export default function StrengthSession({ searchParams }) {
   // state and which day was requested.
   const session = useMemo(() => {
     if (loading) return null
-    return requestedDay != null ? getSession(parseInt(requestedDay, 10)) : todaysSession
-  }, [loading, requestedDay, getSession, todaysSession])
+    if (requestedDay == null) return todaysSession
+    return getSession(Number.parseInt(requestedDay, 10), { weekOffset })
+  }, [loading, requestedDay, weekOffset, getSession, todaysSession])
+
+  /** The calendar date the previewed session falls on. */
+  const previewDate = useMemo(() => {
+    if (!isPreview || requestedDay == null) return null
+    const splitIndex = Number.parseInt(requestedDay, 10)
+    const day = getWeekSchedule(weekOffset).days.find((d) => d.splitIndex === splitIndex)
+    return day
+      ? day.date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+      : null
+  }, [isPreview, requestedDay, weekOffset, getWeekSchedule])
 
   const firstExerciseId = session?.exercises[0]?.id ?? null
   const dayId = session?.dayId ?? null
@@ -473,11 +491,11 @@ export default function StrengthSession({ searchParams }) {
    * stays in one place instead of being re-derived here and drifting.
    */
   const loggedSession = useMemo(() => {
-    if (!isReview || requestedDay == null) return null
+    if (!isReview || isPreview || requestedDay == null) return null
     const splitIndex = Number.parseInt(requestedDay, 10)
     const day = weekSchedule.find((d) => d.splitIndex === splitIndex && d.sessionId)
     return day ? sessions.find((s) => s.id === day.sessionId) || null : null
-  }, [isReview, requestedDay, weekSchedule, sessions])
+  }, [isReview, isPreview, requestedDay, weekSchedule, sessions])
 
   // Put the logged sets on screen. Every set is marked completed, which is what
   // SetRow reads to render itself locked with the pencil affordance — the edit
@@ -509,7 +527,7 @@ export default function StrengthSession({ searchParams }) {
     // Never in review mode: the draft is today's unfinished work, and pasting
     // it over a session from earlier in the week would show sets against a day
     // they were not performed on.
-    if (!dayId || isReview) return
+    if (!dayId || isReview || isPreview) return
     try {
       const raw = localStorage.getItem(DRAFT_KEY)
       if (!raw) return
@@ -526,14 +544,14 @@ export default function StrengthSession({ searchParams }) {
     } catch {
       // Corrupt draft — start clean.
     }
-  }, [dayId, isReview])
+  }, [dayId, isReview, isPreview])
 
   // Persist progress so a phone lock mid-session doesn't lose the work.
   useEffect(() => {
     // An amendment is written straight through on save; letting it into the
     // draft would leave a past session's sets waiting to be restored onto the
     // next new one.
-    if (!session || saved || isReview) return
+    if (!session || saved || isReview || isPreview) return
     const hasData =
       Object.values(sessionData).some((ex) => ex?.sets?.some((s) => s?.completed)) ||
       mobilityDone.length > 0
@@ -548,7 +566,7 @@ export default function StrengthSession({ searchParams }) {
         savedAt: Date.now(),
       })
     )
-  }, [sessionData, mobilityDone, session, startTime, saved, isReview])
+  }, [sessionData, mobilityDone, session, startTime, saved, isReview, isPreview])
 
   const handleLogSet = useCallback(
     (exerciseId, index, setData) => {
@@ -694,11 +712,12 @@ export default function StrengthSession({ searchParams }) {
             <h1 className="text-xl font-semibold text-text tracking-tight">{session.name}</h1>
             <p className="text-sm text-muted">{session.focus}</p>
           </div>
-          <Badge tone={blockStatus.phase === 'deload' ? 'warning' : 'brand'}>
+          <Badge tone={session.phase === 'deload' ? 'warning' : 'brand'}>
             RIR {session.rirTarget}
           </Badge>
         </div>
 
+        {!isPreview && (
         <div className="flex items-center gap-3 mt-3">
           <ProgressBar
             value={completedCount}
@@ -709,6 +728,21 @@ export default function StrengthSession({ searchParams }) {
             {completedCount}/{session.exercises.length}
           </span>
         </div>
+        )}
+
+        {isPreview && (
+          <div className="flex gap-2 p-3 rounded-xl bg-surface border border-border-default mt-3">
+            <CalendarDays className="w-4 h-4 text-subtle shrink-0 mt-0.5" aria-hidden="true" />
+            <p className="text-xs text-muted">
+              <span className="font-medium text-text">
+                {previewDate}
+                {session.phase === 'deload' ? ' · deload week' : ''}
+              </span>{' '}
+              — a preview, not a log. Loads are projected from what you have lifted so far and
+              will move as you train this week.
+            </p>
+          </div>
+        )}
 
         {restored && (
           <p className="text-xs text-brand mt-2">Session restored — pick up where you left off.</p>
@@ -763,7 +797,7 @@ export default function StrengthSession({ searchParams }) {
           expanded={expanded === exercise.id}
           onToggle={() => setExpanded(expanded === exercise.id ? null : exercise.id)}
           onLogSet={handleLogSet}
-          readOnly={isReview}
+          readOnly={locked}
           bodyweight={bodyweight}
         />
       ))}
@@ -775,11 +809,11 @@ export default function StrengthSession({ searchParams }) {
         expanded={expanded}
         onExpand={setExpanded}
         onLogSet={handleLogSet}
-        readOnly={isReview}
+        readOnly={locked}
         bodyweight={bodyweight}
       />
 
-      {anyLogged && (
+      {anyLogged && !isPreview && (
         <Button size="lg" fullWidth onClick={handleFinish} disabled={saving}>
           {saving ? 'Saving…' : finishLabel}
         </Button>

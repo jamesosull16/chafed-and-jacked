@@ -4,6 +4,7 @@ import {
   buildWeek,
   getSplit,
   plannedWeeklySets,
+  buildWeekSchedule,
   CORE_BLOCK_SIZE,
 } from '../strengthProgram'
 import { VOLUME_LANDMARKS } from '../chainBalance'
@@ -461,5 +462,77 @@ describe('bodyweight loading', () => {
     const core = findCore(sessionWith({}))
     const session = sessionWith({ [core.id]: { currentWeight: 45, lastReps: [12] } })
     expect(session.exercises.find((e) => e.id === core.id).lastIsBodyweight).toBe(false)
+  })
+})
+
+describe('buildWeekSchedule', () => {
+  // A Wednesday in block week 1, so "this week" has days either side of today.
+  const NOW = new Date('2026-07-22T09:00:00')
+  const week = (weekOffset, extra = {}) =>
+    buildWeekSchedule({
+      trainingDayIndices: [1, 2, 4, 5],
+      trainingDaysPerWeek: 4,
+      blockStart: BLOCK_START,
+      blockEnd: BLOCK_END,
+      now: NOW,
+      weekOffset,
+      ...extra,
+    })
+
+  it('gives one entry per training day, named from the split', () => {
+    const { days } = week(0)
+    expect(days).toHaveLength(4)
+    expect(days.map((d) => d.splitIndex)).toEqual([0, 1, 2, 3])
+    expect(days[0].name).toBe('Lower — Posterior')
+    expect(days.every((d) => d.focus)).toBe(true)
+  })
+
+  it('moves a whole week forward, keeping the same split order', () => {
+    const now = week(0)
+    const next = week(1)
+
+    expect(next.weekOffset).toBe(1)
+    expect(next.isCurrent).toBe(false)
+    expect(next.blockWeek).toBe(now.blockWeek + 1)
+    expect(next.days.map((d) => d.name)).toEqual(now.days.map((d) => d.name))
+    for (let i = 0; i < 4; i++) {
+      const delta = (next.days[i].date - now.days[i].date) / 86400000
+      expect(delta).toBe(7)
+    }
+  })
+
+  it('reports a future deload as a deload rather than as today', () => {
+    // Week 5 of the mesocycle is the deload — the reason looking ahead is
+    // worth anything, since it changes how the week before it is trained.
+    const offsets = [0, 1, 2, 3, 4, 5].map((o) => week(o))
+    const deload = offsets.find((w) => w.phase === 'deload')
+
+    expect(deload, 'no deload within six weeks').toBeTruthy()
+    expect(deload.isCurrent).toBe(false)
+    expect(deload.rirTarget).toBeGreaterThan(offsets[0].rirTarget)
+  })
+
+  it('marks today, and only today', () => {
+    const { days } = week(0)
+    expect(days.filter((d) => d.isToday)).toHaveLength(0) // Wednesday is a rest day
+    const monday = days.find((d) => d.splitIndex === 0)
+    expect(monday.isPast).toBe(true)
+    expect(days.find((d) => d.splitIndex === 2).isPast).toBe(false)
+  })
+
+  it('pairs a logged session with its day, and never with a future one', () => {
+    const monday = week(0).days[0]
+    const logged = [{ id: 'sess1', date: `${monday.dateId}T18:00:00.000Z`, splitIndex: 0 }]
+
+    expect(week(0, { sessions: logged }).days[0]).toMatchObject({
+      completed: true,
+      sessionId: 'sess1',
+    })
+    // Same split index, different week — must not inherit the completion.
+    expect(week(1, { sessions: logged }).days[0].completed).toBe(false)
+  })
+
+  it('nothing in a future week is complete', () => {
+    expect(week(2).days.some((d) => d.completed)).toBe(false)
   })
 })

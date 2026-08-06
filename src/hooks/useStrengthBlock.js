@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useFirestore, formatLocalDate } from './useFirestore'
 import { useAuth } from '../contexts/AuthContext'
 import { useAppMode } from './useAppMode'
-import { getBlockStatus, getBlockProgress, getNextTrainingDay, getSplitIndexForDate, trainingDaysInWeek } from '../lib/strength/strengthPeriodization'
-import { buildSession, getSplitLabels, plannedWeeklySets } from '../lib/strength/strengthProgram'
+import { getBlockStatus, getBlockProgress, getNextTrainingDay, getSplitIndexForDate } from '../lib/strength/strengthPeriodization'
+import { buildSession, buildWeekSchedule, plannedWeeklySets } from '../lib/strength/strengthProgram'
 import { analyzeBalance, laggingMuscles, sessionTonnage } from '../lib/strength/chainBalance'
 import { activeGuardrails, hamstringStageFor } from '../lib/strength/injuryGuardrails'
 import { mobilityAdherence } from '../lib/strength/mobility'
@@ -134,10 +134,40 @@ export function useStrengthBlock() {
     [blockStatus, injuryFlags, analysisOpts, strength, exerciseHistory, lagging, cappedUsage]
   )
 
-  /** Build a session for a given split index. */
+  /**
+   * Build a session for a given split index, optionally in a future week.
+   *
+   * `weekOffset` matters more than it looks: the block's phase, volume
+   * multiplier and RIR target all move week to week, so building next week's
+   * session against this week's status would show a deload at accumulation
+   * volume. The status is recomputed for the week being asked about.
+   */
   const getSession = useCallback(
-    (splitIndex) => buildSession({ ...sessionParams, splitIndex }),
-    [sessionParams]
+    (splitIndex, { weekOffset = 0 } = {}) => {
+      if (!weekOffset) return buildSession({ ...sessionParams, splitIndex })
+      const date = new Date()
+      date.setDate(date.getDate() + weekOffset * 7)
+      return buildSession({
+        ...sessionParams,
+        splitIndex,
+        blockStatus: getBlockStatus(strength.blockStart, strength.blockEnd, date),
+      })
+    },
+    [sessionParams, strength.blockStart, strength.blockEnd]
+  )
+
+  /** Any week of the block, by offset from this one. 0 is now, 1 is next. */
+  const getWeekSchedule = useCallback(
+    (weekOffset = 0) =>
+      buildWeekSchedule({
+        trainingDayIndices: strength.trainingDayIndices,
+        trainingDaysPerWeek: strength.trainingDaysPerWeek,
+        sessions,
+        blockStart: strength.blockStart,
+        blockEnd: strength.blockEnd,
+        weekOffset,
+      }),
+    [strength.trainingDayIndices, strength.trainingDaysPerWeek, strength.blockStart, strength.blockEnd, sessions]
   )
 
   /** Today's session, or the next one if today is a rest day. */
@@ -153,29 +183,8 @@ export function useStrengthBlock() {
     [strength.trainingDayIndices]
   )
 
-  /** This week's schedule with completion state. */
-  const weekSchedule = useMemo(() => {
-    const labels = getSplitLabels(strength.trainingDaysPerWeek)
-    const days = trainingDaysInWeek(strength.trainingDayIndices)
-    const todayId = formatLocalDate()
-
-    return days.map(({ date, splitIndex }) => {
-      const dateId = formatLocalDate(date)
-      const logged = sessions.find(
-        (s) => s.date?.slice(0, 10) === dateId && s.splitIndex === splitIndex
-      )
-      return {
-        ...labels[splitIndex],
-        splitIndex,
-        date,
-        dateId,
-        isToday: dateId === todayId,
-        isPast: dateId < todayId,
-        completed: !!logged,
-        sessionId: logged?.id || null,
-      }
-    })
-  }, [sessions, strength.trainingDayIndices, strength.trainingDaysPerWeek])
+  /** This week's schedule with completion state. The dashboard's default. */
+  const weekSchedule = useMemo(() => getWeekSchedule(0).days, [getWeekSchedule])
 
   const plannedSets = useMemo(() => plannedWeeklySets(sessionParams), [sessionParams])
 
@@ -352,6 +361,7 @@ export function useStrengthBlock() {
     mobility,
     plannedSets,
     weekSchedule,
+    getWeekSchedule,
     todaysSession,
     isTrainingDay,
     todayLiftStats,
