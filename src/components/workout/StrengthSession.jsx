@@ -370,12 +370,19 @@ function ExerciseCard({
             </p>
           )}
 
+          {/* Mirrors SetRow's geometry exactly: fixed index, fixed weight,
+              the × spacer, then two flexible columns. */}
           <div className="flex items-center gap-2 px-2 pt-1 text-[11px] text-subtle">
-            <span className={exercise.perSide ? 'w-9' : 'w-6'} />
-            <span className="w-20 text-center">Weight</span>
-            <span className="w-3" />
-            <span className="w-14 text-center">{exercise.isTimeBased ? 'Secs' : 'Reps'}</span>
-            <span className="w-14 text-center">RIR</span>
+            <span className={cn('shrink-0', exercise.perSide ? 'w-9' : 'w-6')} />
+            <span className="w-20 shrink-0 text-center">Weight</span>
+            <span className="shrink-0 text-xs invisible">×</span>
+            <span className="flex-1 min-w-0 text-center">
+              {exercise.isTimeBased ? 'Secs' : 'Reps'}
+            </span>
+            <span className="flex-1 min-w-0 text-center">RIR</span>
+            {/* Reserves the log/edit button's column so the labels sit over
+                their fields rather than drifting right of them. */}
+            <span className="w-11 shrink-0" />
           </div>
 
           <div className="space-y-1">

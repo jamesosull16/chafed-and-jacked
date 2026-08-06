@@ -183,16 +183,21 @@ export default function SetRow({
           />
         </div>
       ) : !canBeBodyweight ? (
-        <Input
-          type="number"
-          inputMode="decimal"
-          aria-label={`${describe} weight`}
-          value={weight}
-          onChange={(e) => setWeight(e.target.value)}
-          placeholder="lbs"
-          disabled={locked}
-          className="w-20 shrink-0 text-center px-1"
-        />
+        // Width on the wrapper, never on the Input — see the note above the
+        // row. `CONTROL_BASE` is `w-full` and `cn` does not resolve conflicts,
+        // so a width class handed to Input is silently dead.
+        <div className="w-20 shrink-0">
+          <Input
+            type="number"
+            inputMode="decimal"
+            aria-label={`${describe} weight`}
+            value={weight}
+            onChange={(e) => setWeight(e.target.value)}
+            placeholder="lbs"
+            disabled={locked}
+            className="text-center px-1"
+          />
+        </div>
       ) : (
         <div className="flex w-20 shrink-0">
           <Input
@@ -224,31 +229,42 @@ export default function SetRow({
 
       <span className="text-subtle text-xs shrink-0">×</span>
 
-      <Input
-        type="number"
-        inputMode="numeric"
-        aria-label={`${describe} reps`}
-        value={reps}
-        onChange={(e) => setReps(e.target.value)}
-        placeholder={exercise.isTimeBased ? 's' : `${repMin}-${repMax}`}
-        disabled={locked}
-        className="w-14 text-center px-1"
-      />
+      {/*
+        Reps and RIR share whatever is left rather than claiming fixed widths.
+        The row has to hold a set number, a load, two figures and a button on a
+        phone; sizing it by arithmetic is how it ends up 30px too wide on a 375
+        screen and nobody notices until it ships. Flexible fields cannot
+        overflow — they just get narrower.
+      */}
+      <div className="flex-1 min-w-0">
+        <Input
+          type="number"
+          inputMode="numeric"
+          aria-label={`${describe} reps`}
+          value={reps}
+          onChange={(e) => setReps(e.target.value)}
+          placeholder={exercise.isTimeBased ? 's' : `${repMin}-${repMax}`}
+          disabled={locked}
+          className="text-center px-1"
+        />
+      </div>
 
-      <Input
-        type="number"
-        inputMode="numeric"
-        aria-label={`${describe} reps in reserve`}
-        value={rir}
-        onChange={(e) => setRir(e.target.value)}
-        placeholder={`RIR ${rirTarget}`}
-        min="0"
-        max="10"
-        disabled={locked}
-        className="w-14 text-center px-1 text-xs"
-      />
+      <div className="flex-1 min-w-0">
+        <Input
+          type="number"
+          inputMode="numeric"
+          aria-label={`${describe} reps in reserve`}
+          value={rir}
+          onChange={(e) => setRir(e.target.value)}
+          placeholder={`RIR ${rirTarget}`}
+          min="0"
+          max="10"
+          disabled={locked}
+          className="text-center px-1 text-xs"
+        />
+      </div>
 
-      <div className="ml-auto flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-2 shrink-0">
         {locked && readOnly ? (
           <Button
             variant="ghost"
