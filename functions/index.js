@@ -14,12 +14,15 @@
 
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions'
-import { defineSecret } from 'firebase-functions/params'
+import { defineSecret, defineString } from 'firebase-functions/params'
+import { createHash, timingSafeEqual } from 'node:crypto'
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { initializeApp, getApps } from 'firebase-admin/app'
 import Anthropic from '@anthropic-ai/sdk'
 
 import { estimateMeal, EstimationError } from './src/estimator.js'
 import { createStore, localDateId } from './src/store.js'
+import { createMcpServer } from './src/mcp/server.js'
 import { runCoachTurn, CoachError, MODEL } from './src/coach/orchestrator.js'
 import { buildTurnContext } from './src/coach/context.js'
 import { readHistory, readConversationTier, HISTORY_TURNS } from './src/coach/history.js'
@@ -32,6 +35,16 @@ if (getApps().length === 0) initializeApp()
 const ANTHROPIC_API_KEY = defineSecret('ANTHROPIC_API_KEY')
 const USDA_API_KEY = defineSecret('USDA_API_KEY')
 const MCP_SHARED_SECRET = defineSecret('MCP_SHARED_SECRET')
+
+/**
+ * Whose data the MCP server reads and writes.
+ *
+ * A uid is not a secret, but it *is* the entire authorization model here: the
+ * bearer token proves the caller may act, and this says who they act as. It is
+ * configuration rather than input for exactly that reason — nothing a tool call
+ * can say may change it. Set in `functions/.env`.
+ */
+const CJ_USER_ID = defineString('CJ_USER_ID')
 
 const RUNTIME = {
   secrets: [ANTHROPIC_API_KEY, USDA_API_KEY],
@@ -116,6 +129,117 @@ export const estimateMealHttp = onRequest(
       }
       console.error('Unexpected estimation failure:', err)
       res.status(500).json({ error: 'Could not estimate this meal.' })
+    }
+  }
+)
+
+// ── MCP server ───────────────────────────────────────────────────────
+
+/**
+ * Compare two secrets without leaking their length or contents through timing.
+ *
+ * `timingSafeEqual` throws on a length mismatch, which is itself a signal, so
+ * both sides are hashed to a fixed width first. Cheap, and it means a wrong
+ * token tells an attacker nothing but "wrong".
+ */
+function secretMatches(presented, expected) {
+  if (!presented || !expected) return false
+  const hash = (s) => createHash('sha256').update(String(s)).digest()
+  return timingSafeEqual(hash(presented), hash(expected))
+}
+
+/**
+ * `Authorization: Bearer <token>`, per the MCP spec's token placement rules.
+ *
+ * Split rather than matched: `^Bearer\s+(.+)$` backtracks super-linearly on a
+ * long header, which is an attacker-controlled string.
+ */
+function bearerFrom(req) {
+  const [scheme, ...rest] = (req.get('authorization') || '').trim().split(/\s+/)
+  if (!scheme || scheme.toLowerCase() !== 'bearer') return null
+  return rest.join(' ').trim() || null
+}
+
+/**
+ * The MCP endpoint — Streamable HTTP, stateless.
+ *
+ * Stateless because a Cloud Functions instance can be recycled between two
+ * calls: a transport holding session state across requests works perfectly in
+ * testing and fails the first time the platform scales. Every request builds
+ * its own server and transport, answers, and disposes of both.
+ *
+ * Auth is a bearer token, not OAuth. The MCP spec's OAuth flow is what Claude
+ * Desktop's connector UI requires, and building an authorization server to
+ * guard one person's training log is the wrong trade — this is reachable from
+ * Claude Code (`claude mcp add --transport http --header ...`) and the Messages
+ * API MCP connector, both of which take a static bearer.
+ *
+ * The token is the ONLY thing between the public internet and every row of
+ * this athlete's health data, with full write access. It is checked before any
+ * body is parsed, and rotating it is `firebase functions:secrets:set`.
+ */
+export const mcp = onRequest(
+  { ...RUNTIME, secrets: [...RUNTIME.secrets, MCP_SHARED_SECRET], timeoutSeconds: 300 },
+  async (req, res) => {
+    if (!secretMatches(bearerFrom(req), MCP_SHARED_SECRET.value())) {
+      // The spec requires WWW-Authenticate on a 401 so a client can discover how
+      // to authenticate. There is no OAuth metadata to point at, so this states
+      // the scheme and stops — a client that needs the flow will fail loudly
+      // rather than retry blind.
+      res.set('WWW-Authenticate', 'Bearer realm="chafed-and-jacked"')
+      res.status(401).json({
+        jsonrpc: '2.0',
+        error: { code: -32001, message: 'Unauthorized.' },
+        id: null,
+      })
+      return
+    }
+
+    const uid = CJ_USER_ID.value()
+    if (!uid) {
+      logger.error('mcp: CJ_USER_ID is unset — refusing to guess whose data to serve')
+      res.status(500).json({
+        jsonrpc: '2.0',
+        error: { code: -32603, message: 'Server is misconfigured.' },
+        id: null,
+      })
+      return
+    }
+
+    // Sent by clients that know the athlete's timezone; the container runs in
+    // UTC, which would otherwise roll "today" over mid-evening for him.
+    const timezoneOffset = Number(req.get('x-cj-timezone-offset')) || 0
+
+    const server = createMcpServer({
+      store: createStore(uid),
+      estimate: estimator(),
+      timezoneOffset,
+    })
+    const transport = new StreamableHTTPServerTransport({
+      // Stateless: no session ids to hand out and none to look up.
+      sessionIdGenerator: undefined,
+      // Plain JSON responses rather than SSE. Nothing here streams, and an
+      // event stream held open across a serverless boundary is a liability.
+      enableJsonResponse: true,
+    })
+
+    res.on('close', () => {
+      transport.close().catch(() => {})
+      server.close().catch(() => {})
+    })
+
+    try {
+      await server.connect(transport)
+      await transport.handleRequest(req, res, req.body)
+    } catch (err) {
+      logger.error('mcp request failed', { message: err?.message })
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          error: { code: -32603, message: 'Internal error.' },
+          id: null,
+        })
+      }
     }
   }
 )

@@ -22,6 +22,13 @@ export function createStore(uid) {
       return snap.exists ? snap.data() : null
     },
 
+    /** Merge into users/{uid}. Merged, never replaced — the document carries
+     *  auth-adjacent fields that no caller here has any business clearing. */
+    async setProfile(data) {
+      await user.set(data, { merge: true })
+      return data
+    },
+
     async getDoc(collection, docId) {
       const snap = await user.collection(collection).doc(docId).get()
       return snap.exists ? { id: snap.id, ...snap.data() } : null
@@ -35,6 +42,18 @@ export function createStore(uid) {
     async addDoc(collection, data) {
       const ref = await user.collection(collection).add(data)
       return { id: ref.id, ...data }
+    },
+
+    /**
+     * Remove a document outright.
+     *
+     * Firestore's delete is idempotent and reports nothing about whether the
+     * document existed, so callers that need to tell "deleted" from "was never
+     * there" must read first. Every caller here does.
+     */
+    async deleteDoc(collection, docId) {
+      await user.collection(collection).doc(docId).delete()
+      return { id: docId, deleted: true }
     },
 
     async query(collection, { orderField, direction = 'desc', limit } = {}) {
