@@ -55,6 +55,21 @@ export const ESTIMATE_SCHEMA = {
 /** Macro keys, in display order. */
 export const MACRO_KEYS = ['kcal', 'protein_g', 'carbs_g', 'fat_g']
 
+/**
+ * How a logged meal is named to the model.
+ *
+ * Entries are keyed by uuid in the store, and the context block used to print
+ * those uuids so the coach could cite one when correcting a meal. That taught
+ * it the exact shape of a confirmation it could author without calling a tool,
+ * and on 2026-08-05 it did: three replies claiming a meal was logged, each
+ * carrying an invented `id 3e8a1c9f-…`, none of them backed by a write.
+ *
+ * A handle is short, obviously not a database key, and only meaningful inside
+ * the turn that issued it — so a fabricated one resolves to nothing, and any
+ * uuid appearing in a reply is now unambiguously made up.
+ */
+export const mealHandle = (index) => `#${index + 1}`
+
 const MAX_PER_MEAL = { kcal: 8000, protein_g: 500, carbs_g: 1500, fat_g: 500 }
 
 function round(value, decimals = 0) {

@@ -20,7 +20,7 @@
  * prompt-injected instruction cannot redirect a read or write to another user.
  */
 
-import { validateEstimate, toLogEntry, totalsFor } from '../schema.js'
+import { validateEstimate, toLogEntry, totalsFor, mealHandle } from '../schema.js'
 import { findBlockedMovements } from './guardrails.js'
 import { normaliseMileageDoc, summariseSession, toDate, appendRun } from './training.js'
 import { estimateSessionCost, summariseBodyMetrics } from './energy.js'
@@ -96,7 +96,12 @@ export const TOOL_DEFINITIONS = [
     input_schema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'Entry id, from the LOGGED TODAY context line.' },
+        id: {
+          type: 'string',
+          description:
+            'The meal\'s handle from the LOGGED TODAY context line, e.g. "#2", or the handle a ' +
+            'log_meal in this turn returned.',
+        },
         label: { type: 'string' },
         kcal: { type: 'number' },
         protein_g: { type: 'number' },
@@ -115,7 +120,9 @@ export const TOOL_DEFINITIONS = [
       'update_meal instead so the entry keeps its history.',
     input_schema: {
       type: 'object',
-      properties: { id: { type: 'string' } },
+      properties: {
+        id: { type: 'string', description: 'The meal\'s handle, e.g. "#2".' },
+      },
       required: ['id'],
     },
   },
@@ -406,6 +413,34 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
   /** Set when the log changes, so the caller knows to recompute totals. */
   let logMutated = false
 
+  /**
+   * Handles issued this turn, in the order the model sees them.
+   *
+   * Seeded from the context block's LOGGED TODAY line so `#2` there and `#2`
+   * in a tool argument are the same meal, and extended as meals are logged
+   * mid-turn so a log-then-correct sequence never needs a raw id either. The
+   * table is per-turn and never persisted — that is the point. See `mealHandle`.
+   */
+  const issued = (context?.meals || []).map((m) => m.id)
+  const issue = (id) => mealHandle(issued.push(id) - 1)
+  const handleOf = (id) => {
+    const index = issued.indexOf(id)
+    return index === -1 ? null : mealHandle(index)
+  }
+
+  /**
+   * Resolve what the model passed as `id` to a stored entry id.
+   *
+   * Handles are resolved through the table; anything else is taken at face
+   * value, which costs nothing — an id that isn't in today's log fails the
+   * lookup below either way, and a fabricated one has nowhere to land.
+   */
+  const resolveRef = (ref) => {
+    const raw = String(ref ?? '').trim()
+    const handle = /^#?(\d+)$/.exec(raw)
+    return handle ? (issued[Number(handle[1]) - 1] ?? null) : raw || null
+  }
+
   async function readLog() {
     const doc = await store.getDoc('nutritionLogs', dateId)
     return doc?.entries || []
@@ -468,7 +503,9 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
       cards.push({ type: 'food_log', entry })
       return {
         logged: true,
-        id: entry.id,
+        // The handle, never the stored id — nothing the model can read should
+        // hand it a plausible-looking key to quote in a reply.
+        meal: issue(entry.id),
         totals: { kcal: entry.kcal, protein_g: entry.protein, carbs_g: entry.carbs, fat_g: entry.fat },
         day_totals: dayTotals(entries),
         remaining: remainingFrom(entries),
@@ -476,11 +513,12 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
     },
 
     async update_meal({ id, label, kcal, protein_g, carbs_g, fat_g, meal_type }) {
+      const entryId = resolveRef(id)
       const entries = await readLog()
-      const index = entries.findIndex((e) => e.id === id)
+      const index = entryId ? entries.findIndex((e) => e.id === entryId) : -1
       if (index === -1) {
         throw new ToolError(
-          `No meal with id ${id} logged today. Check the LOGGED TODAY line for valid ids.`
+          `No meal ${id} on today's log. Use a handle from the LOGGED TODAY line, e.g. "#2".`
         )
       }
 
@@ -498,13 +536,32 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
       await writeLog(next)
 
       cards.push({ type: 'food_log', entry: next[index], corrected: true })
-      return { updated: true, entry: next[index], day_totals: dayTotals(next), remaining: remainingFrom(next) }
+      return {
+        updated: true,
+        // Summarised rather than echoed, so the stored id stays out of reach.
+        meal: handleOf(entryId) || String(id),
+        entry: {
+          label: next[index].label,
+          kcal: next[index].kcal,
+          protein_g: next[index].protein,
+          carbs_g: next[index].carbs,
+          fat_g: next[index].fat,
+          meal_type: next[index].mealType || null,
+        },
+        day_totals: dayTotals(next),
+        remaining: remainingFrom(next),
+      }
     },
 
     async delete_meal({ id }) {
+      const entryId = resolveRef(id)
       const entries = await readLog()
-      const next = entries.filter((e) => e.id !== id)
-      if (next.length === entries.length) throw new ToolError(`No meal with id ${id} logged today.`)
+      const next = entryId ? entries.filter((e) => e.id !== entryId) : entries
+      if (next.length === entries.length) {
+        throw new ToolError(
+          `No meal ${id} on today's log. Use a handle from the LOGGED TODAY line, e.g. "#2".`
+        )
+      }
       await writeLog(next)
       return { deleted: true, day_totals: dayTotals(next), remaining: remainingFrom(next) }
     },

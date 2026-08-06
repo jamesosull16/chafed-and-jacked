@@ -168,7 +168,16 @@ function MobilityBlock({ mobility, completed, onToggle }) {
  * — three movements after the main work — not about it being a lesser kind of
  * training.
  */
-function CoreSection({ exercises, sessionData, rirTarget, expanded, onExpand, onLogSet, readOnly }) {
+function CoreSection({
+  exercises,
+  sessionData,
+  rirTarget,
+  expanded,
+  onExpand,
+  onLogSet,
+  readOnly,
+  bodyweight,
+}) {
   const [open, setOpen] = useState(true)
   if (!exercises?.length) return null
 
@@ -209,6 +218,7 @@ function CoreSection({ exercises, sessionData, rirTarget, expanded, onExpand, on
               onToggle={() => onExpand(expanded === exercise.id ? null : exercise.id)}
               onLogSet={onLogSet}
               readOnly={readOnly}
+              bodyweight={bodyweight}
             />
           ))}
         </div>
@@ -225,10 +235,34 @@ function ExerciseCard({
   onToggle,
   onLogSet,
   readOnly,
+  bodyweight,
   nested = false,
 }) {
-  const done = (data?.sets || []).filter((s) => s?.completed).length
+  const logged = (data?.sets || []).filter((s) => s?.completed)
+  const done = logged.length
   const allDone = done >= rowCount(exercise)
+
+  // What an unlogged row should assume about BW: the last answer given for this
+  // exercise today, falling back to how it was logged last session. Mirrors how
+  // `suggestedWeight` carries a load forward rather than asking every row.
+  const defaultBodyweight = logged.length
+    ? !!logged[logged.length - 1].isBodyweight
+    : !!exercise.lastIsBodyweight
+
+  /**
+   * The weight to prefill row `i` with.
+   *
+   * Carried forward from the same side's previous set, two rows back — the
+   * other side's load is not the reference, and on a genuine imbalance it is
+   * the wrong starting number. A bodyweight set carries nothing: its "weight"
+   * is the athlete, and prefilling 178 lbs into a dumbbell field is a worse
+   * guess than an empty box.
+   */
+  const suggestedFor = (i) => {
+    const previous = data?.sets?.[i - (exercise.perSide ? 2 : 1)]
+    const carried = previous && !previous.isBodyweight ? previous.weight : null
+    return carried || exercise.recommendedWeight || undefined
+  }
 
   // Inside the core block these sit within a Card already, so they drop to a
   // filled panel instead — a bordered card inside a bordered card reads as a
@@ -305,7 +339,10 @@ function ExerciseCard({
 
           {exercise.lastWeight > 0 && (
             <p className="text-xs text-muted tabular-nums">
-              Last: {exercise.lastWeight} lbs × {exercise.lastReps.join('/')}
+              Last:{' '}
+              {exercise.lastIsBodyweight ? `BW (${exercise.lastWeight} lbs)` : `${exercise.lastWeight} lbs`}
+              {' × '}
+              {exercise.lastReps.join('/')}
             </p>
           )}
 
@@ -318,10 +355,10 @@ function ExerciseCard({
 
           <div className="flex items-center gap-2 px-2 pt-1 text-[11px] text-subtle">
             <span className={exercise.perSide ? 'w-9' : 'w-6'} />
-            <span className="w-16 text-center">Weight</span>
+            <span className="w-20 text-center">Weight</span>
             <span className="w-3" />
-            <span className="w-16 text-center">Reps</span>
-            <span className="w-16 text-center">RIR</span>
+            <span className="w-14 text-center">{exercise.isTimeBased ? 'Secs' : 'Reps'}</span>
+            <span className="w-14 text-center">RIR</span>
           </div>
 
           <div className="space-y-1">
@@ -334,14 +371,9 @@ function ExerciseCard({
                 exercise={exercise}
                 data={data?.sets?.[i]}
                 rirTarget={rirTarget}
-                // Carry the weight forward from the same side's previous set,
-                // two rows back — the other side's load is not the reference,
-                // and on a genuine imbalance it is the wrong starting number.
-                suggestedWeight={
-                  data?.sets?.[i - (exercise.perSide ? 2 : 1)]?.weight ||
-                  exercise.recommendedWeight ||
-                  undefined
-                }
+                suggestedWeight={suggestedFor(i)}
+                bodyweight={bodyweight}
+                defaultBodyweight={defaultBodyweight}
                 onLog={(setData) => onLogSet(exercise.id, i, setData)}
                 readOnly={readOnly}
               />
@@ -364,7 +396,13 @@ export default function StrengthSession({ searchParams }) {
     updateSession,
     weekSchedule,
     sessions,
+    bodyMetrics,
   } = useStrengthBlock()
+
+  // Latest weigh-in — `bodyMetrics` comes back newest-first. What a BW set
+  // resolves to. With no weigh-in on record the toggle still works and stores
+  // 0, which is what it was already storing before this existed.
+  const bodyweight = bodyMetrics?.[0]?.weight || null
 
   const requestedDay = searchParams.get('day')
   const isReview = searchParams.get('review') === '1'
@@ -698,6 +736,7 @@ export default function StrengthSession({ searchParams }) {
           onToggle={() => setExpanded(expanded === exercise.id ? null : exercise.id)}
           onLogSet={handleLogSet}
           readOnly={isReview}
+          bodyweight={bodyweight}
         />
       ))}
 
@@ -709,6 +748,7 @@ export default function StrengthSession({ searchParams }) {
         onExpand={setExpanded}
         onLogSet={handleLogSet}
         readOnly={isReview}
+        bodyweight={bodyweight}
       />
 
       {anyLogged && (

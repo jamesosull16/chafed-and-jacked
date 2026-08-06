@@ -358,3 +358,50 @@ describe('core block', () => {
     }
   })
 })
+
+describe('bodyweight loading', () => {
+  // A side plank, a pull-up, a dip: the load is the athlete. Logging one at
+  // BW stores the weigh-in as the set's weight, which the builder must read as
+  // a fact rather than as a number to progress from.
+  const sessionWith = (history) =>
+    buildSession({
+      ...ATHLETE,
+      splitIndex: 0,
+      blockStatus: statusForWeek(1),
+      exerciseHistory: history,
+    })
+
+  const findCore = (session) => session.exercises.find((e) => e.group === 'core')
+
+  it('prescribes no weight for a movement last logged at bodyweight', () => {
+    const core = findCore(sessionWith({}))
+    const session = sessionWith({
+      [core.id]: { currentWeight: 178, isBodyweight: true, lastReps: [30, 30] },
+    })
+    const exercise = session.exercises.find((e) => e.id === core.id)
+
+    // Without the flag this would round 178 up to the nearest 5 and put
+    // "180 lbs" on the card.
+    expect(exercise.recommendedWeight).toBe(0)
+    expect(exercise.lastIsBodyweight).toBe(true)
+    // The number is still carried, so the row can show what BW resolved to.
+    expect(exercise.lastWeight).toBe(178)
+  })
+
+  it('still prescribes from a real external load', () => {
+    const core = findCore(sessionWith({}))
+    const session = sessionWith({
+      [core.id]: { currentWeight: 45, isBodyweight: false, lastReps: [12, 12] },
+    })
+    const exercise = session.exercises.find((e) => e.id === core.id)
+
+    expect(exercise.recommendedWeight).toBeGreaterThan(0)
+    expect(exercise.lastIsBodyweight).toBe(false)
+  })
+
+  it('treats history predating the flag as an external load', () => {
+    const core = findCore(sessionWith({}))
+    const session = sessionWith({ [core.id]: { currentWeight: 45, lastReps: [12] } })
+    expect(session.exercises.find((e) => e.id === core.id).lastIsBodyweight).toBe(false)
+  })
+})
