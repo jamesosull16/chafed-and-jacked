@@ -237,6 +237,9 @@ function CoreSection({
 function describeLastLoad({ lastWeight, lastIsBodyweight, lastAddedWeight }) {
   if (!lastIsBodyweight) return `${lastWeight} lbs`
   if (lastAddedWeight > 0) return `BW +${lastAddedWeight} (${lastWeight} lbs)`
+  // Negative is the assist machine. Shown as assistance rather than as a minus
+  // sign, because "BW −60" reads like a bodyweight of −60 at a glance.
+  if (lastAddedWeight < 0) return `BW −${Math.abs(lastAddedWeight)} assist (${lastWeight} lbs)`
   return `BW (${lastWeight} lbs)`
 }
 

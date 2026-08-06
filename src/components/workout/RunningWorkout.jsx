@@ -81,7 +81,8 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweig
       reps: parseInt(localReps) || 0,
       rpe: localRpe ? parseInt(localRpe) : null,
       isBodyweight: isBW,
-      ...(isBW && added > 0 && { addedWeight: added }),
+      // Negative is the assist machine taking weight off.
+      ...(isBW && added !== 0 && { addedWeight: added }),
       completed: true,
     })
     setEditing(false)
@@ -116,8 +117,9 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweig
             inputMode="decimal"
             value={localAdded}
             onChange={(e) => setLocalAdded(e.target.value)}
-            placeholder="+0"
-            aria-label="Weight added on top of bodyweight"
+            placeholder="±0"
+            title="Added weight, or negative for assistance"
+            aria-label="Weight added to bodyweight — negative for machine assistance"
             disabled={inputsDisabled}
             className="w-11 bg-bg border border-border-strong border-l-0 rounded-r-lg px-1 py-2 text-center text-sm text-text focus:outline-none focus:border-brand disabled:opacity-50"
           />

@@ -410,6 +410,34 @@ describe('bodyweight loading', () => {
     expect(exercise.lastWeight).toBe(219.5)
   })
 
+  it('deepens assistance on a deload rather than withdrawing it', () => {
+    const core = findCore(sessionWith({}))
+    // Assisted pull-up: 174.5 lb athlete with 60 lbs of machine help, so the
+    // effective load is 114.5 and the added figure is negative.
+    const history = {
+      [core.id]: {
+        currentWeight: 114.5,
+        currentAddedWeight: -60,
+        isBodyweight: true,
+        lastReps: [8, 8],
+      },
+    }
+
+    const normal = sessionWith(history).exercises.find((e) => e.id === core.id)
+    const deload = buildSession({
+      ...ATHLETE,
+      splitIndex: 0,
+      blockStatus: statusForWeek(5),
+      exerciseHistory: history,
+    }).exercises.find((e) => e.id === core.id)
+
+    expect(normal.recommendedAddedWeight).toBe(-60)
+    // A deload week must make it easier, which for assisted work means MORE
+    // help. Scaling the negative like a plate would have moved it toward zero.
+    expect(deload.recommendedAddedWeight).toBeLessThan(-60)
+    expect(normal.lastIsBodyweight).toBe(true)
+  })
+
   it('leaves the added load at zero for an unloaded bodyweight movement', () => {
     const core = findCore(sessionWith({}))
     const session = sessionWith({

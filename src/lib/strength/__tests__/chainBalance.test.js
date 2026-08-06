@@ -536,3 +536,30 @@ describe('sessionTonnage: bodyweight fraction and timed holds', () => {
     expect(planks).toBeLessThan(26290 / 2)
   })
 })
+
+describe('sessionTonnage with machine assistance', () => {
+  const BW = 174.5
+
+  it('charges an assisted set less than an unassisted one', () => {
+    const assisted = sessionTonnage([
+      { id: 'pullUp', sets: [{ reps: 10, weight: BW - 60, addedWeight: -60, isBodyweight: true }] },
+    ])
+    const unassisted = sessionTonnage([
+      { id: 'pullUp', sets: [{ reps: 10, weight: BW, isBodyweight: true }] },
+    ])
+
+    expect(assisted).toBe(10 * (BW - 60))
+    expect(assisted).toBeLessThan(unassisted)
+  })
+
+  it('recovers his real bodyweight from a set the machine helped with', () => {
+    // `weight` is the effective load, so the athlete is whatever is left once
+    // the assistance is added back on — not `Math.max(0, …)` of it.
+    const load = sessionTonnage(
+      [{ id: 'x', sets: [{ reps: 1, weight: BW - 60, addedWeight: -60, isBodyweight: true }] }],
+      { catalogue: { x: { bodyweightLoad: 0.5 } } }
+    )
+    // Half of 174.5, less the 60 the machine took: not half of 114.5.
+    expect(load).toBeCloseTo(BW * 0.5 - 60, 5)
+  })
+})

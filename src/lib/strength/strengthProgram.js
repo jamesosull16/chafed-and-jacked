@@ -335,7 +335,7 @@ export function buildSession({
       recommendedAddedWeight:
         history?.isBodyweight && history?.currentAddedWeight
           ? roundToIncrement(
-              history.currentAddedWeight * loadMultiplier,
+              scaleAddedLoad(history.currentAddedWeight, loadMultiplier),
               exercise.weightIncrement || 5
             )
           : 0,
@@ -442,6 +442,23 @@ export function buildWeek(params = {}) {
   return Array.from({ length: daysPerWeek }, (_, i) =>
     buildSession({ ...params, splitIndex: i, daysPerWeek })
   )
+}
+
+/**
+ * Move an added load in the easier direction by `multiplier`.
+ *
+ * The sign carries meaning: positive is a plate on the belt, negative is the
+ * assist machine holding him up. Scaling both the same way would send a deload
+ * the wrong way for assisted work — 0.85 × −60 is −51, i.e. *less* help on the
+ * week meant to be lighter. Dividing instead deepens the assistance, which is
+ * what a deload on an assisted pull-up actually looks like.
+ *
+ * `loadMultiplier` is 0.725-1.0 across every phase and tier, so it is never
+ * zero and this never divides by one.
+ */
+function scaleAddedLoad(added, multiplier) {
+  if (!multiplier) return added
+  return added >= 0 ? added * multiplier : added / multiplier
 }
 
 function roundToIncrement(value, increment) {
