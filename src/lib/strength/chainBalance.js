@@ -149,25 +149,65 @@ function creditedSets(def, sets) {
 }
 
 /**
+ * Seconds of an isometric hold treated as one rep.
+ *
+ * A timed hold has no reps to multiply, and its `reps` field holds seconds —
+ * so counting it raw adds lb-seconds into a pounds total, and does it loudly:
+ * four 60-second side planks at full bodyweight came to three times the
+ * session's heaviest lift. Excluding them instead made them worth nothing,
+ * which was just as wrong in the other direction, and `totalVolume` feeds the
+ * day's calorie estimate.
+ *
+ * Three is a convention, not a measurement. It keeps a long hold worth more
+ * than a short one without letting ten extra seconds beat forty-five pounds.
+ */
+export const SECONDS_PER_REP = 3
+
+/**
+ * What the set actually resisted.
+ *
+ * Two independent corrections to the stored number, and conflating them
+ * double-counts: `weightMultiplier` describes how the entered figure maps to
+ * real external load (per-hand dumbbells), and has nothing to say about the
+ * athlete — so it must not touch the bodyweight half. `bodyweightLoad` is the
+ * fraction of him the movement resists, absent on almost everything.
+ */
+function effectiveLoad(set, def) {
+  const multiplier = def?.weightMultiplier || 1
+  if (!set.isBodyweight) return (set.weight || 0) * multiplier
+
+  // `weight` is the effective total the row resolved; the athlete is whatever
+  // is left once the plate is taken back off.
+  const added = set.addedWeight || 0
+  const bodyweight = Math.max(0, (set.weight || 0) - added)
+  return bodyweight * (def?.bodyweightLoad ?? 1) + added * multiplier
+}
+
+/** Reps, or a hold converted to them. */
+function effectiveReps(set, def) {
+  const raw = set.reps || 0
+  return def?.isTimeBased ? raw / SECONDS_PER_REP : raw
+}
+
+/**
  * Tonnage for one session's logged results: reps × load, summed.
  *
- * Timed holds are excluded. Their "reps" are seconds, so a 30-second side
- * plank logged at bodyweight contributes 30 × 178 — more tonnage than a
- * working set of hip thrusts, from an isometric that moves nothing. Before
- * bodyweight logging existed these sets carried 0 lbs and contributed nothing
- * anyway, so the exclusion changes no historical total; it stops the new
- * number from swamping the one the block is steered by.
+ * Historical sessions keep the total they were saved with — this recomputes
+ * nothing. Changing how the number is derived changes it going forward only.
  *
- * @param exerciseResults [{ id, sets: [{ reps, weight }] }]
+ * The catalogue is injectable because the two modes keep separate libraries and
+ * both save sessions. Running used to sum its own tonnage inline, which is how
+ * the same rule ends up implemented twice and drifting.
+ *
+ * @param exerciseResults [{ id, sets: [{ reps, weight, isBodyweight, addedWeight }] }]
+ * @param opts.catalogue  exercise definitions by id; defaults to the strength library
  */
-export function sessionTonnage(exerciseResults = []) {
+export function sessionTonnage(exerciseResults = [], { catalogue = STRENGTH_EXERCISES } = {}) {
   return exerciseResults.reduce((total, ex) => {
-    const def = STRENGTH_EXERCISES[ex.id]
-    if (def?.isTimeBased) return total
-    const multiplier = def?.weightMultiplier || 1
+    const def = catalogue[ex.id]
     return (
       total +
-      (ex.sets || []).reduce((t, set) => t + (set.reps || 0) * (set.weight || 0) * multiplier, 0)
+      (ex.sets || []).reduce((t, set) => t + effectiveReps(set, def) * effectiveLoad(set, def), 0)
     )
   }, 0)
 }

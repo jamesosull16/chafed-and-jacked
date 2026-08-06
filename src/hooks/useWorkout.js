@@ -4,6 +4,7 @@ import { getExercisesForDay, EXERCISES } from '../lib/program'
 import { getCurrentWeek, getWeekModifiers, getNextSession, getDayTypeForDate, getActiveRace, daysUntilRace, calculateProgramStart } from '../lib/periodization'
 import { getScalingTier, calculateEffectiveSets } from '../lib/loadScaling'
 import { getRecommendedWeight, checkForPR } from '../lib/progression'
+import { sessionTonnage } from '../lib/strength/chainBalance'
 import { useAuth } from '../contexts/AuthContext'
 import { notifyWorkoutLogged } from '../lib/coachTrigger'
 import { appendRun } from '../lib/runLog'
@@ -201,10 +202,9 @@ export function useWorkout() {
   async function saveSession(dayType, exerciseResults, duration) {
     if (!user) return
 
-    const totalVolume = exerciseResults.reduce((total, ex) => {
-      const multiplier = EXERCISES[ex.id]?.weightMultiplier || 1
-      return total + ex.sets.reduce((setTotal, set) => setTotal + set.reps * set.weight * multiplier, 0)
-    }, 0)
+    // Shared with strength mode so a bodyweight set, a per-hand dumbbell and a
+    // timed hold are all worth the same thing whichever screen logged them.
+    const totalVolume = sessionTonnage(exerciseResults, { catalogue: EXERCISES })
 
     const sessionData = {
       date: new Date().toISOString(),

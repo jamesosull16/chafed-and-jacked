@@ -136,6 +136,8 @@ export const EXERCISES = {
     equipment: 'Bench',
     notes: 'Adductor strength for groin injury prevention on trails. Hold for time (seconds).',
     weightIncrement: 0, // timed
+    // Supported on one forearm and the top leg.
+    bodyweightLoad: 0.5,
     isTimeBased: true,
   },
 
@@ -154,6 +156,8 @@ export const EXERCISES = {
     equipment: 'Pull-up bar or cable machine',
     notes: 'Upper back endurance — posture maintenance during late-race fatigue. Use pulldown if needed.',
     weightIncrement: 2.5,
+    // Hanging from the bar — all of him.
+    bodyweightLoad: 1.0,
   },
   chinUp: {
     id: 'chinUp',
@@ -169,6 +173,8 @@ export const EXERCISES = {
     equipment: 'Pull-up bar',
     notes: 'Supinated grip — more bicep involvement than pull-ups. Use band assist if needed.',
     weightIncrement: 2.5,
+    // Hanging from the bar — all of him.
+    bodyweightLoad: 1.0,
   },
   singleArmRow: {
     id: 'singleArmRow',
@@ -246,6 +252,8 @@ export const EXERCISES = {
     equipment: 'Bodyweight (add vest/plate to progress)',
     notes: 'Pressing balance with minimal fatigue cost. Use DB floor press as alternative.',
     weightIncrement: 0, // bodyweight — progress via reps or added weight
+    // Hands and toes — about two thirds of him over the hands.
+    bodyweightLoad: 0.65,
   },
   dbFloorPress: {
     id: 'dbFloorPress',
@@ -438,6 +446,8 @@ export const EXERCISES = {
     equipment: 'Bodyweight',
     notes: 'Lateral core and hip stabilizer endurance for trail camber and uneven terrain.',
     weightIncrement: 0,
+    // Supported on one forearm and one foot.
+    bodyweightLoad: 0.55,
   },
   singleLegCalfRaise: {
     id: 'singleLegCalfRaise',
@@ -453,6 +463,8 @@ export const EXERCISES = {
     equipment: 'Step or plate, optional dumbbell',
     notes: 'Achilles and calf resilience — critical for downhill durability in ultras.',
     weightIncrement: 5,
+    // All of him, on one calf.
+    bodyweightLoad: 1.0,
   },
 }
 

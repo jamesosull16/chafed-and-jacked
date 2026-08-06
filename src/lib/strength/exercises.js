@@ -23,6 +23,29 @@
  * demands.ankleDorsiflexion — how much dorsiflexion the position needs
  * demands.axialLoad    — spinal compression, for low-back flags
  *
+ * weightMultiplier vs bodyweightLoad — two different corrections to the number
+ * the athlete types, and neither is the other:
+ *
+ *   weightMultiplier  how the entered figure maps to real external load. 2 on
+ *                     anything held one-per-hand, because he enters per-hand.
+ *   bodyweightLoad    what fraction of the athlete himself resists the
+ *                     movement, 0-1. Absent means none, which is the default
+ *                     and the common case.
+ *
+ * `bodyweightLoad` is the only thing that makes a set loggable at BW: the set
+ * row offers the toggle exactly where this field exists, so it never appears on
+ * a bench press or a leg press. The test for setting it is not "does bodyweight
+ * contribute" — it contributes a little to almost everything. It is **would this
+ * movement ever be logged with no external load at all**. A standing calf raise
+ * or a side plank reads as literally nothing without it; a hip thrust always
+ * has a plate on it, and folding a large constant term into his heaviest lifts
+ * would only bury the week-to-week change he is trying to see.
+ *
+ * The fraction is an estimate and is meant to be. A side plank is not exactly
+ * 0.55 of a man, and no measurement here could make it so — what matters is
+ * that it is consistent week to week and roughly the right size next to a
+ * loaded set.
+ *
  * isUnilateral vs perSide — related, and not the same question:
  *
  *   isUnilateral  the limbs are loaded independently, so the movement can
@@ -226,6 +249,8 @@ export const STRENGTH_EXERCISES = {
     equipmentLevel: 'minimal',
     isUnilateral: false,
     weightIncrement: 0,
+    // Hips and torso are raised; the shoulders take the rest.
+    bodyweightLoad: 0.5,
     isTimeBased: true,
     repRange: [20, 45],
     demands: D('low', 'low', 'low', 'low'),
@@ -333,6 +358,8 @@ export const STRENGTH_EXERCISES = {
     equipmentLevel: 'minimal',
     isUnilateral: false,
     weightIncrement: 0,
+    // The hamstrings lower the whole body against gravity.
+    bodyweightLoad: 1.0,
     demands: D('moderate', 'high', 'low', 'low'),
     notes: 'Supramaximal eccentric. Powerful protection against future strains — once healed.',
     cue: 'Resist as far as you can control, then push back up with the hands.',
@@ -454,6 +481,8 @@ export const STRENGTH_EXERCISES = {
     equipmentLevel: 'homeGym',
     isUnilateral: false,
     weightIncrement: 0,
+    // Bodyweight squat against a band; the legs carry him.
+    bodyweightLoad: 1.0,
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Band counterbalance keeps the shin vertical — high quad tension, low knee stress.',
     cue: 'Sit straight down against the band. Slow tempo, or hold isometrically.',
@@ -510,6 +539,8 @@ export const STRENGTH_EXERCISES = {
     equipmentLevel: 'fullGym',
     isUnilateral: false,
     weightIncrement: 10,
+    // Standing on the feet — the calves carry all of him.
+    bodyweightLoad: 1.0,
     demands: D('low', 'low', 'low', 'moderate'),
     notes: 'Knee extended — targets the gastrocnemius.',
     cue: 'Two-second pause at the bottom stretch, full contraction at the top.',
@@ -545,6 +576,8 @@ export const STRENGTH_EXERCISES = {
     isUnilateral: true,
     perSide: true,
     weightIncrement: 5,
+    // All of him, on one calf.
+    bodyweightLoad: 1.0,
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Exposes side-to-side calf asymmetry that bilateral work hides.',
     cue: 'Full range on both sides — match the weaker side rep for rep.',
@@ -631,6 +664,8 @@ export const STRENGTH_EXERCISES = {
     equipmentLevel: 'minimal',
     isUnilateral: false,
     weightIncrement: 5,
+    // Hanging from the bar, the whole athlete is the load.
+    bodyweightLoad: 1.0,
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Primary vertical pull.',
     cue: 'Full hang at the bottom, chest to the bar at the top.',
@@ -935,7 +970,11 @@ export const STRENGTH_EXERCISES = {
     equipment: [],
     equipmentLevel: 'minimal',
     isUnilateral: false,
-    weightIncrement: 0,
+    // A dumbbell in each hand, entered per-hand like every other two-handed
+    // movement here. Increment 0 meant "cannot be loaded", which stopped
+    // being true the moment he picked up a pair of 15s.
+    weightIncrement: 5,
+    weightMultiplier: 2,
     // Knees stay bent, so unlike a straight-leg raise this never loads the
     // proximal hamstring at length — available at every rehab stage.
     repRange: [8, 12],
@@ -956,6 +995,8 @@ export const STRENGTH_EXERCISES = {
     isUnilateral: true,
     perSide: true,
     weightIncrement: 0,
+    // Supported on one forearm and one foot — roughly half of him.
+    bodyweightLoad: 0.55,
     // A hold, not a rep — the card and the set logger both read isTimeBased
     // and switch the unit to seconds. Without it a side plank prescribes
     // "12-20 reps", which is nonsense on the screen.

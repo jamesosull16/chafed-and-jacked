@@ -5,6 +5,7 @@ import { useFirestore } from '../../hooks/useFirestore'
 import { useAuth } from '../../contexts/AuthContext'
 import { DAY_LABELS, EXERCISES } from '../../lib/program'
 import { getScalingExplanation, getScalingTier } from '../../lib/loadScaling'
+import { sessionTonnage } from '../../lib/strength/chainBalance'
 import { checkForPR } from '../../lib/progression'
 import { getWeekModifiers } from '../../lib/periodization'
 import { Check, Palmtree } from 'lucide-react'
@@ -51,8 +52,10 @@ function RestTimer({ seconds, onComplete }) {
   )
 }
 
-function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweight, addedWeight, onUpdate, isActive, isCompleted, userBodyweight, reviewMode, weightLabel }) {
-  const [isBW, setIsBW] = useState(isBodyweight || false)
+function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweight, addedWeight, canBeBodyweight, onUpdate, isActive, isCompleted, userBodyweight, reviewMode, weightLabel }) {
+  // Offered only where the catalogue says the athlete is part of the
+  // resistance — see `bodyweightLoad`. Never on a squat or a floor press.
+  const [isBW, setIsBW] = useState(!!canBeBodyweight && (isBodyweight || false))
   const [localWeight, setLocalWeight] = useState(
     isBodyweight ? '' : (weight || '')
   )
@@ -130,14 +133,16 @@ function SetRow({ setIndex, repRange, isTimeBased, weight, reps, rpe, isBodyweig
             disabled={inputsDisabled}
             className="w-14 bg-bg border border-border-strong rounded-l-lg px-1 py-2 text-center text-sm text-text focus:outline-none focus:border-brand disabled:opacity-50"
           />
-          <button
-            onClick={!inputsDisabled ? toggleBW : undefined}
-            disabled={inputsDisabled}
-            className="bg-surface-2 border border-border-strong border-l-0 rounded-r-lg px-1.5 py-2 text-xs text-muted hover:text-brand hover:bg-surface-2 disabled:opacity-50 transition-colors"
-            title="Bodyweight"
-          >
-            BW
-          </button>
+          {canBeBodyweight && (
+            <button
+              onClick={!inputsDisabled ? toggleBW : undefined}
+              disabled={inputsDisabled}
+              className="bg-surface-2 border border-border-strong border-l-0 rounded-r-lg px-1.5 py-2 text-xs text-muted hover:text-brand hover:bg-surface-2 disabled:opacity-50 transition-colors"
+              title="Bodyweight"
+            >
+              BW
+            </button>
+          )}
         </div>
       )}
       <span className="text-subtle text-xs">x</span>
@@ -292,6 +297,7 @@ function ExerciseCard({ exercise, sessionData, onSetComplete, isExpanded, onTogg
                   reps={setData?.completed ? setData.reps : ''}
                   rpe={setData?.completed ? setData.rpe : ''}
                   isBodyweight={setData?.isBodyweight || false}
+                  canBeBodyweight={exercise.bodyweightLoad != null}
                   addedWeight={
                     setData?.completed
                       ? setData.addedWeight
@@ -616,10 +622,7 @@ export default function RunningWorkout({ searchParams }) {
         sets: (sessionData[ex.id]?.sets || []).filter((s) => s?.completed),
       }))
 
-    const totalVolume = exerciseResults.reduce((total, ex) => {
-      const multiplier = EXERCISES[ex.id]?.weightMultiplier || 1
-      return total + ex.sets.reduce((setTotal, set) => setTotal + set.reps * set.weight * multiplier, 0)
-    }, 0)
+    const totalVolume = sessionTonnage(exerciseResults, { catalogue: EXERCISES })
 
     // Update the existing session document
     await setDocument(`workoutSessions/${reviewSession.id}`, {

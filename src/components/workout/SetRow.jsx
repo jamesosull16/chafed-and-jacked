@@ -68,7 +68,11 @@ export default function SetRow({
   // own answer; an unlogged one inherits the last answer given for this
   // exercise — this session's if there is one, otherwise last session's. A six
   // row side plank is one tap, not six.
-  const isBW = bwOverride ?? data?.isBodyweight ?? defaultBodyweight
+  // The toggle exists only where the catalogue says the athlete is part of the
+  // resistance. On a bench press or a leg press it is meaningless clutter and a
+  // live footgun — tapping it would store his bodyweight as the load.
+  const canBeBodyweight = exercise.bodyweightLoad != null
+  const isBW = canBeBodyweight && (bwOverride ?? data?.isBodyweight ?? defaultBodyweight)
   const setIsBW = setBwOverride
 
   // What went on the bar on top of the athlete. Only meaningful while BW is on;
@@ -178,6 +182,17 @@ export default function SetRow({
             className="w-full text-center px-0.5 rounded-l-none"
           />
         </div>
+      ) : !canBeBodyweight ? (
+        <Input
+          type="number"
+          inputMode="decimal"
+          aria-label={`${describe} weight`}
+          value={weight}
+          onChange={(e) => setWeight(e.target.value)}
+          placeholder="lbs"
+          disabled={locked}
+          className="w-20 shrink-0 text-center px-1"
+        />
       ) : (
         <div className="flex w-20 shrink-0">
           <Input
