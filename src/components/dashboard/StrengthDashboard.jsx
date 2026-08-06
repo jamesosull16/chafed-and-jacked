@@ -59,6 +59,7 @@ export default function StrengthDashboard() {
     balance,
     mobility,
     weekSchedule,
+    getWeekSchedule,
     todaysSession,
     isTrainingDay,
     todayLiftStats,
@@ -122,7 +123,7 @@ export default function StrengthDashboard() {
 
       <VolumeLandmarks volume={balance.volume} />
 
-      <WeekSchedule schedule={weekSchedule} />
+      <WeekSchedule getWeek={getWeekSchedule} />
 
       <UpperBodyBalance pushPull={balance.pushPull} leftRight={balance.leftRight} />
 
