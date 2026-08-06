@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { onSnapshot, setDoc, arrayUnion, arrayRemove } from 'firebase/firestore'
 import { ChevronLeft, Camera, Sparkles, Trash2, Plus, X, ImageOff } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useAppMode } from '../hooks/useAppMode'
@@ -354,7 +355,7 @@ export default function NutritionTracker() {
 
   const { user, userProfile } = useAuth()
   const { isStrength, strength } = useAppMode()
-  const { getDocument, setDocument, getCollection } = useFirestore()
+  const { getDocument, getCollection, userRef } = useFirestore()
 
   // Both hooks run; only the active mode's numbers are used. They read
   // different collections, so there is no wasted duplicate work.
@@ -381,8 +382,6 @@ export default function NutritionTracker() {
         bodyFatPct: metrics[0]?.bodyFatPct ?? userProfile?.onboarding?.initialBodyFat ?? null,
       })
 
-      setTodayLog(await getDocument(`nutritionLogs/${todayId}`))
-
       const days = await Promise.all(
         last7Days().map(async (d) => {
           const dateId = formatLocalDate(d)
@@ -394,11 +393,33 @@ export default function NutritionTracker() {
       // Panels degrade to their empty states.
     }
     setLoading(false)
-  }, [user, getCollection, getDocument, todayId, userProfile])
+    // No `todayId` — today's log has its own subscription below, and this
+    // fetch now only seeds the trailing week.
+  }, [user, getCollection, getDocument, userProfile])
 
   useEffect(() => {
     load()
   }, [load])
+
+  /**
+   * Today's log is subscribed to, not fetched.
+   *
+   * This document has two writers — this page and the Coach's cloud function —
+   * and a one-shot read at mount is how a meal logged in chat stays invisible
+   * here until the page is remounted. Which is exactly what it looked like:
+   * "nothing was logged on the fuel page", for an entry that was.
+   */
+  useEffect(() => {
+    const ref = userRef(`nutritionLogs/${todayId}`)
+    if (!ref) return
+    return onSnapshot(
+      ref,
+      (snap) => setTodayLog(snap.exists() ? { id: snap.id, ...snap.data() } : null),
+      () => {
+        // Totals fall back to their empty state rather than a broken page.
+      }
+    )
+  }, [userRef, todayId])
 
   useEffect(() => {
     if (!isViewingPast) {
@@ -408,42 +429,96 @@ export default function NutritionTracker() {
     getDocument(`nutritionLogs/${viewDate}`).then(setViewingDay)
   }, [isViewingPast, viewDate, getDocument])
 
-  const advice = latest.weight
-    ? getNutritionAdvice({
-        mode: isStrength ? 'strength' : 'running',
-        weightLbs: latest.weight,
-        heightInches: userProfile?.profile?.heightInches || 0,
-        ageYears: calculateAge(userProfile?.profile?.birthday),
-        sex: userProfile?.profile?.biologicalSex || 'male',
-        currentBodyFatPct: latest.bodyFatPct,
-        todayLiftStats: isStrength ? block.todayLiftStats : running.todayLiftStats,
-        strength: { ...strength, isTrainingDay: block.isTrainingDay },
-        dailyMiles: running.todayMiles || 0,
-        weeklyMiles: running.currentMileage || 0,
-        trainingPhase: running.weekInfo?.type || 'build',
-        todayRuns: running.todayRuns,
-        vo2max: userProfile?.profile?.vo2max || null,
-      })
-    : null
+  // Memoised for the same reason CoachChat memoises its copy: the targets
+  // derived below are written with every log, so they have to be stable.
+  const advice = useMemo(
+    () =>
+      latest.weight
+        ? getNutritionAdvice({
+            mode: isStrength ? 'strength' : 'running',
+            weightLbs: latest.weight,
+            heightInches: userProfile?.profile?.heightInches || 0,
+            ageYears: calculateAge(userProfile?.profile?.birthday),
+            sex: userProfile?.profile?.biologicalSex || 'male',
+            currentBodyFatPct: latest.bodyFatPct,
+            todayLiftStats: isStrength ? block.todayLiftStats : running.todayLiftStats,
+            strength: { ...strength, isTrainingDay: block.isTrainingDay },
+            dailyMiles: running.todayMiles || 0,
+            weeklyMiles: running.currentMileage || 0,
+            trainingPhase: running.weekInfo?.type || 'build',
+            todayRuns: running.todayRuns,
+            vo2max: userProfile?.profile?.vo2max || null,
+          })
+        : null,
+    [
+      latest,
+      isStrength,
+      userProfile,
+      strength,
+      block.todayLiftStats,
+      block.isTrainingDay,
+      running.todayLiftStats,
+      running.todayMiles,
+      running.currentMileage,
+      running.weekInfo,
+      running.todayRuns,
+    ]
+  )
 
-  const targets = advice
-    ? {
-        kcal: advice.calories.target,
-        protein: advice.protein.grams,
-        carbs: Math.round((advice.carbs.lowGrams + advice.carbs.highGrams) / 2),
-        fat: advice.fat.grams,
-      }
-    : null
+  // Memoised because `mutateEntries` writes these alongside the entries, and a
+  // fresh object every render would rebuild the callback on every render too.
+  const targets = useMemo(
+    () =>
+      advice
+        ? {
+            kcal: advice.calories.target,
+            protein: advice.protein.grams,
+            carbs: Math.round((advice.carbs.lowGrams + advice.carbs.highGrams) / 2),
+            fat: advice.fat.grams,
+          }
+        : null,
+    [advice]
+  )
 
   const entries = todayLog?.entries || []
   const consumed = sumEntries(entries)
 
-  async function persist(nextEntries) {
-    const doc = { date: todayId, targets, entries: nextEntries }
-    await setDocument(`nutritionLogs/${todayId}`, doc)
-    setTodayLog(doc)
-    setHistory((prev) => prev.map((d) => (d.dateId === todayId ? { ...d, log: doc } : d)))
-  }
+  /**
+   * Add or remove one entry, as a field transform rather than a whole array.
+   *
+   * This document has two writers. The previous version wrote back an `entries`
+   * array built from whatever the page had loaded at mount, so a meal the Coach
+   * logged while the page was open was silently erased by the next entry added
+   * here — a lost update with no error and no trace of what went missing.
+   *
+   * `arrayUnion` / `arrayRemove` are applied server-side against the current
+   * document, so the two writers merge instead of overwriting. Chosen over a
+   * transaction because a transaction needs the network and this is a phone in
+   * a gym: transforms queue offline like any other write.
+   *
+   * The subscription above delivers the result; nothing is set locally.
+   */
+  const mutateEntry = useCallback(
+    async (transform) => {
+      const ref = userRef(`nutritionLogs/${todayId}`)
+      if (!ref) return
+      await setDoc(
+        ref,
+        {
+          date: todayId,
+          entries: transform,
+          // Only once we have them. Writing a null over a stored target set is
+          // how a day loses the numbers it was actually judged against.
+          ...(targets && { targets }),
+        },
+        { merge: true }
+      )
+    },
+    [userRef, todayId, targets]
+  )
+
+  const addEntry = (entry) => mutateEntry(arrayUnion(entry))
+  const removeEntry = (entry) => mutateEntry(arrayRemove(entry))
 
   if (loading) return <SkeletonPage cards={3} />
 
@@ -581,7 +656,7 @@ export default function NutritionTracker() {
       <EstimateSheet
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
-        onSave={(entry) => persist([...entries, entry])}
+        onSave={addEntry}
       />
 
       {entries.length > 0 && (
@@ -591,22 +666,24 @@ export default function NutritionTracker() {
             <EntryCard
               key={e.id}
               entry={e}
-              onDelete={() => persist(entries.filter((x) => x.id !== e.id))}
+              onDelete={() => removeEntry(e)}
             />
           ))}
         </div>
       )}
 
-      <ManualEntryCard onAdd={(entry) => persist([...entries, entry])} />
+      <ManualEntryCard onAdd={addEntry} />
 
       <Card>
         <CardLabel>Last 7 days</CardLabel>
         <div className="grid grid-cols-7 gap-1 mt-3">
           {history.map((day) => {
-            const dayEntries = day.log?.entries || []
-            const kcal = dayEntries.reduce((a, e) => a + (e.kcal || 0), 0)
-            const target = day.log?.targets?.kcal || 0
             const isToday = day.dateId === todayId
+            // Today comes from the live subscription; the fetched copy is a
+            // mount-time snapshot and goes stale the moment anything is logged.
+            const dayEntries = isToday ? entries : day.log?.entries || []
+            const kcal = dayEntries.reduce((a, e) => a + (e.kcal || 0), 0)
+            const target = (isToday ? targets?.kcal : day.log?.targets?.kcal) || 0
             const hasData = dayEntries.length > 0
 
             return (
