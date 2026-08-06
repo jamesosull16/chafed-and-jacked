@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   runCoachTurn,
   classifyTurn,
+  claimsLogWrite,
   CoachError,
   MAX_ITERATIONS,
 } from '../src/coach/orchestrator.js'
@@ -230,16 +231,32 @@ describe('tool handlers', () => {
     expect(store._data.collections.nutritionLogs['2026-07-22'].entries[0].source).toBe('chat_text')
   })
 
-  it('update_meal rewrites the same entry rather than adding one', async () => {
+  it('log_meal names the entry by handle and never by its stored id', async () => {
     const store = fakeStore()
-    const tooling = build(store)
-    const { id } = await tooling.handlers.log_meal({
+    const result = await build(store).handlers.log_meal({
       label: 'Chicken and rice',
       items: ESTIMATE.items,
       confidence: 'medium',
     })
 
-    await tooling.handlers.update_meal({ id, protein_g: 70 })
+    // The stored id is what the model used to be shown, and what it learned to
+    // fabricate. Nothing it can read may carry one.
+    expect(result.meal).toBe('#1')
+    expect(JSON.stringify(result)).not.toContain(
+      store._data.collections.nutritionLogs['2026-07-22'].entries[0].id
+    )
+  })
+
+  it('update_meal rewrites the same entry rather than adding one', async () => {
+    const store = fakeStore()
+    const tooling = build(store)
+    const { meal } = await tooling.handlers.log_meal({
+      label: 'Chicken and rice',
+      items: ESTIMATE.items,
+      confidence: 'medium',
+    })
+
+    await tooling.handlers.update_meal({ id: meal, protein_g: 70 })
 
     const entries = store._data.collections.nutritionLogs['2026-07-22'].entries
     expect(entries).toHaveLength(1)
@@ -247,11 +264,45 @@ describe('tool handlers', () => {
     expect(entries[0].editedAt).toBeTruthy()
   })
 
-  it('update_meal refuses an unknown id instead of creating one', async () => {
+  it('update_meal resolves a handle from the context block to the right entry', async () => {
+    const store = fakeStore({
+      collections: {
+        nutritionLogs: {
+          '2026-07-22': {
+            entries: [
+              { id: 'uuid-a', label: 'Oats', kcal: 400, protein: 20, carbs: 60, fat: 10 },
+              { id: 'uuid-b', label: 'Curry', kcal: 600, protein: 30, carbs: 70, fat: 20 },
+            ],
+          },
+        },
+      },
+    })
+    const tooling = createHandlers({
+      store,
+      estimate: vi.fn(),
+      photo: null,
+      dateId: '2026-07-22',
+      // Handles are positional against exactly this list — see renderMeals.
+      context: { ...CONTEXT, meals: [{ id: 'uuid-a' }, { id: 'uuid-b' }] },
+    })
+
+    await tooling.handlers.update_meal({ id: '#2', kcal: 550 })
+
+    const entries = store._data.collections.nutritionLogs['2026-07-22'].entries
+    expect(entries[0].kcal).toBe(400)
+    expect(entries[1].kcal).toBe(550)
+  })
+
+  it('update_meal refuses an unknown handle instead of creating one', async () => {
     const tooling = build()
-    await expect(tooling.handlers.update_meal({ id: 'nope', kcal: 100 })).rejects.toThrow(
-      /No meal with id/
-    )
+    await expect(tooling.handlers.update_meal({ id: '#9', kcal: 100 })).rejects.toThrow(/No meal/)
+  })
+
+  it('update_meal refuses a fabricated uuid, which is what one looks like', async () => {
+    const tooling = build()
+    await expect(
+      tooling.handlers.update_meal({ id: '3e8a1c9f-7d2b-4c6e-9a1f-5b3d8c2e7a4f', kcal: 100 })
+    ).rejects.toThrow(/No meal/)
   })
 
   it('delete_meal removes only the named entry', async () => {
@@ -260,7 +311,7 @@ describe('tool handlers', () => {
     const a = await tooling.handlers.log_meal({ label: 'A', items: ESTIMATE.items, confidence: 'high' })
     await tooling.handlers.log_meal({ label: 'B', items: ESTIMATE.items, confidence: 'high' })
 
-    await tooling.handlers.delete_meal({ id: a.id })
+    await tooling.handlers.delete_meal({ id: a.meal })
     const entries = store._data.collections.nutritionLogs['2026-07-22'].entries
     expect(entries).toHaveLength(1)
     expect(entries[0].label).toBe('B')
@@ -748,6 +799,39 @@ describe('tool handlers', () => {
   })
 })
 
+// ── Write-claim detection ────────────────────────────────────────────
+
+describe('claimsLogWrite', () => {
+  // Verbatim from the 2026-08-05 thread. Every one of these shipped to James
+  // over a turn that called no tools.
+  it.each([
+    'Logged one serving (½ bar, 35g) — **200 kcal, 1P, 20C, 13F**, high off the label.',
+    '[logged Maeve chocolate bar (½ bar) — 200 kcal, id 3e8a1c9f-7d2b-4c6e-9a1f-5b3d8c2e7a4f]',
+    "Re-fired once — **Maeve bar, ½ serving: 200 kcal.** If it lands you'll see today close at 2,412.",
+    "I've added it to today's log.",
+    'Done — saved it under dinner.',
+  ])('catches %j', (reply) => {
+    expect(claimsLogWrite(reply)).toBe(true)
+  })
+
+  // Honest things a turn with no write is entitled to say. Challenging these
+  // would be a way of nagging the coach into logging what it rightly declined.
+  it.each([
+    "I haven't logged it — tell me when you've actually drunk it.",
+    'Nothing logged yet today.',
+    'You logged that this morning, so it already counts.',
+    'Want me to log it?',
+    "I won't add it until you've eaten it.",
+    "That's a clean rest day. You're done.",
+  ])('passes %j', (reply) => {
+    expect(claimsLogWrite(reply)).toBe(false)
+  })
+
+  it('treats any uuid in a reply as fabricated, since none can reach one', () => {
+    expect(claimsLogWrite('Entry 7b2e9d4a-1f6c-4e8b-a3d5-9c1e7f2b4a8d is on there.')).toBe(true)
+  })
+})
+
 // ── Orchestration and routing ────────────────────────────────────────
 
 describe('runCoachTurn', () => {
@@ -878,7 +962,7 @@ describe('runCoachTurn', () => {
     const followUp = anthropic.messages.create.mock.calls[1][0].messages
     const toolResult = followUp[followUp.length - 1].content[0]
     expect(toolResult.is_error).toBe(true)
-    expect(toolResult.content).toMatch(/No meal with id/)
+    expect(toolResult.content).toMatch(/No meal/)
     expect(result.reply).toMatch(/couldn't find/)
   })
 
@@ -889,6 +973,99 @@ describe('runCoachTurn', () => {
     ])
     const result = await runCoachTurn({ message: 'x' }, deps({ anthropic }))
     expect(result.reply).toBe('no')
+  })
+
+  // ── Unbacked write claims ──
+  //
+  // 2026-08-05: three turns in a row replied "Logged one serving… id
+  // 3e8a1c9f-…" / "Re-fired once…" and invented a sync fault to explain the
+  // Fuel page disagreeing. `tools: []` on all three; nothing was ever written.
+  // The reply was the only artefact that said otherwise, so these tests are
+  // about the reply never being allowed to outrun the ledger.
+
+  const LOG_CALL = {
+    tools: [
+      {
+        name: 'log_meal',
+        input: { label: 'Maeve bar', items: ESTIMATE.items, confidence: 'high' },
+      },
+    ],
+  }
+
+  it('challenges a logging confirmation that no tool call backs', async () => {
+    const anthropic = scriptedModel([
+      { text: 'Logged one serving — 200 kcal, id 3e8a1c9f-7d2b-4c6e-9a1f-5b3d8c2e7a4f.' },
+      LOG_CALL,
+      { text: 'Logged — 485 kcal.' },
+    ])
+    const store = fakeStore()
+    const result = await runCoachTurn({ message: 'half a maeve bar' }, deps({ anthropic, store }))
+
+    // Searched rather than indexed: every call shares one `messages` array,
+    // and the mock records the reference, so positions shift under the assert.
+    const challenge = anthropic.messages.create.mock.calls
+      .at(-1)[0]
+      .messages.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+      .find((b) => b.type === 'text' && b.text?.includes('SYSTEM CHECK'))
+    expect(challenge?.text).toMatch(/no logging tool ran this turn/)
+
+    // And the second pass actually wrote it, which is the whole point.
+    expect(result.unbackedLogClaim).toBe(true)
+    expect(result.unresolvedLogClaim).toBe(false)
+    expect(result.logMutated).toBe(true)
+    expect(store._data.collections.nutritionLogs['2026-07-22'].entries).toHaveLength(1)
+    expect(result.reply).toBe('Logged — 485 kcal.')
+  })
+
+  it('replaces the reply when the model will not withdraw the claim', async () => {
+    const anthropic = scriptedModel([
+      { text: 'Re-fired once — Maeve bar, 200 kcal. If a duplicate shows up, tell me.' },
+    ])
+    const store = fakeStore()
+    const result = await runCoachTurn({ message: 'still missing' }, deps({ anthropic, store }))
+
+    expect(result.unresolvedLogClaim).toBe(true)
+    expect(result.reply).toMatch(/haven't actually logged that/)
+    expect(result.reply).not.toMatch(/Re-fired/)
+    expect(store._data.collections.nutritionLogs).toBeUndefined()
+  })
+
+  it('leaves a confirmation alone when a write really happened', async () => {
+    const anthropic = scriptedModel([LOG_CALL, { text: "Logged it — you're at 485 kcal." }])
+    const result = await runCoachTurn({ message: 'chicken and rice' }, deps({ anthropic }))
+
+    expect(result.unbackedLogClaim).toBe(false)
+    expect(result.reply).toBe("Logged it — you're at 485 kcal.")
+    expect(anthropic.messages.create).toHaveBeenCalledTimes(2)
+  })
+
+  it('leaves an honest "nothing logged" reply alone', async () => {
+    const anthropic = scriptedModel([
+      { text: "I haven't logged it — you've not said you ate it yet. Nothing added." },
+    ])
+    const result = await runCoachTurn({ message: 'shake for thursday' }, deps({ anthropic }))
+
+    expect(result.unbackedLogClaim).toBe(false)
+    expect(result.reply).toMatch(/haven't logged it/)
+    expect(anthropic.messages.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('forces the first step to be a tool call when a photo is being logged', async () => {
+    const anthropic = scriptedModel([LOG_CALL, { text: 'Logged.' }])
+    await runCoachTurn(
+      { message: 'dinner', photo: { base64: 'IMG', mediaType: 'image/jpeg' } },
+      deps({ anthropic })
+    )
+
+    expect(anthropic.messages.create.mock.calls[0][0].tool_choice).toEqual({ type: 'any' })
+    // Only the first — once results are back it must be free to stop and answer.
+    expect(anthropic.messages.create.mock.calls[1][0].tool_choice).toBeUndefined()
+  })
+
+  it('leaves a typed turn free to answer without calling anything', async () => {
+    const anthropic = scriptedModel([{ text: 'ok' }])
+    await runCoachTurn({ message: 'thanks' }, deps({ anthropic }))
+    expect(anthropic.messages.create.mock.calls[0][0].tool_choice).toBeUndefined()
   })
 
   it('stops at the iteration cap instead of looping forever', async () => {
@@ -1768,9 +1945,18 @@ describe('buildContextBlock', () => {
     expect(text).toMatch(/Isometric & mid-range only/)
   })
 
-  it('lists logged meals with their ids', () => {
-    const text = buildContextBlock({ ...CONTEXT, meals: [{ id: 'm1', label: 'Oats', kcal: 400 }] })
-    expect(text).toMatch(/Oats \(400 kcal, id m1\)/)
+  it('lists logged meals by handle, never by stored id', () => {
+    const text = buildContextBlock({
+      ...CONTEXT,
+      meals: [
+        { id: 'ea7e1f00-0000-4000-8000-000000000001', label: 'Oats', kcal: 400 },
+        { id: 'ea7e1f00-0000-4000-8000-000000000002', label: 'Curry', kcal: 600 },
+      ],
+    })
+    expect(text).toMatch(/LOGGED TODAY — #1 Oats \(400 kcal\); #2 Curry \(600 kcal\)/)
+    // The uuids in this block were the template for the fabricated logging
+    // confirmations of 2026-08-05. They must not be reachable from a reply.
+    expect(text).not.toMatch(/ea7e1f00/)
   })
 
   it('says so plainly when nothing is logged', () => {

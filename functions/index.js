@@ -192,6 +192,11 @@ export const coachTurn = onCall({ ...RUNTIME, timeoutSeconds: 180 }, async (requ
       tools: result.toolsUsed,
       historyMessages: history.length,
       rememberedFacts: memory.facts.length,
+      // Only when they fire, so they stay greppable. `unbacked` means the turn
+      // drafted a logging confirmation with no write behind it and was made to
+      // redo it; `unresolved` means it wouldn't, and James got the failure.
+      ...(result.unbackedLogClaim && { unbackedLogClaim: true }),
+      ...(result.unresolvedLogClaim && { unresolvedLogClaim: true }),
       ...result.usage,
     })
 
