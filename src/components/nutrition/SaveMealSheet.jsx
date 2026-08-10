@@ -45,7 +45,18 @@ export default function SaveMealSheet({
     setConfirmingDelete(false)
   }, [open, draft])
 
-  if (!fields) return null
+  /**
+   * Guarded on `draft`, not just on the copied fields.
+   *
+   * `fields` survives closing — the effect fills it and nothing clears it — so
+   * a guard on `fields` alone still renders the body on the render where the
+   * sheet has just been dismissed and `draft` is back to null. JSX children are
+   * built before `Sheet` is called and can decide to render nothing, so
+   * `draft.items` below was evaluated anyway, and reading it off null took the
+   * whole page down at the exact moment a save succeeded: white screen, meal
+   * written, back on a refresh.
+   */
+  if (!open || !draft || !fields) return null
 
   const name = normaliseName(fields.name, '')
   // Only a warning when it would land on a *different* meal — re-saving the
