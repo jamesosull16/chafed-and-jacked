@@ -127,6 +127,65 @@ export const TOOL_DEFINITIONS = [
     },
   },
 
+  // ── Saved meals ──
+  {
+    name: 'list_saved_meals',
+    description:
+      "James's meal library — meals he has estimated, checked and kept for repeat logging. " +
+      'Check here before estimating anything he refers to as a usual or by a dish name: a saved ' +
+      'meal carries numbers he has already agreed with, and estimating it again is a way to get ' +
+      'different ones.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'log_saved_meal',
+    description:
+      'Log a meal from the library at its saved macros, scaled by quantity. Use instead of ' +
+      'log_meal whenever the meal is one of his saved ones. Fails rather than guessing when the ' +
+      'name matches nothing or matches several — ask him which.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Saved meal name, from list_saved_meals.' },
+        quantity: { type: 'number', description: 'Multiplier on the saved serving. Defaults to 1.' },
+        meal_type: { type: 'string', enum: MEAL_TYPES },
+        date: DATE,
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'save_meal_to_library',
+    description:
+      'Keep a meal for one-tap logging later, as one serving. Saving under an existing name ' +
+      'replaces that meal rather than adding a second one with the same name — which is how you ' +
+      'correct a saved meal whose numbers were off. Only save what he actually repeats; a ' +
+      'library full of one-offs is a library he cannot search.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Short, searchable dish name — how he refers to it.' },
+        kcal: { type: 'number' },
+        protein_g: { type: 'number' },
+        carbs_g: { type: 'number' },
+        fat_g: { type: 'number' },
+        meal_type: { type: 'string', enum: MEAL_TYPES },
+      },
+      required: ['name', 'kcal', 'protein_g', 'carbs_g', 'fat_g'],
+    },
+  },
+  {
+    name: 'delete_saved_meal',
+    description:
+      'Remove a meal from the library. This does not touch anything already logged from it — ' +
+      'past days keep the meals they recorded.',
+    inputSchema: {
+      type: 'object',
+      properties: { name: { type: 'string' } },
+      required: ['name'],
+    },
+  },
+
   // ── Runs ──
   {
     name: 'log_run',

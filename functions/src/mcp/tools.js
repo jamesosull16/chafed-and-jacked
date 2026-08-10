@@ -26,6 +26,14 @@
 
 import { randomUUID } from 'node:crypto'
 import { validateEstimate, toLogEntry, totalsFor } from '../schema.js'
+import {
+  libraryKey,
+  matchSavedMeal,
+  normaliseName,
+  normaliseQuantity,
+  savedMealToEntry,
+  sortSavedMeals,
+} from '../savedMeals.js'
 import { localDateId } from '../store.js'
 import { normaliseMileageDoc, appendRun, summariseSession, toDate } from '../coach/training.js'
 
@@ -106,6 +114,29 @@ export function createHandlers({ store, estimate, timezoneOffset = 0 }) {
     const consumed = consumedFrom(next)
     const targets = storedTargets(log)
     return { entries: next, dayTotals: consumed, remaining: remainingFrom(targets, consumed) }
+  }
+
+  /** The saved meal library. Capped — a library this size is already unusable. */
+  async function readLibrary() {
+    return store.query('savedMeals', { orderField: 'createdAt', direction: 'desc', limit: 200 })
+  }
+
+  /**
+   * Record that a saved meal was used, so the app's ordering reflects it.
+   *
+   * Read-modify-write, matching the coach: the store exposes no field
+   * transforms, and a lost increment costs a sort position. Swallowed on
+   * failure — the meal itself is already on the day.
+   */
+  async function noteLibraryUse(meal) {
+    try {
+      await store.setDoc('savedMeals', meal.id, {
+        lastUsedAt: new Date().toISOString(),
+        useCount: (Number(meal.useCount) || 0) + 1,
+      })
+    } catch {
+      // Ordering falls back to when it was saved.
+    }
   }
 
   /** Read/modify/write one day's run list, keeping `miles` in step. */
@@ -236,6 +267,114 @@ export function createHandlers({ store, estimate, timezoneOffset = 0 }) {
         return next
       })
       return { date: dateId, deleted: id, ...result }
+    },
+
+    // ── Saved meals ────────────────────────────────────────────────
+
+    async list_saved_meals() {
+      const meals = sortSavedMeals(await readLibrary())
+      return {
+        count: meals.length,
+        savedMeals: meals.map((m) => ({
+          name: m.name,
+          kcal: m.kcal,
+          protein_g: m.protein,
+          carbs_g: m.carbs,
+          fat_g: m.fat,
+          mealType: m.mealType ?? null,
+          items: m.items ?? null,
+          timesLogged: m.useCount || 0,
+          lastUsedAt: m.lastUsedAt ?? null,
+        })),
+      }
+    },
+
+    async log_saved_meal({ name, quantity, meal_type, date }) {
+      const meals = await readLibrary()
+      const { match, candidates } = matchSavedMeal(meals, name)
+      if (!match) {
+        if (candidates.length > 1) {
+          const names = candidates.map((c) => c.name).join('" and "')
+          throw new Error(`"${name}" matches "${names}" — say which one.`)
+        }
+        throw new Error(
+          meals.length
+            ? `Nothing saved under "${name}". The library holds: ${meals.map((m) => m.name).join(', ')}.`
+            : 'The meal library is empty.'
+        )
+      }
+
+      const entry = savedMealToEntry(match, {
+        quantity,
+        mealType: meal_type,
+        id: randomUUID(),
+      })
+      const dateId = today(date)
+      const result = await withMeals(dateId, (entries) => [...entries, entry])
+      await noteLibraryUse(match)
+      return {
+        date: dateId,
+        logged: entry,
+        fromLibrary: match.name,
+        quantity: normaliseQuantity(quantity),
+        ...result,
+      }
+    },
+
+    /**
+     * Keep a meal, or correct the one already under that name.
+     *
+     * Name-keyed rather than append-only, matching the app: re-saving with
+     * better numbers should fix the meal he already searches for, not leave two
+     * with the same name and different macros.
+     */
+    async save_meal_to_library({ name, kcal, protein_g, carbs_g, fat_g, meal_type }) {
+      const numbers = { kcal, protein_g, carbs_g, fat_g }
+      for (const [key, value] of Object.entries(numbers)) {
+        if (!Number.isFinite(Number(value)) || Number(value) < 0) {
+          throw new Error(`${key} must be a number of at least 0.`)
+        }
+      }
+      const clean = normaliseName(name, '')
+      if (!clean) throw new Error('A saved meal needs a name — it is what it is found by.')
+
+      const existing = (await readLibrary()).find((m) => libraryKey(m.name) === libraryKey(clean))
+      const now = new Date().toISOString()
+      const meal = {
+        name: clean,
+        key: libraryKey(clean),
+        kcal: Math.round(Number(kcal)),
+        protein: round1(Number(protein_g)),
+        carbs: round1(Number(carbs_g)),
+        fat: round1(Number(fat_g)),
+        ...(meal_type && { mealType: meal_type }),
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+        // Only on creation. `lastUsedAt` must exist from the start — the app
+        // orders the library on it, and Firestore drops documents missing the
+        // field it orders by.
+        ...(existing ? {} : { useCount: 0, lastUsedAt: null }),
+      }
+      const id = existing?.id || randomUUID()
+      await store.setDoc('savedMeals', id, meal)
+      return { saved: { name: clean, ...meal }, replaced: !!existing }
+    },
+
+    async delete_saved_meal({ name }) {
+      const meals = await readLibrary()
+      const { match, candidates } = matchSavedMeal(meals, name)
+      if (!match) {
+        if (candidates.length > 1) {
+          const names = candidates.map((c) => c.name).join('" and "')
+          throw new Error(`"${name}" matches "${names}" — say which one.`)
+        }
+        throw new Error(`Nothing saved under "${name}".`)
+      }
+      await store.deleteDoc('savedMeals', match.id)
+      return {
+        deleted: match.name,
+        note: 'Days that already logged this meal keep their entries.',
+      }
     },
 
     // ── Runs ───────────────────────────────────────────────────────

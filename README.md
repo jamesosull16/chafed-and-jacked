@@ -257,6 +257,7 @@ own subtree.
 | `exerciseProgress` | exerciseId | Current weight, last reps/RIR, capped history |
 | `bodyMetrics` | auto | Weight, body fat %, fat/lean mass |
 | `nutritionLogs` | `YYYY-MM-DD` | Target snapshot + entries with itemised breakdowns |
+| `savedMeals` | auto | The meal library — one serving each, name-keyed, logged in a tap |
 | `coachChat` | auto | Chat thread — role, content, card payloads, photo thumbnail |
 | `mileageLogs` / `dailyMileage` | week / date | Running mode only |
 

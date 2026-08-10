@@ -21,6 +21,7 @@
  */
 
 import { validateEstimate, toLogEntry, totalsFor, mealHandle } from '../schema.js'
+import { matchSavedMeal, savedMealToEntry, normaliseQuantity, sortSavedMeals } from '../savedMeals.js'
 import { findBlockedMovements } from './guardrails.js'
 import { normaliseMileageDoc, summariseSession, toDate, appendRun } from './training.js'
 import { estimateSessionCost, summariseBodyMetrics } from './energy.js'
@@ -86,6 +87,40 @@ export const TOOL_DEFINITIONS = [
         assumptions: { type: 'array', items: { type: 'string' } },
       },
       required: ['label', 'items', 'confidence'],
+    },
+  },
+  {
+    name: 'list_saved_meals',
+    description:
+      "James's saved meal library — meals he has already estimated, checked and kept. Call this " +
+      'when he refers to something as a usual, a repeat or by a name that sounds like a dish he ' +
+      'has before ("the usual oats", "my post-lift bowl"), and before estimating anything that ' +
+      'might already be in here. A saved meal has numbers he has already agreed with; ' +
+      're-estimating it is a way to get different ones.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'log_saved_meal',
+    description:
+      "Log a meal from the library at its saved macros. Use this instead of estimate_meal + " +
+      'log_meal whenever the meal is one of his saved ones. Set quantity when he says he had ' +
+      'more or less than usual — 2 for a double portion, 0.5 for half. If the name matches ' +
+      'nothing, or matches more than one saved meal, this fails and tells you which: ask him ' +
+      'rather than estimating something he has already saved.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'The saved meal\'s name, from list_saved_meals.',
+        },
+        quantity: {
+          type: 'number',
+          description: 'Multiplier on the saved serving. Defaults to 1.',
+        },
+        meal_type: { type: 'string', enum: MEAL_TYPES },
+      },
+      required: ['name'],
     },
   },
   {
@@ -446,6 +481,31 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
     return doc?.entries || []
   }
 
+  /** The saved meal library, capped so a large one can't crowd out the turn. */
+  async function readLibrary() {
+    return store.query('savedMeals', { orderField: 'createdAt', direction: 'desc', limit: 200 })
+  }
+
+  /**
+   * Record that a saved meal was used.
+   *
+   * Read-modify-write rather than an atomic increment, because the store
+   * deliberately exposes no field transforms. The stakes are a sort order and
+   * a display count — a lost increment costs nothing, and adding a transform
+   * API for it would put one on every write path that has no business with it.
+   * Failures are swallowed for the same reason: the meal is already logged.
+   */
+  async function noteLibraryUse(meal) {
+    try {
+      await store.setDoc('savedMeals', meal.id, {
+        lastUsedAt: new Date().toISOString(),
+        useCount: (Number(meal.useCount) || 0) + 1,
+      })
+    } catch {
+      // Ordering falls back to when it was saved.
+    }
+  }
+
   async function writeLog(entries) {
     await store.setDoc('nutritionLogs', dateId, {
       date: dateId,
@@ -505,6 +565,66 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
         logged: true,
         // The handle, never the stored id — nothing the model can read should
         // hand it a plausible-looking key to quote in a reply.
+        meal: issue(entry.id),
+        totals: { kcal: entry.kcal, protein_g: entry.protein, carbs_g: entry.carbs, fat_g: entry.fat },
+        day_totals: dayTotals(entries),
+        remaining: remainingFrom(entries),
+      }
+    },
+
+    async list_saved_meals() {
+      const meals = sortSavedMeals(await readLibrary())
+      return {
+        count: meals.length,
+        // Names only, never document ids — same reason meals on the log are
+        // handed out as handles. A name is what James calls the meal and what
+        // log_saved_meal takes, so an id in a reply could only be invented.
+        saved_meals: meals.map((m) => ({
+          name: m.name,
+          kcal: m.kcal,
+          protein_g: m.protein,
+          carbs_g: m.carbs,
+          fat_g: m.fat,
+          ...(m.mealType && { meal_type: m.mealType }),
+          times_logged: m.useCount || 0,
+        })),
+      }
+    },
+
+    async log_saved_meal({ name, quantity, meal_type }) {
+      const meals = await readLibrary()
+      const { match, candidates } = matchSavedMeal(meals, name)
+
+      if (!match) {
+        if (candidates.length > 1) {
+          const names = candidates.map((c) => c.name).join('" and "')
+          throw new ToolError(
+            `"${name}" matches "${names}" — ask James which one rather than picking.`
+          )
+        }
+        throw new ToolError(
+          meals.length
+            ? `Nothing saved under "${name}". The library holds: ${meals
+                .map((m) => m.name)
+                .join(', ')}. Estimate it as a new meal if it isn't one of these.`
+            : 'The meal library is empty — estimate this one instead.'
+        )
+      }
+
+      const entry = savedMealToEntry(match, {
+        quantity,
+        mealType: meal_type,
+        id: store.newId(),
+      })
+      const entries = [...(await readLog()), entry]
+      await writeLog(entries)
+      await noteLibraryUse(match)
+
+      cards.push({ type: 'food_log', entry })
+      return {
+        logged: true,
+        from_library: match.name,
+        quantity: normaliseQuantity(quantity),
         meal: issue(entry.id),
         totals: { kcal: entry.kcal, protein_g: entry.protein, carbs_g: entry.carbs, fat_g: entry.fat },
         day_totals: dayTotals(entries),

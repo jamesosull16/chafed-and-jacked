@@ -166,8 +166,10 @@ describe('tool definitions', () => {
       'get_training_history',
       'get_upcoming_sessions',
       'get_workout',
+      'list_saved_meals',
       'log_meal',
       'log_run',
+      'log_saved_meal',
       'log_subjective',
       'propose_adjustment',
       'propose_fuelling',
@@ -315,6 +317,112 @@ describe('tool handlers', () => {
     const entries = store._data.collections.nutritionLogs['2026-07-22'].entries
     expect(entries).toHaveLength(1)
     expect(entries[0].label).toBe('B')
+  })
+
+  // ── The meal library ───────────────────────────────────────────────
+  //
+  // The point of these tools is that a meal James has already checked is
+  // logged at the numbers he checked, not at whatever a fresh estimate says
+  // today. Everything below is about that guarantee holding.
+
+  // A function, not a constant: fakeStore holds the seed by reference, so a
+  // shared object would carry one test's writes into the next.
+  const library = () => ({
+    savedMeals: {
+      'sm-alpha': {
+        name: 'Overnight oats',
+        key: 'overnight oats',
+        kcal: 500,
+        protein: 30,
+        carbs: 60,
+        fat: 15,
+        createdAt: '2026-07-01T00:00:00.000Z',
+        useCount: 4,
+      },
+      'sm-beta': {
+        name: 'Post-lift bowl',
+        key: 'post-lift bowl',
+        kcal: 700,
+        protein: 55,
+        carbs: 80,
+        fat: 14,
+        createdAt: '2026-07-02T00:00:00.000Z',
+      },
+    },
+  })
+
+  it('list_saved_meals reports the library without handing over document ids', async () => {
+    const result = await build(fakeStore({ collections: library() })).handlers.list_saved_meals()
+
+    expect(result.count).toBe(2)
+    expect(result.saved_meals.map((m) => m.name)).toContain('Overnight oats')
+    // Same rule as logged meals: nothing the model can read may carry a key it
+    // could quote back as proof of a write it never made.
+    expect(JSON.stringify(result)).not.toContain('sm-alpha')
+    expect(result.saved_meals.every((m) => m.id === undefined)).toBe(true)
+  })
+
+  it('log_saved_meal writes the saved macros, untouched by any estimate', async () => {
+    const store = fakeStore({ collections: library() })
+    const estimate = vi.fn()
+    const tooling = createHandlers({
+      store,
+      estimate,
+      photo: null,
+      dateId: '2026-07-22',
+      context: CONTEXT,
+    })
+
+    const result = await tooling.handlers.log_saved_meal({ name: 'Overnight oats' })
+
+    expect(estimate).not.toHaveBeenCalled()
+    const entries = store._data.collections.nutritionLogs['2026-07-22'].entries
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ label: 'Overnight oats', kcal: 500, protein: 30, source: 'library' })
+    expect(result.from_library).toBe('Overnight oats')
+    expect(tooling.cards[0].type).toBe('food_log')
+  })
+
+  it('log_saved_meal scales the serving and says so in the label', async () => {
+    const store = fakeStore({ collections: library() })
+    const result = await build(store).handlers.log_saved_meal({ name: 'oats', quantity: 2 })
+
+    const entry = store._data.collections.nutritionLogs['2026-07-22'].entries[0]
+    expect(entry.kcal).toBe(1000)
+    expect(entry.protein).toBe(60)
+    expect(entry.label).toBe('Overnight oats (2×)')
+    expect(result.quantity).toBe(2)
+  })
+
+  it('log_saved_meal counts the use, so the app can order by it', async () => {
+    const store = fakeStore({ collections: library() })
+    await build(store).handlers.log_saved_meal({ name: 'Overnight oats' })
+
+    expect(store._data.collections.savedMeals['sm-alpha'].useCount).toBe(5)
+    expect(store._data.collections.savedMeals['sm-alpha'].lastUsedAt).toBeTruthy()
+  })
+
+  it('log_saved_meal refuses an unknown name and lists what is actually saved', async () => {
+    const tooling = build(fakeStore({ collections: library() }))
+    await expect(tooling.handlers.log_saved_meal({ name: 'lasagne' })).rejects.toThrow(
+      /Overnight oats/
+    )
+  })
+
+  it('log_saved_meal refuses to pick between two matches', async () => {
+    const store = fakeStore({
+      collections: {
+        savedMeals: {
+          a: { name: 'Chicken salad', kcal: 400, protein: 40, carbs: 10, fat: 20 },
+          b: { name: 'Chicken curry', kcal: 800, protein: 45, carbs: 90, fat: 25 },
+        },
+      },
+    })
+    // Guessing here writes 400 kcal or 800 kcal into the day on a coin flip,
+    // and nothing downstream would show which.
+    await expect(build(store).handlers.log_saved_meal({ name: 'chicken' })).rejects.toThrow(
+      /ask James which one/
+    )
   })
 
   it('estimate_meal refuses to guess with neither text nor photo', async () => {

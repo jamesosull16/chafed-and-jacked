@@ -12,10 +12,13 @@ import {
   buildUpcomingSessions,
 } from '../lib/coachContext'
 import { useFirestore, formatLocalDate } from '../hooks/useFirestore'
+import { useSavedMeals } from '../hooks/useSavedMeals'
 import { getNutritionAdvice } from '../lib/nutritionAdvice'
 import { calculateAge } from '../lib/bodyMetrics'
 import { prepareImage } from '../lib/mealEstimation'
+import { entryToSavedMeal } from '../lib/savedMeals'
 import { SkeletonPage } from '../components/ui'
+import SaveMealSheet from '../components/nutrition/SaveMealSheet'
 import { cn } from '../components/ui/cn'
 import ContextStrip from '../components/chat/ContextStrip'
 import Composer from '../components/chat/Composer'
@@ -65,14 +68,22 @@ function TypingIndicator() {
   )
 }
 
-function Cards({ cards, onLogOption, loggingIndex }) {
+function Cards({ cards, onLogOption, loggingIndex, onSaveMeal, isSaved }) {
   if (!cards?.length) return null
   return (
     <div className="flex flex-col items-start gap-2">
       {cards.map((card, i) => {
         switch (card.type) {
           case 'food_log':
-            return <FoodLogCard key={i} entry={card.entry} corrected={card.corrected} />
+            return (
+              <FoodLogCard
+                key={i}
+                entry={card.entry}
+                corrected={card.corrected}
+                onSave={() => onSaveMeal(card.entry)}
+                saved={isSaved(card.entry.label)}
+              />
+            )
           case 'meal_options':
             return (
               <MealOptionsCard
@@ -121,7 +132,9 @@ export default function CoachChat() {
   const [photo, setPhoto] = useState(null)
   const [photoError, setPhotoError] = useState(null)
   const [loggingIndex, setLoggingIndex] = useState(null)
+  const [savingEntry, setSavingEntry] = useState(null)
   const threadEndRef = useRef(null)
+  const library = useSavedMeals()
 
   const todayId = formatLocalDate()
 
@@ -393,6 +406,8 @@ export default function CoachChat() {
               cards={message.cards}
               onLogOption={handleLogOption}
               loggingIndex={loggingIndex}
+              onSaveMeal={setSavingEntry}
+              isSaved={(name) => !!library.findByName(name)}
             />
           </div>
         ))}
@@ -427,6 +442,21 @@ export default function CoachChat() {
 
         <div ref={threadEndRef} />
       </div>
+
+      {/* Saving from a chat card writes to the same library the Fuel page
+          reads — a meal the coach logged is savable without leaving the
+          thread. */}
+      <SaveMealSheet
+        open={!!savingEntry}
+        draft={savingEntry}
+        onClose={() => setSavingEntry(null)}
+        isDuplicate={(name) => !!library.findByName(name)}
+        onSave={async ({ name, kcal, protein, carbs, fat }) => {
+          await library.saveMeal(
+            entryToSavedMeal({ ...savingEntry, kcal, protein, carbs, fat }, { name })
+          )
+        }}
+      />
 
       <div className="shrink-0">
         <Composer
