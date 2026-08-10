@@ -1,12 +1,25 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, useId } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { onSnapshot, setDoc, arrayUnion, arrayRemove } from 'firebase/firestore'
-import { ChevronLeft, Camera, Sparkles, Trash2, Plus, X, ImageOff } from 'lucide-react'
+import {
+  ChevronLeft,
+  Camera,
+  Sparkles,
+  Trash2,
+  Plus,
+  X,
+  ImageOff,
+  BookMarked,
+  Bookmark,
+  BookmarkCheck,
+  Utensils,
+} from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useAppMode } from '../hooks/useAppMode'
 import { useWorkout } from '../hooks/useWorkout'
 import { useStrengthBlock } from '../hooks/useStrengthBlock'
 import { useFirestore, formatLocalDate } from '../hooks/useFirestore'
+import { useSavedMeals } from '../hooks/useSavedMeals'
 import { getNutritionAdvice } from '../lib/nutritionAdvice'
 import { calculateAge } from '../lib/bodyMetrics'
 import {
@@ -15,6 +28,7 @@ import {
   estimateToEntry,
   CONFIDENCE_COPY,
 } from '../lib/mealEstimation'
+import { entryToSavedMeal, savedMealToEntry } from '../lib/savedMeals'
 import {
   Card,
   CardLabel,
@@ -26,8 +40,11 @@ import {
   ProgressBar,
   SkeletonPage,
   Sheet,
+  Tabs,
   EmptyState,
 } from '../components/ui'
+import MealLibrary from '../components/nutrition/MealLibrary'
+import SaveMealSheet from '../components/nutrition/SaveMealSheet'
 import { cn } from '../components/ui/cn'
 
 const MACROS = [
@@ -75,6 +92,9 @@ function EstimateSheet({ open, onClose, onSave }) {
   const [error, setError] = useState('')
   const [estimate, setEstimate] = useState(null)
   const [edited, setEdited] = useState(null)
+  const [keep, setKeep] = useState(false)
+  const [libraryName, setLibraryName] = useState('')
+  const keepId = useId()
 
   function reset() {
     setDescription('')
@@ -83,6 +103,8 @@ function EstimateSheet({ open, onClose, onSave }) {
     setEdited(null)
     setError('')
     setBusy(false)
+    setKeep(false)
+    setLibraryName('')
   }
 
   async function handleFile(e) {
@@ -112,6 +134,9 @@ function EstimateSheet({ open, onClose, onSave }) {
         carbs: result.carbs_g,
         fat: result.fat_g,
       })
+      setLibraryName(
+        description.trim() || result.items.map((i) => i.name).join(', ').slice(0, 80)
+      )
     } catch (err) {
       setError(err.message)
     } finally {
@@ -130,7 +155,7 @@ function EstimateSheet({ open, onClose, onSave }) {
       },
       { description, source: image ? 'photo' : 'text' }
     )
-    onSave(entry)
+    onSave(entry, keep && libraryName.trim() ? { name: libraryName } : null)
     reset()
     onClose()
   }
@@ -280,6 +305,41 @@ function EstimateSheet({ open, onClose, onSave }) {
             </ul>
           </div>
 
+          {/* Asked here, at the one moment the numbers have just been checked
+              and the meal is fresh in mind. A prompt a day later is a prompt
+              about a meal he can no longer verify. */}
+          <div className="rounded-2xl border border-border-default p-3 space-y-2.5">
+            <label htmlFor={keepId} className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                id={keepId}
+                type="checkbox"
+                checked={keep}
+                onChange={(e) => setKeep(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-brand"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-text">Save to library</span>
+                <span className="block text-xs text-muted">
+                  Eat this often? Keep it and log it in a tap next time.
+                </span>
+              </span>
+            </label>
+
+            {keep && (
+              <Field label="Name it" hint="Short and searchable.">
+                {({ id, ...a11y }) => (
+                  <Input
+                    id={id}
+                    {...a11y}
+                    value={libraryName}
+                    onChange={(e) => setLibraryName(e.target.value)}
+                    placeholder="e.g. Post-lift bowl"
+                  />
+                )}
+              </Field>
+            )}
+          </div>
+
           {estimate.assumptions.length > 0 && (
             <div>
               <CardLabel>Assumptions</CardLabel>
@@ -300,20 +360,28 @@ function EstimateSheet({ open, onClose, onSave }) {
 
 function ManualEntryCard({ onAdd }) {
   const [fields, setFields] = useState({ label: '', kcal: '', protein: '', carbs: '', fat: '' })
+  const [keep, setKeep] = useState(false)
+  const keepId = useId()
   const complete = ['kcal', 'protein', 'carbs', 'fat'].every((k) => fields[k] !== '')
+  // A saved meal is found by name, so an unnamed one is unfindable.
+  const canKeep = !!fields.label.trim()
 
   function submit() {
-    onAdd({
-      id: crypto.randomUUID(),
-      label: fields.label.trim() || 'Meal',
-      kcal: Number(fields.kcal) || 0,
-      protein: Number(fields.protein) || 0,
-      carbs: Number(fields.carbs) || 0,
-      fat: Number(fields.fat) || 0,
-      loggedAt: new Date().toISOString(),
-      source: 'manual',
-    })
+    onAdd(
+      {
+        id: crypto.randomUUID(),
+        label: fields.label.trim() || 'Meal',
+        kcal: Number(fields.kcal) || 0,
+        protein: Number(fields.protein) || 0,
+        carbs: Number(fields.carbs) || 0,
+        fat: Number(fields.fat) || 0,
+        loggedAt: new Date().toISOString(),
+        source: 'manual',
+      },
+      keep && canKeep ? { name: fields.label } : null
+    )
     setFields({ label: '', kcal: '', protein: '', carbs: '', fat: '' })
+    setKeep(false)
   }
 
   return (
@@ -340,6 +408,23 @@ function ManualEntryCard({ onAdd }) {
             />
           ))}
         </div>
+        <label
+          htmlFor={keepId}
+          className={cn(
+            'flex items-center gap-2.5 text-sm',
+            canKeep ? 'text-text cursor-pointer' : 'text-subtle cursor-not-allowed'
+          )}
+        >
+          <input
+            id={keepId}
+            type="checkbox"
+            checked={keep && canKeep}
+            disabled={!canKeep}
+            onChange={(e) => setKeep(e.target.checked)}
+            className="w-4 h-4 accent-brand"
+          />
+          Save to library{!canKeep && <span className="text-xs">— needs a label</span>}
+        </label>
         <Button variant="secondary" fullWidth icon={Plus} onClick={submit} disabled={!complete}>
           Add
         </Button>
@@ -356,6 +441,7 @@ export default function NutritionTracker() {
   const { user, userProfile } = useAuth()
   const { isStrength, strength } = useAppMode()
   const { getDocument, getCollection, userRef } = useFirestore()
+  const library = useSavedMeals()
 
   // Both hooks run; only the active mode's numbers are used. They read
   // different collections, so there is no wasted duplicate work.
@@ -368,6 +454,9 @@ export default function NutritionTracker() {
   const [loading, setLoading] = useState(true)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [viewingDay, setViewingDay] = useState(null)
+  const [tab, setTab] = useState('today')
+  /** The logged entry queued for naming into the library, if any. */
+  const [savingEntry, setSavingEntry] = useState(null)
 
   const todayId = formatLocalDate()
   const isViewingPast = !!viewDate && viewDate !== todayId
@@ -517,8 +606,27 @@ export default function NutritionTracker() {
     [userRef, todayId, targets]
   )
 
-  const addEntry = (entry) => mutateEntry(arrayUnion(entry))
   const removeEntry = (entry) => mutateEntry(arrayRemove(entry))
+
+  /**
+   * Log an entry, and optionally keep the meal behind it.
+   *
+   * The library write is awaited after the log write rather than beside it: the
+   * meal has to reach today either way, and a failed save is a meal he can
+   * bookmark again from its card. A failed log is a day that silently misses a
+   * meal.
+   */
+  async function addEntry(entry, keep) {
+    await mutateEntry(arrayUnion(entry))
+    if (keep?.name) await library.saveMeal(entryToSavedMeal(entry, { name: keep.name }))
+  }
+
+  /** Log a saved meal at the confirmed quantity, and count the use. */
+  async function logSavedMeal(meal, { quantity, macros }) {
+    const entry = savedMealToEntry(meal, { quantity, macros, id: crypto.randomUUID() })
+    await mutateEntry(arrayUnion(entry))
+    await library.markUsed(meal.id)
+  }
 
   if (loading) return <SkeletonPage cards={3} />
 
@@ -597,136 +705,172 @@ export default function NutritionTracker() {
         ) : null}
       </div>
 
-      {targets ? (
-        <Card>
-          <CardLabel>Today</CardLabel>
-          <div className="grid grid-cols-4 gap-3 mt-3">
-            {MACROS.map((m) => {
-              const target = targets[m.key]
-              const current = consumed[m.key]
-              const over = current > target
-              return (
-                <div key={m.key}>
-                  <p className="text-xs text-muted truncate">{m.label}</p>
-                  <p
-                    className={cn(
-                      'text-lg font-semibold tabular-nums mt-0.5',
-                      over ? 'text-warning-strong' : 'text-text'
-                    )}
-                  >
-                    {Math.round(current)}
-                    {m.unit}
-                  </p>
-                  <p className="text-xs text-subtle tabular-nums">
-                    / {Math.round(target)}
-                    {m.unit}
-                  </p>
-                  <ProgressBar
-                    value={current}
-                    max={target}
-                    size="sm"
-                    className="mt-1.5"
-                    label={`${m.label}: ${Math.round(current)} of ${Math.round(target)}`}
-                  />
-                </div>
-              )
-            })}
-          </div>
-          {advice?.calories.breakdown && (
-            <p className="text-xs text-muted mt-3 pt-3 border-t border-border-default">
-              {advice.calories.breakdown} · {advice.carbs.guidance}
-            </p>
-          )}
-        </Card>
-      ) : (
-        <Card to="/metrics">
-          <p className="text-sm text-muted">Log your weight to get macro targets →</p>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-2 gap-2">
-        <Button size="lg" icon={Camera} onClick={() => setSheetOpen(true)}>
-          Quick log
-        </Button>
-        <Button size="lg" variant="secondary" icon={Sparkles} onClick={() => navigate('/coach')}>
-          Ask coach
-        </Button>
-      </div>
-
-      <EstimateSheet
-        open={sheetOpen}
-        onClose={() => setSheetOpen(false)}
-        onSave={addEntry}
+      <Tabs
+        ariaLabel="Fuel views"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: 'today', label: 'Today', icon: Utensils },
+          { id: 'library', label: 'Library', icon: BookMarked },
+        ]}
       />
 
-      {entries.length > 0 && (
-        <div className="space-y-2">
-          <CardLabel className="px-1">Today&apos;s meals</CardLabel>
-          {entries.map((e) => (
-            <EntryCard
-              key={e.id}
-              entry={e}
-              onDelete={() => removeEntry(e)}
-            />
-          ))}
-        </div>
+      {tab === 'library' ? (
+        <MealLibrary
+          meals={library.savedMeals}
+          loading={library.loading}
+          onLog={logSavedMeal}
+          onUpdate={library.updateMeal}
+          onDelete={library.deleteMeal}
+        />
+      ) : (
+        <>
+          {targets ? (
+            <Card>
+              <CardLabel>Today</CardLabel>
+              <div className="grid grid-cols-4 gap-3 mt-3">
+                {MACROS.map((m) => {
+                  const target = targets[m.key]
+                  const current = consumed[m.key]
+                  const over = current > target
+                  return (
+                    <div key={m.key}>
+                      <p className="text-xs text-muted truncate">{m.label}</p>
+                      <p
+                        className={cn(
+                          'text-lg font-semibold tabular-nums mt-0.5',
+                          over ? 'text-warning-strong' : 'text-text'
+                        )}
+                      >
+                        {Math.round(current)}
+                        {m.unit}
+                      </p>
+                      <p className="text-xs text-subtle tabular-nums">
+                        / {Math.round(target)}
+                        {m.unit}
+                      </p>
+                      <ProgressBar
+                        value={current}
+                        max={target}
+                        size="sm"
+                        className="mt-1.5"
+                        label={`${m.label}: ${Math.round(current)} of ${Math.round(target)}`}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+              {advice?.calories.breakdown && (
+                <p className="text-xs text-muted mt-3 pt-3 border-t border-border-default">
+                  {advice.calories.breakdown} · {advice.carbs.guidance}
+                </p>
+              )}
+            </Card>
+          ) : (
+            <Card to="/metrics">
+              <p className="text-sm text-muted">Log your weight to get macro targets →</p>
+            </Card>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <Button size="lg" icon={Camera} onClick={() => setSheetOpen(true)}>
+              Quick log
+            </Button>
+            <Button size="lg" variant="secondary" icon={Sparkles} onClick={() => navigate('/coach')}>
+              Ask coach
+            </Button>
+          </div>
+
+          <EstimateSheet
+            open={sheetOpen}
+            onClose={() => setSheetOpen(false)}
+            onSave={addEntry}
+          />
+
+          {entries.length > 0 && (
+            <div className="space-y-2">
+              <CardLabel className="px-1">Today&apos;s meals</CardLabel>
+              {entries.map((e) => (
+                <EntryCard
+                  key={e.id}
+                  entry={e}
+                  onDelete={() => removeEntry(e)}
+                  onSave={() => setSavingEntry(e)}
+                  saved={!!library.findByName(e.label)}
+                />
+              ))}
+            </div>
+          )}
+
+          <ManualEntryCard onAdd={addEntry} />
+
+          <Card>
+            <CardLabel>Last 7 days</CardLabel>
+            <div className="grid grid-cols-7 gap-1 mt-3">
+              {history.map((day) => {
+                const isToday = day.dateId === todayId
+                // Today comes from the live subscription; the fetched copy is a
+                // mount-time snapshot and goes stale the moment anything is logged.
+                const dayEntries = isToday ? entries : day.log?.entries || []
+                const kcal = dayEntries.reduce((a, e) => a + (e.kcal || 0), 0)
+                const target = (isToday ? targets?.kcal : day.log?.targets?.kcal) || 0
+                const hasData = dayEntries.length > 0
+
+                return (
+                  <button
+                    key={day.dateId}
+                    type="button"
+                    disabled={isToday || !hasData}
+                    onClick={() => navigate(`/nutrition?date=${day.dateId}`)}
+                    className={cn(
+                      'flex flex-col items-center py-2 rounded-xl transition-colors min-h-14',
+                      isToday
+                        ? 'bg-brand-subtle border border-brand-border'
+                        : hasData
+                          ? 'hover:bg-surface'
+                          : 'opacity-40'
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'text-xs font-medium',
+                        isToday ? 'text-brand' : 'text-muted'
+                      )}
+                    >
+                      {day.date.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2)}
+                    </span>
+                    <span className="text-xs text-text tabular-nums mt-0.5">
+                      {hasData ? Math.round(kcal) : '—'}
+                    </span>
+                    {target > 0 && hasData && (
+                      <span className="text-[10px] text-subtle tabular-nums">
+                        /{Math.round(target)}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </Card>
+        </>
       )}
 
-      <ManualEntryCard onAdd={addEntry} />
-
-      <Card>
-        <CardLabel>Last 7 days</CardLabel>
-        <div className="grid grid-cols-7 gap-1 mt-3">
-          {history.map((day) => {
-            const isToday = day.dateId === todayId
-            // Today comes from the live subscription; the fetched copy is a
-            // mount-time snapshot and goes stale the moment anything is logged.
-            const dayEntries = isToday ? entries : day.log?.entries || []
-            const kcal = dayEntries.reduce((a, e) => a + (e.kcal || 0), 0)
-            const target = (isToday ? targets?.kcal : day.log?.targets?.kcal) || 0
-            const hasData = dayEntries.length > 0
-
-            return (
-              <button
-                key={day.dateId}
-                type="button"
-                disabled={isToday || !hasData}
-                onClick={() => navigate(`/nutrition?date=${day.dateId}`)}
-                className={cn(
-                  'flex flex-col items-center py-2 rounded-xl transition-colors min-h-14',
-                  isToday
-                    ? 'bg-brand-subtle border border-brand-border'
-                    : hasData
-                      ? 'hover:bg-surface'
-                      : 'opacity-40'
-                )}
-              >
-                <span
-                  className={cn(
-                    'text-xs font-medium',
-                    isToday ? 'text-brand' : 'text-muted'
-                  )}
-                >
-                  {day.date.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2)}
-                </span>
-                <span className="text-xs text-text tabular-nums mt-0.5">
-                  {hasData ? Math.round(kcal) : '—'}
-                </span>
-                {target > 0 && hasData && (
-                  <span className="text-[10px] text-subtle tabular-nums">
-                    /{Math.round(target)}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </Card>
+      <SaveMealSheet
+        open={!!savingEntry}
+        draft={savingEntry}
+        onClose={() => setSavingEntry(null)}
+        isDuplicate={(name) => !!library.findByName(name)}
+        onSave={async ({ name, kcal, protein, carbs, fat }) => {
+          await library.saveMeal(
+            entryToSavedMeal({ ...savingEntry, kcal, protein, carbs, fat }, { name })
+          )
+        }}
+      />
     </div>
   )
 }
 
-function EntryCard({ entry, onDelete }) {
+function EntryCard({ entry, onDelete, onSave, saved }) {
   const confidence = entry.confidence ? CONFIDENCE_COPY[entry.confidence] : null
 
   return (
@@ -757,6 +901,16 @@ function EntryCard({ entry, onDelete }) {
           </p>
         )}
       </div>
+      {onSave && (
+        <Button
+          variant="ghost"
+          size="xs"
+          icon={saved ? BookmarkCheck : Bookmark}
+          aria-label={saved ? `${entry.label} is in your library — save again` : `Save ${entry.label} to library`}
+          onClick={onSave}
+          className={cn('shrink-0', saved ? 'text-brand' : 'text-subtle hover:text-brand')}
+        />
+      )}
       {onDelete && (
         <Button
           variant="ghost"

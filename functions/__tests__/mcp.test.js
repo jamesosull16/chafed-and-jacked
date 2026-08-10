@@ -178,6 +178,113 @@ describe('meals', () => {
   })
 })
 
+// ── Saved meals ──────────────────────────────────────────────────────
+
+describe('the meal library', () => {
+  // A function, not a constant: fakeStore holds the seed by reference.
+  const library = () => ({
+    savedMeals: {
+      'sm-alpha': {
+        name: 'Overnight oats',
+        key: 'overnight oats',
+        kcal: 500,
+        protein: 30,
+        carbs: 60,
+        fat: 15,
+        createdAt: '2026-07-01T00:00:00.000Z',
+        useCount: 2,
+      },
+    },
+  })
+
+  it('logs a saved meal at its saved macros, without going near the estimator', async () => {
+    const estimate = vi.fn()
+    const store = fakeStore({ collections: library() })
+    const handlers = createHandlers({ store, estimate, timezoneOffset: 0 })
+
+    const result = await handlers.log_saved_meal({ name: 'Overnight oats' })
+
+    expect(estimate).not.toHaveBeenCalled()
+    expect(result.logged).toMatchObject({ label: 'Overnight oats', kcal: 500, source: 'library' })
+    expect(store._data.collections.nutritionLogs[TODAY].entries).toHaveLength(1)
+  })
+
+  it('scales the serving and counts the use', async () => {
+    const store = fakeStore({ collections: library() })
+    const result = await build(store).log_saved_meal({ name: 'oats', quantity: 0.5 })
+
+    expect(result.logged.kcal).toBe(250)
+    expect(result.logged.label).toBe('Overnight oats (0.5×)')
+    expect(store._data.collections.savedMeals['sm-alpha'].useCount).toBe(3)
+  })
+
+  it('refuses an unknown name rather than estimating something already saved', async () => {
+    await expect(
+      build(fakeStore({ collections: library() })).log_saved_meal({ name: 'lasagne' })
+    ).rejects.toThrow(/Overnight oats/)
+  })
+
+  it('saves under a name, and re-saving that name corrects rather than duplicates', async () => {
+    const store = fakeStore()
+    const handlers = build(store)
+
+    await handlers.save_meal_to_library({
+      name: 'Overnight oats',
+      kcal: 500,
+      protein_g: 30,
+      carbs_g: 60,
+      fat_g: 15,
+    })
+    const second = await handlers.save_meal_to_library({
+      name: 'overnight   OATS',
+      kcal: 520,
+      protein_g: 32,
+      carbs_g: 61,
+      fat_g: 16,
+    })
+
+    // Two meals with the same name and different macros is a library he has to
+    // pick between at 6am, which is the thing this feature exists to avoid.
+    expect(second.replaced).toBe(true)
+    expect(Object.keys(store._data.collections.savedMeals)).toHaveLength(1)
+    expect(Object.values(store._data.collections.savedMeals)[0].kcal).toBe(520)
+  })
+
+  it('gives every saved meal a lastUsedAt, because the app orders on it', async () => {
+    // Firestore's orderBy drops documents missing the field — a null here is
+    // the difference between a new meal being listed and being invisible.
+    const store = fakeStore()
+    await build(store).save_meal_to_library({
+      name: 'Post-lift bowl',
+      kcal: 700,
+      protein_g: 55,
+      carbs_g: 80,
+      fat_g: 14,
+    })
+    const saved = Object.values(store._data.collections.savedMeals)[0]
+    expect(saved).toHaveProperty('lastUsedAt', null)
+    expect(saved.useCount).toBe(0)
+  })
+
+  it('deletes from the library without touching what was logged from it', async () => {
+    const store = fakeStore({ collections: library() })
+    const handlers = build(store)
+    await handlers.log_saved_meal({ name: 'Overnight oats' })
+
+    await handlers.delete_saved_meal({ name: 'Overnight oats' })
+
+    expect(store._data.collections.savedMeals['sm-alpha']).toBeUndefined()
+    expect(store._data.collections.nutritionLogs[TODAY].entries).toHaveLength(1)
+  })
+
+  it('lists the library newest-used first, without exposing document ids', async () => {
+    const result = await build(fakeStore({ collections: library() })).list_saved_meals()
+    expect(result.count).toBe(1)
+    expect(result.savedMeals[0]).toMatchObject({ name: 'Overnight oats', timesLogged: 2 })
+    expect(JSON.stringify(result)).not.toContain('sm-alpha')
+  })
+})
+
 // ── Runs ─────────────────────────────────────────────────────────────
 
 describe('runs', () => {

@@ -25,6 +25,7 @@ const BOB = 'bob-uid'
 /** Every per-user collection the app actually reads or writes. */
 const USER_COLLECTIONS = [
   'nutritionLogs',
+  'savedMeals',
   'coachChat',
   'bodyMetrics',
   'workoutSessions',

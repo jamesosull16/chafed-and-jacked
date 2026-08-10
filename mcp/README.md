@@ -94,6 +94,7 @@ Full create/read/update/delete on everything the athlete records:
 | Area | Tools |
 |---|---|
 | Meals | `log_meal`, `add_meal_manually`, `list_meals`, `update_meal`, `delete_meal` |
+| Meal library | `list_saved_meals`, `log_saved_meal`, `save_meal_to_library`, `delete_saved_meal` |
 | Runs | `log_run`, `list_runs`, `update_run`, `delete_run` |
 | Sessions | `log_workout`, `list_workouts`, `get_workout`, `update_workout`, `delete_workout` |
 | Weigh-ins | `log_weigh_in`, `list_weigh_ins`, `update_weigh_in`, `delete_weigh_in` |

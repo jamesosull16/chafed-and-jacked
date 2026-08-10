@@ -1,4 +1,13 @@
-import { Check, Pencil, Dumbbell, ShieldAlert, Plus, Timer } from 'lucide-react'
+import {
+  Check,
+  Pencil,
+  Dumbbell,
+  ShieldAlert,
+  Plus,
+  Timer,
+  Bookmark,
+  BookmarkCheck,
+} from 'lucide-react'
 import { Badge, Button } from '../ui'
 import { cn } from '../ui/cn'
 
@@ -55,7 +64,7 @@ function MacroTiles({ kcal, protein, carbs, fat }) {
 }
 
 /** A meal the coach logged, with the itemised breakdown behind the number. */
-export function FoodLogCard({ entry, corrected, onEdit }) {
+export function FoodLogCard({ entry, corrected, onEdit, onSave, saved }) {
   const confidence = CONFIDENCE[entry.confidence] || CONFIDENCE.medium
 
   return (
@@ -96,6 +105,19 @@ export function FoodLogCard({ entry, corrected, onEdit }) {
         <Button variant="secondary" size="sm" icon={Pencil} className="flex-1" onClick={onEdit}>
           Edit portions
         </Button>
+        {/* The library's third front door. A meal worth repeating is most
+            obviously worth repeating right after it was logged — asking here
+            saves a trip to the Fuel page to bookmark the same card. */}
+        {onSave && (
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={saved ? BookmarkCheck : Bookmark}
+            onClick={onSave}
+            aria-label={saved ? `${entry.label} is in your library — save again` : `Save ${entry.label} to library`}
+            className={cn('shrink-0 px-2.5', saved && 'text-brand')}
+          />
+        )}
         <div className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-success-subtle text-success-strong text-sm font-medium min-h-11">
           <Check className="w-4 h-4" aria-hidden="true" />
           Logged
