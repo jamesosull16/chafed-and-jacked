@@ -129,13 +129,10 @@ export function useRealtimeCollection(collectionName, orderField, orderDir = 'de
   return { data, loading }
 }
 
-/**
- * Format a Date as YYYY-MM-DD using local timezone (avoids UTC shift).
- */
-export function formatLocalDate(date = new Date()) {
-  const d = new Date(date)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
+// Lives in `lib/localDate.js` so pure modules can name a day without importing
+// Firebase, and is re-exported here because everything already imports it from
+// this hook.
+export { formatLocalDate } from '../lib/localDate'
 
 /**
  * Get the week ID string (YYYY-WNN) for consistent document IDs.

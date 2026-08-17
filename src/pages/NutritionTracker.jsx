@@ -705,13 +705,23 @@ export default function NutritionTracker() {
           ))
         )}
 
-        {/* Read-only: no `onSave`, because every write path here targets
-            today's log. Correcting a past day is a different feature. */}
+        {/* A past day is edited the same way today is — the day's document is
+            just named after a different date. It has no live subscription, so
+            the re-read is what puts the corrected numbers back on screen. */}
         <MealDetailSheet
           open={!!openEntry}
-          entry={openEntry}
+          entry={(openEntry && findEntryById(pastEntries, openEntry.id)) || openEntry}
           onClose={() => setOpenEntry(null)}
-          note="Meals on past days can be read but not edited."
+          onSave={async (next) => {
+            const previous = findEntryById(pastEntries, next.id)
+            if (!previous) return
+            await replaceLogEntry(userRef(`nutritionLogs/${viewDate}`), {
+              previous,
+              next,
+              dateId: viewDate,
+            })
+            setViewingDay(await getDocument(`nutritionLogs/${viewDate}`))
+          }}
         />
       </div>
     )

@@ -20,7 +20,7 @@ import { entryToSavedMeal } from '../lib/savedMeals'
 import { SkeletonPage } from '../components/ui'
 import SaveMealSheet from '../components/nutrition/SaveMealSheet'
 import MealDetailSheet from '../components/nutrition/MealDetailSheet'
-import { replaceLogEntry, findEntryById } from '../lib/nutritionLog'
+import { replaceLogEntry, findEntryById, logDateIdFor } from '../lib/nutritionLog'
 import { cn } from '../components/ui/cn'
 import ContextStrip from '../components/chat/ContextStrip'
 import Composer from '../components/chat/Composer'
@@ -68,6 +68,26 @@ function TypingIndicator() {
       </div>
     </div>
   )
+}
+
+/**
+ * What the portions sheet says about the day it is editing.
+ *
+ * Silent for today's meal, because that is the case that needs no explaining.
+ * A meal on an older day is worth naming — the numbers being changed are not
+ * the ones on screen behind the sheet.
+ */
+function editNote({ dateId, editable }, todayId) {
+  if (!editable) {
+    return 'This meal is not on the log any more — it was deleted, so its portions can be read but not changed.'
+  }
+  if (!dateId || dateId === todayId) return undefined
+  const day = new Date(`${dateId}T12:00:00`).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  })
+  return `Logged on ${day}. Changes go to that day, not today.`
 }
 
 function Cards({ cards, onLogOption, loggingIndex, onSaveMeal, onEditMeal, isSaved }) {
@@ -157,20 +177,24 @@ export default function CoachChat() {
   /**
    * Open a logged meal's portions from its card.
    *
-   * The card is a record of a turn, and turns persist — a food card from
-   * Tuesday is still in the thread on Thursday, by which point its entry is on
-   * a log this page can't write to. So the stored entry is looked up first, and
-   * only a meal still on today's log opens as editable. The rest open as what
-   * they are: a receipt.
+   * The card is a record of a turn and turns persist, so Tuesday's food card is
+   * still in the thread on Thursday — the meal behind it is looked up on *its
+   * own* day, not today's. Pinning this to today is what made "Edit portions"
+   * open read-only on everything but the most recent meal.
+   *
+   * The stored copy wins over the card's: the coach may have corrected the meal
+   * since, and `arrayRemove` matches whole objects. A meal that isn't on its
+   * day's log any more was deleted, and opens as what it is — a receipt.
    */
   const openForEdit = useCallback(
     async (entry) => {
+      const dateId = logDateIdFor(entry, todayId)
       try {
-        const log = await getDocument(`nutritionLogs/${todayId}`)
+        const log = await getDocument(`nutritionLogs/${dateId}`)
         const stored = findEntryById(log?.entries, entry.id)
-        setEditing({ entry: stored || entry, editable: !!stored })
+        setEditing({ entry: stored || entry, dateId, editable: !!stored })
       } catch {
-        setEditing({ entry, editable: false })
+        setEditing({ entry, dateId, editable: false })
       }
     },
     [getDocument, todayId]
@@ -188,15 +212,13 @@ export default function CoachChat() {
    * numbers the day is judged against.
    */
   async function saveEntryEdit(next) {
-    const log = await getDocument(`nutritionLogs/${todayId}`)
+    const dateId = editing?.dateId || logDateIdFor(next, todayId)
+    const log = await getDocument(`nutritionLogs/${dateId}`)
     const previous = findEntryById(log?.entries, next.id)
     if (!previous) return
-    await replaceLogEntry(userRef(`nutritionLogs/${todayId}`), {
-      previous,
-      next,
-      dateId: todayId,
-    })
-    await refreshTotals()
+    await replaceLogEntry(userRef(`nutritionLogs/${dateId}`), { previous, next, dateId })
+    // Only today's numbers are on screen behind the sheet.
+    if (dateId === todayId) await refreshTotals()
   }
 
   const refreshTotals = useCallback(async () => {
@@ -566,11 +588,7 @@ export default function CoachChat() {
         startInEdit
         onClose={() => setEditing(null)}
         onSave={editing?.editable ? saveEntryEdit : undefined}
-        note={
-          editing && !editing.editable
-            ? 'This meal is no longer on today’s log, so its portions can be read but not changed.'
-            : undefined
-        }
+        note={editing ? editNote(editing, todayId) : undefined}
       />
 
       <SaveMealSheet

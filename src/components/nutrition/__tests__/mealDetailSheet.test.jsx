@@ -130,11 +130,23 @@ describe('MealDetailSheet', () => {
     expect(onSave.mock.calls[0][0]).toMatchObject({ id: 'e2', kcal: 300, protein: 30 })
   })
 
-  // Every write path reaches today's log, so a past day is readable and no more.
   it('offers no edit at all without an onSave', async () => {
-    await render(<MealDetailSheet open entry={ENTRY} onClose={() => {}} note="Past days can't be edited." />)
+    await render(<MealDetailSheet open entry={ENTRY} onClose={() => {}} note="This one was deleted." />)
     expect(buttonWith('Edit portions')).toBeUndefined()
-    expect(sheet().textContent).toContain("Past days can't be edited.")
+    expect(sheet().textContent).toContain('This one was deleted.')
+  })
+
+  /**
+   * A read-only sheet used to render its action bar anyway — empty, bordered,
+   * and padded. On a phone it read as controls that had failed to load, which
+   * is exactly how it was reported: "the ability to change anything is cut off".
+   */
+  it('renders no action bar when there are no actions', async () => {
+    await render(<MealDetailSheet open entry={ENTRY} onClose={() => {}} />)
+    const bars = [...sheet().querySelectorAll('div')].filter((d) =>
+      d.className.includes('border-t')
+    )
+    expect(bars).toHaveLength(0)
   })
 
   it('opens straight into the amounts when asked to', async () => {

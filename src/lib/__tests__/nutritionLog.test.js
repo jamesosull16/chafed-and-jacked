@@ -8,7 +8,7 @@ vi.mock('firebase/firestore', () => ({
   arrayRemove: (value) => ({ remove: value }),
 }))
 
-const { replaceLogEntry, findEntryById } = await import('../nutritionLog')
+const { replaceLogEntry, findEntryById, logDateIdFor } = await import('../nutritionLog')
 
 const REF = { path: 'nutritionLogs/2026-08-17' }
 const PREVIOUS = { id: 'e1', label: 'Chicken and rice', kcal: 610 }
@@ -67,5 +67,29 @@ describe('findEntryById', () => {
     expect(findEntryById(entries, 'nope')).toBe(null)
     expect(findEntryById(entries, undefined)).toBe(null)
     expect(findEntryById(undefined, 'e1')).toBe(null)
+  })
+})
+
+describe('logDateIdFor', () => {
+  /**
+   * The thread outlives the day. A food card from Tuesday is still on screen
+   * on Thursday, and its meal is on Tuesday's document — looking it up under
+   * today's is what made "Edit portions" open read-only on almost everything.
+   */
+  it('names the day the meal was logged on, not today', () => {
+    const at = new Date(2026, 7, 12, 16, 46)
+    expect(logDateIdFor({ loggedAt: at.toISOString() }, '2026-08-17')).toBe('2026-08-12')
+  })
+
+  // Local, matching how the document was named when the meal went on it.
+  it('reads the timestamp in local time', () => {
+    const lateEvening = new Date(2026, 7, 12, 23, 30)
+    expect(logDateIdFor({ loggedAt: lateEvening.toISOString() }, '2026-08-17')).toBe('2026-08-12')
+  })
+
+  it('falls back when there is no usable timestamp', () => {
+    expect(logDateIdFor({}, '2026-08-17')).toBe('2026-08-17')
+    expect(logDateIdFor({ loggedAt: 'not a date' }, '2026-08-17')).toBe('2026-08-17')
+    expect(logDateIdFor(null, '2026-08-17')).toBe('2026-08-17')
   })
 })

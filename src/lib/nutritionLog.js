@@ -1,4 +1,23 @@
 import { setDoc, arrayUnion, arrayRemove } from 'firebase/firestore'
+import { formatLocalDate } from './localDate'
+
+/**
+ * The day an entry belongs to, from when it was logged.
+ *
+ * A coach card is a record of a turn, and turns persist — Tuesday's food card
+ * is still in the thread on Thursday. Assuming a card's meal is on *today's*
+ * log is how "Edit portions" opened read-only on anything logged before today,
+ * which is most of the thread.
+ *
+ * The date is derived locally, matching how the day's document was named when
+ * the meal went on it: the coach function builds the same id from the client's
+ * timezone offset.
+ */
+export function logDateIdFor(entry, fallback = formatLocalDate()) {
+  if (!entry?.loggedAt) return fallback
+  const at = new Date(entry.loggedAt)
+  return Number.isNaN(at.getTime()) ? fallback : formatLocalDate(at)
+}
 
 /**
  * Replace one entry on a day's log, in place of it.

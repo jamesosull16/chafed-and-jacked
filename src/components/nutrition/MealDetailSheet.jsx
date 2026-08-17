@@ -182,6 +182,11 @@ export default function MealDetailSheet({
     .filter(Boolean)
     .join(' · ')
 
+  // A read-only sheet has nothing to put in a footer, and an empty one is worse
+  // than none: it renders as a bar of dead space under the content that looks
+  // like controls that failed to load.
+  const hasActions = !!(onSave || onDelete || onSaveToLibrary)
+
   return (
     <Sheet
       open={open}
@@ -189,7 +194,7 @@ export default function MealDetailSheet({
       title={entry.label}
       description={description || undefined}
       footer={
-        editing ? (
+        !hasActions ? undefined : editing ? (
           <div className="flex gap-2">
             <Button variant="secondary" className="flex-1" onClick={() => setEditing(false)}>
               Cancel
