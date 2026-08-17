@@ -102,9 +102,9 @@ export const DAY_TEMPLATES = {
       enduranceSlot('Hip stability', 2, ['hipAbductionMachine', 'cableKickback', 'gluteBridge']),
       // The calf raise's antagonist, on the same day as the calf raise.
       enduranceSlot('Ankle — anterior', 2, ['tibialisRaise']),
-      coreSlot('flexion', ['cableCrunch', 'hangingLegRaise', 'deadBug']),
-      coreSlot('anti-rotation', ['pallofPress', 'deadBug', 'sidePlank']),
-      coreSlot('anti-lateral flexion', ['sidePlank', 'farmersCarry', 'deadBug']),
+      coreSlot('flexion', ['cableCrunch', 'reverseCrunch', 'hangingLegRaise']),
+      coreSlot('anti-rotation', ['pallofPress', 'cableChop', 'birdDog']),
+      coreSlot('anti-lateral flexion', ['sidePlank', 'suitcaseCarry', 'farmersCarry']),
     ],
   },
   upperPush: {
@@ -122,9 +122,9 @@ export const DAY_TEMPLATES = {
       slot('Side delts', 4, ['lateralRaise', 'dbLateralRaise']),
       slot('Triceps', 3, ['overheadCableExtension', 'triceptPushdown']),
       slot('Rear delts', 3, ['facePull', 'rearDeltFly']),
-      coreSlot('anti-extension', ['hangingLegRaise', 'deadBug', 'cableCrunch']),
-      coreSlot('anti-rotation', ['pallofPress', 'sidePlank', 'deadBug']),
-      coreSlot('carry', ['farmersCarry', 'sidePlank', 'deadBug']),
+      coreSlot('anti-extension', ['hangingLegRaise', 'abWheel', 'hollowHold']),
+      coreSlot('anti-rotation', ['pallofPress', 'cableChop', 'birdDog']),
+      coreSlot('carry', ['farmersCarry', 'suitcaseCarry', 'sidePlank']),
     ],
   },
   lowerQuad: {
@@ -146,9 +146,9 @@ export const DAY_TEMPLATES = {
       // pelvis, and the half a runner tears.
       enduranceSlot('Adductors', 3, ['hipAdductionMachine', 'copenhagenPlank']),
       enduranceSlot('Ankle — anterior', 2, ['tibialisRaise']),
-      coreSlot('anti-rotation', ['pallofPress', 'deadBug', 'sidePlank']),
-      coreSlot('flexion', ['cableCrunch', 'hangingLegRaise', 'deadBug']),
-      coreSlot('anti-lateral flexion', ['sidePlank', 'farmersCarry', 'deadBug']),
+      coreSlot('anti-rotation', ['cableChop', 'pallofPress', 'birdDog']),
+      coreSlot('flexion', ['cableCrunch', 'reverseCrunch', 'hangingLegRaise']),
+      coreSlot('anti-lateral flexion', ['sidePlank', 'suitcaseCarry', 'farmersCarry']),
     ],
   },
   upperPull: {
@@ -168,9 +168,9 @@ export const DAY_TEMPLATES = {
       slot('Biceps', 3, ['inclineDbCurl', 'barbellCurl', 'hammerCurl']),
       slot('Rear delts', 3, ['rearDeltFly', 'facePull']),
       slot('Traps', 3, ['dumbbellShrug', 'farmersCarry']),
-      coreSlot('carry', ['farmersCarry', 'sidePlank', 'deadBug']),
-      coreSlot('anti-extension', ['deadBug', 'hangingLegRaise', 'cableCrunch']),
-      coreSlot('flexion', ['hangingLegRaise', 'cableCrunch', 'pallofPress']),
+      coreSlot('carry', ['suitcaseCarry', 'farmersCarry', 'sidePlank']),
+      coreSlot('anti-extension', ['deadBug', 'abWheel', 'hollowHold']),
+      coreSlot('flexion', ['hangingLegRaise', 'reverseCrunch', 'cableCrunch']),
     ],
   },
   fullBody: {
@@ -185,9 +185,9 @@ export const DAY_TEMPLATES = {
       slot('Pull', 3, ['latPulldown', 'chestSupportedRow', 'pullUp']),
       slot('Hamstring', 3, ['lyingLegCurl', 'hamstringBridgeIsometric']),
       slot('Calf', 3, ['seatedCalfRaise', 'standingCalfRaise']),
-      coreSlot('anti-extension', ['deadBug', 'cableCrunch', 'hangingLegRaise']),
-      coreSlot('anti-rotation', ['pallofPress', 'sidePlank', 'deadBug']),
-      coreSlot('anti-lateral flexion', ['sidePlank', 'farmersCarry', 'deadBug']),
+      coreSlot('anti-extension', ['deadBug', 'hollowHold', 'abWheel']),
+      coreSlot('anti-rotation', ['pallofPress', 'cableChop', 'birdDog']),
+      coreSlot('anti-lateral flexion', ['sidePlank', 'suitcaseCarry', 'farmersCarry']),
     ],
   },
 }
@@ -236,6 +236,13 @@ export const ROTATION_PAIRS = [
   { primary: 'inclineDbCurl', alternate: 'hammerCurl' },
   { primary: 'lateralRaise', alternate: 'dbLateralRaise' },
   { primary: 'rearDeltFly', alternate: 'facePull' },
+  // Core. Each pair keeps the pattern and changes the movement — a flexion
+  // slot rotates to another flexion movement, not to a plank.
+  { primary: 'cableCrunch', alternate: 'reverseCrunch' },
+  { primary: 'hangingLegRaise', alternate: 'abWheel' },
+  { primary: 'deadBug', alternate: 'hollowHold' },
+  { primary: 'pallofPress', alternate: 'cableChop' },
+  { primary: 'sidePlank', alternate: 'suitcaseCarry' },
 ]
 
 const ROTATION_BY_PRIMARY = new Map(ROTATION_PAIRS.map((p) => [p.primary, p.alternate]))

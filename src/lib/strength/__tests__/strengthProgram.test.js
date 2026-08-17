@@ -465,6 +465,29 @@ describe('core block', () => {
     })
   })
 
+  it('rotates the core block too, keeping each slot\'s pattern', () => {
+    const core = (meso, splitIndex) =>
+      buildSession({
+        ...ATHLETE,
+        injuryFlags: [],
+        splitIndex,
+        blockStatus: { ...week(1), mesocycle: meso },
+      }).exercises.filter((e) => e.group === 'core')
+
+    for (const splitIndex of [0, 1, 2, 3]) {
+      const odd = core(1, splitIndex)
+      const even = core(2, splitIndex)
+
+      expect(odd).toHaveLength(CORE_BLOCK_SIZE)
+      expect(even).toHaveLength(CORE_BLOCK_SIZE)
+      expect(even.map((e) => e.id)).not.toEqual(odd.map((e) => e.id))
+
+      // A flexion slot rotates to another flexion movement, not to a plank —
+      // the slot role is the prescription, the movement is the variable.
+      expect(even.map((e) => e.slotRole)).toEqual(odd.map((e) => e.slotRole))
+    }
+  })
+
   it('never prescribes the same movement twice in one session', () => {
     for (const equipment of ['fullGym', 'homeGym', 'minimal']) {
       for (const flags of [[], ['highHamstring'], ATHLETE.injuryFlags]) {
