@@ -45,6 +45,8 @@ import {
 } from '../components/ui'
 import MealLibrary from '../components/nutrition/MealLibrary'
 import SaveMealSheet from '../components/nutrition/SaveMealSheet'
+import MealDetailSheet from '../components/nutrition/MealDetailSheet'
+import { replaceLogEntry, findEntryById } from '../lib/nutritionLog'
 import { cn } from '../components/ui/cn'
 
 const MACROS = [
@@ -457,6 +459,8 @@ export default function NutritionTracker() {
   const [tab, setTab] = useState('today')
   /** The logged entry queued for naming into the library, if any. */
   const [savingEntry, setSavingEntry] = useState(null)
+  /** The logged entry whose breakdown is open, if any. */
+  const [openEntry, setOpenEntry] = useState(null)
 
   const todayId = formatLocalDate()
   const isViewingPast = !!viewDate && viewDate !== todayId
@@ -621,6 +625,26 @@ export default function NutritionTracker() {
     if (keep?.name) await library.saveMeal(entryToSavedMeal(entry, { name: keep.name }))
   }
 
+  /**
+   * Save a corrected entry over the one it came from.
+   *
+   * `previous` is re-read from the live log rather than taken from the sheet,
+   * because `arrayRemove` matches on the whole object: if the Coach corrected
+   * this meal while the sheet was open, the copy the sheet opened with no
+   * longer exists in the document and removing it would quietly do nothing,
+   * leaving both versions on the day.
+   */
+  async function saveEntryEdit(next) {
+    const previous = findEntryById(entries, next.id)
+    if (!previous) return
+    await replaceLogEntry(userRef(`nutritionLogs/${todayId}`), {
+      previous,
+      next,
+      dateId: todayId,
+      targets,
+    })
+  }
+
   /** Log a saved meal at the confirmed quantity, and count the use. */
   async function logSavedMeal(meal, { quantity, macros }) {
     const entry = savedMealToEntry(meal, { quantity, macros, id: crypto.randomUUID() })
@@ -676,8 +700,19 @@ export default function NutritionTracker() {
         {pastEntries.length === 0 ? (
           <EmptyState title="Nothing logged" message="No meals recorded on this day." />
         ) : (
-          pastEntries.map((e) => <EntryCard key={e.id} entry={e} />)
+          pastEntries.map((e) => (
+            <EntryCard key={e.id} entry={e} onOpen={() => setOpenEntry(e)} />
+          ))
         )}
+
+        {/* Read-only: no `onSave`, because every write path here targets
+            today's log. Correcting a past day is a different feature. */}
+        <MealDetailSheet
+          open={!!openEntry}
+          entry={openEntry}
+          onClose={() => setOpenEntry(null)}
+          note="Meals on past days can be read but not edited."
+        />
       </div>
     )
   }
@@ -794,6 +829,7 @@ export default function NutritionTracker() {
                 <EntryCard
                   key={e.id}
                   entry={e}
+                  onOpen={() => setOpenEntry(e)}
                   onDelete={() => removeEntry(e)}
                   onSave={() => setSavingEntry(e)}
                   saved={!!library.findByName(e.label)}
@@ -855,6 +891,25 @@ export default function NutritionTracker() {
         </>
       )}
 
+      {/* The live entry, not the one captured on tap, so the sheet follows a
+          correction the Coach makes while it is open rather than showing a
+          stale breakdown. */}
+      <MealDetailSheet
+        open={!!openEntry}
+        entry={(openEntry && findEntryById(entries, openEntry.id)) || openEntry}
+        onClose={() => setOpenEntry(null)}
+        onSave={saveEntryEdit}
+        onDelete={async () => {
+          await removeEntry(findEntryById(entries, openEntry.id) || openEntry)
+          setOpenEntry(null)
+        }}
+        onSaveToLibrary={() => {
+          setSavingEntry(openEntry)
+          setOpenEntry(null)
+        }}
+        saved={!!openEntry && !!library.findByName(openEntry.label)}
+      />
+
       <SaveMealSheet
         open={!!savingEntry}
         draft={savingEntry}
@@ -870,12 +925,28 @@ export default function NutritionTracker() {
   )
 }
 
-function EntryCard({ entry, onDelete, onSave, saved }) {
+function EntryCard({ entry, onOpen, onDelete, onSave, saved }) {
   const confidence = entry.confidence ? CONFIDENCE_COPY[entry.confidence] : null
+
+  // The meal itself opens the breakdown; the bookmark and bin stay separate
+  // controls beside it. A button around the whole card would have swallowed
+  // them — nesting a button inside a button is invalid and the inner one stops
+  // being reachable.
+  const Body = onOpen ? 'button' : 'div'
 
   return (
     <Card className="flex items-start gap-3">
-      <div className="min-w-0 flex-1">
+      <Body
+        {...(onOpen && {
+          type: 'button',
+          onClick: onOpen,
+          'aria-label': `${entry.label} — see the breakdown`,
+        })}
+        className={cn(
+          'min-w-0 flex-1 text-left',
+          onOpen && 'rounded-xl -m-1 p-1 transition-colors hover:bg-surface'
+        )}
+      >
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-medium text-text">{entry.label}</p>
           {entry.source === 'photo' && (
@@ -900,7 +971,7 @@ function EntryCard({ entry, onDelete, onSave, saved }) {
             {entry.items.map((i) => i.name).join(' · ')}
           </p>
         )}
-      </div>
+      </Body>
       {onSave && (
         <Button
           variant="ghost"

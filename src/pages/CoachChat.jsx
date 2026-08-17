@@ -19,6 +19,8 @@ import { prepareImage } from '../lib/mealEstimation'
 import { entryToSavedMeal } from '../lib/savedMeals'
 import { SkeletonPage } from '../components/ui'
 import SaveMealSheet from '../components/nutrition/SaveMealSheet'
+import MealDetailSheet from '../components/nutrition/MealDetailSheet'
+import { replaceLogEntry, findEntryById } from '../lib/nutritionLog'
 import { cn } from '../components/ui/cn'
 import ContextStrip from '../components/chat/ContextStrip'
 import Composer from '../components/chat/Composer'
@@ -68,7 +70,7 @@ function TypingIndicator() {
   )
 }
 
-function Cards({ cards, onLogOption, loggingIndex, onSaveMeal, isSaved }) {
+function Cards({ cards, onLogOption, loggingIndex, onSaveMeal, onEditMeal, isSaved }) {
   if (!cards?.length) return null
   return (
     <div className="flex flex-col items-start gap-2">
@@ -80,6 +82,7 @@ function Cards({ cards, onLogOption, loggingIndex, onSaveMeal, isSaved }) {
                 key={i}
                 entry={card.entry}
                 corrected={card.corrected}
+                onEdit={() => onEditMeal(card.entry)}
                 onSave={() => onSaveMeal(card.entry)}
                 saved={isSaved(card.entry.label)}
               />
@@ -118,7 +121,7 @@ export default function CoachChat() {
   const navigate = useNavigate()
   const { user, userProfile } = useAuth()
   const { isStrength, strength } = useAppMode()
-  const { getCollection, getDocument } = useFirestore()
+  const { getCollection, getDocument, userRef } = useFirestore()
   // Both engines, selected by mode — the same shape NutritionTracker uses.
   // Hooks cannot be called conditionally, and the page needs whichever one the
   // athlete is actually training under. Previously only the strength block was
@@ -133,6 +136,8 @@ export default function CoachChat() {
   const [photoError, setPhotoError] = useState(null)
   const [loggingIndex, setLoggingIndex] = useState(null)
   const [savingEntry, setSavingEntry] = useState(null)
+  /** The logged meal whose portions are open, and whether they can be changed. */
+  const [editing, setEditing] = useState(null)
   const threadRef = useRef(null)
   const [threadMounted, setThreadMounted] = useState(false)
   const threadEndRef = useRef(null)
@@ -148,6 +153,51 @@ export default function CoachChat() {
     threadRef.current = node
     setThreadMounted(!!node)
   }, [])
+
+  /**
+   * Open a logged meal's portions from its card.
+   *
+   * The card is a record of a turn, and turns persist — a food card from
+   * Tuesday is still in the thread on Thursday, by which point its entry is on
+   * a log this page can't write to. So the stored entry is looked up first, and
+   * only a meal still on today's log opens as editable. The rest open as what
+   * they are: a receipt.
+   */
+  const openForEdit = useCallback(
+    async (entry) => {
+      try {
+        const log = await getDocument(`nutritionLogs/${todayId}`)
+        const stored = findEntryById(log?.entries, entry.id)
+        setEditing({ entry: stored || entry, editable: !!stored })
+      } catch {
+        setEditing({ entry, editable: false })
+      }
+    },
+    [getDocument, todayId]
+  )
+
+  /**
+   * Write a corrected entry back over the stored one.
+   *
+   * The log is re-read rather than trusting the copy the card was built from:
+   * `arrayRemove` matches whole objects, and a card can be minutes or hours old
+   * by the time its button is tapped.
+   *
+   * No `targets` — this page's copy is in the coach-context shape (`protein_g`),
+   * not the log's (`protein`), and writing it here would quietly corrupt the
+   * numbers the day is judged against.
+   */
+  async function saveEntryEdit(next) {
+    const log = await getDocument(`nutritionLogs/${todayId}`)
+    const previous = findEntryById(log?.entries, next.id)
+    if (!previous) return
+    await replaceLogEntry(userRef(`nutritionLogs/${todayId}`), {
+      previous,
+      next,
+      dateId: todayId,
+    })
+    await refreshTotals()
+  }
 
   const refreshTotals = useCallback(async () => {
     try {
@@ -468,6 +518,7 @@ export default function CoachChat() {
               onLogOption={handleLogOption}
               loggingIndex={loggingIndex}
               onSaveMeal={setSavingEntry}
+              onEditMeal={openForEdit}
               isSaved={(name) => !!library.findByName(name)}
             />
           </div>
@@ -507,6 +558,21 @@ export default function CoachChat() {
       {/* Saving from a chat card writes to the same library the Fuel page
           reads — a meal the coach logged is savable without leaving the
           thread. */}
+      {/* Opens straight into the amounts — the button says "Edit portions",
+          so landing on a read-only breakdown would be a wasted tap. */}
+      <MealDetailSheet
+        open={!!editing}
+        entry={editing?.entry}
+        startInEdit
+        onClose={() => setEditing(null)}
+        onSave={editing?.editable ? saveEntryEdit : undefined}
+        note={
+          editing && !editing.editable
+            ? 'This meal is no longer on today’s log, so its portions can be read but not changed.'
+            : undefined
+        }
+      />
+
       <SaveMealSheet
         open={!!savingEntry}
         draft={savingEntry}
