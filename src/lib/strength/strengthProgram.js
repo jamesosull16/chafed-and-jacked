@@ -116,7 +116,10 @@ export const DAY_TEMPLATES = {
       slot('Primary press', 4, ['barbellBenchPress', 'machineChestPress', 'inclineDbPress']),
       slot('Vertical press', 3, ['dbShoulderPress', 'overheadPress']),
       slot('Chest accessory', 3, ['inclineDbPress', 'machineChestPress', 'cableFly']),
-      slot('Side delts', 4, ['lateralRaise']),
+      // A second chest slot, because two were never going to reach the band:
+      // one press and one accessory came to 8 sets against a 10-16 target.
+      slot('Chest isolation', 3, ['cableFly', 'machineChestPress', 'inclineDbPress']),
+      slot('Side delts', 4, ['lateralRaise', 'dbLateralRaise']),
       slot('Triceps', 3, ['overheadCableExtension', 'triceptPushdown']),
       slot('Rear delts', 3, ['facePull', 'rearDeltFly']),
       coreSlot('anti-extension', ['hangingLegRaise', 'deadBug', 'cableCrunch']),
@@ -157,7 +160,11 @@ export const DAY_TEMPLATES = {
       slot('Vertical pull', 4, ['pullUp', 'latPulldown']),
       slot('Horizontal pull', 4, ['chestSupportedRow', 'seatedCableRow', 'barbellRow']),
       slot('Unilateral pull', 3, ['singleArmRow']),
-      slot('Lat isolation', 3, ['straightArmPulldown', 'latPulldown']),
+      slot('Lat isolation', 2, ['straightArmPulldown', 'latPulldown']),
+      // Side delts twice a week rather than once. Splitting the volume across
+      // two sessions is better stimulus than piling it into one, and the push
+      // day was already the longer of the two.
+      slot('Side delts', 3, ['dbLateralRaise', 'lateralRaise']),
       slot('Biceps', 3, ['inclineDbCurl', 'barbellCurl', 'hammerCurl']),
       slot('Rear delts', 3, ['rearDeltFly', 'facePull']),
       slot('Traps', 3, ['dumbbellShrug', 'farmersCarry']),
@@ -227,6 +234,7 @@ export const ROTATION_PAIRS = [
   { primary: 'pullUp', alternate: 'latPulldown' },
   { primary: 'chestSupportedRow', alternate: 'seatedCableRow' },
   { primary: 'inclineDbCurl', alternate: 'hammerCurl' },
+  { primary: 'lateralRaise', alternate: 'dbLateralRaise' },
   { primary: 'rearDeltFly', alternate: 'facePull' },
 ]
 

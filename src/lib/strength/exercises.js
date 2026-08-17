@@ -7,6 +7,7 @@
  *   chain      — 'posterior' | 'anterior' | 'neutral'  (drives chainBalance.js)
  *   pattern    — movement pattern, for split construction and push/pull balance
  *   muscles    — { primary: [...], secondary: [...] } for weekly set counting
+ *   demands    — injury-relevant loading profile, read by the guardrail filter
  *
  * `primary` is **the muscle the movement targets**, and it is normally one.
  * Everything else the movement works — and a squat works plenty — belongs in
@@ -25,7 +26,6 @@
  *
  * The farmer's carry is the deliberate exception — traps and trunk are both
  * targets of a loaded carry, not one target and one passenger.
- *   demands    — injury-relevant loading profile, read by the guardrail filter
  *
  * `demands` is deliberately descriptive rather than a hardcoded allow/deny list:
  * the filter in `injuryGuardrails.js` decides what's permitted from the athlete's
@@ -938,6 +938,26 @@ export const STRENGTH_EXERCISES = {
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Side delt width — the single biggest lever on upper-body visual definition.',
     cue: 'Cable keeps tension at the bottom where dumbbells lose it. High reps.',
+  },
+  dbLateralRaise: {
+    id: 'dbLateralRaise',
+    name: 'Dumbbell Lateral Raise',
+    shortName: 'DB Lat Raise',
+    chain: CHAINS.NEUTRAL,
+    pattern: PATTERNS.ISOLATION,
+    tier: 'isolation',
+    muscles: { primary: ['sideDelts'], secondary: [] },
+    equipment: ['dumbbell'],
+    equipmentLevel: 'minimal',
+    isUnilateral: true,
+    weightIncrement: 5,
+    weightLabel: '/hand',
+    weightMultiplier: 2,
+    demands: D('low', 'low', 'low', 'low'),
+    notes:
+      'Both arms at once, so the set is half the time of the cable version — ' +
+      'which is what makes it the workable second side-delt slot in a week.',
+    cue: 'Lead with the elbows. Stop the rep before the traps take over.',
   },
 
   // ── ARMS ────────────────────────────────────────────────────────────
