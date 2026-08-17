@@ -4,7 +4,10 @@
  * Replaces the race-anchored taper model with a block plan for hypertrophy.
  *
  * Structure: stacked mesocycles of 4 accumulation weeks + 1 deload, repeating
- * from `blockStart` until `blockEnd` (~22 weeks, i.e. now → January).
+ * from `blockStart` until `blockEnd` — 25 weeks by default, which is five whole
+ * mesocycles. A length that isn't a multiple of `MESOCYCLE_WEEKS` ends the block
+ * mid-cycle on an arbitrary week: 22 weeks ended three weeks into a fifth
+ * mesocycle, on an accumulation week, with no deload behind it.
  *
  * Autoregulation is by RIR (reps in reserve) rather than percentage of 1RM:
  * proximity to failure is what drives hypertrophy, and RIR tracks it without

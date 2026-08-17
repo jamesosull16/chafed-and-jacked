@@ -136,7 +136,15 @@ export const INJURY_FLAGS = {
 /** Weekday indices, 0=Sun. The block default is Mon/Tue/Thu/Fri. */
 export const DEFAULT_TRAINING_DAY_INDICES = [1, 2, 4, 5]
 
-export const DEFAULT_BLOCK_WEEKS = 22
+/**
+ * Five whole mesocycles.
+ *
+ * It was 22, which is 4 mesocycles plus 2 weeks — the block ended on an
+ * accumulation week three weeks into a cycle that never finished: no deload,
+ * no peak, it just stopped mid-ramp. A block length that isn't a multiple of
+ * `MESOCYCLE_WEEKS` always ends somewhere arbitrary, so this one is.
+ */
+export const DEFAULT_BLOCK_WEEKS = 25
 
 export function addWeeks(date, weeks) {
   return addDays(date, weeks * 7)
@@ -178,9 +186,9 @@ export function defaultStrengthSettings(today = new Date()) {
     equipment: 'fullGym',
     injuryFlags: ['highHamstring', 'knee', 'tightHips', 'ankleMobility'],
     blockStart: toISODate(blockStart),
-    // blockEnd is the LAST day of the block, so a 22-week block running from a
-    // Monday ends on the Sunday 22 weeks later — one day short of the next
-    // Monday. Getting this wrong reads as a 23-week block everywhere downstream.
+    // blockEnd is the LAST day of the block, so a 25-week block running from a
+    // Monday ends on the Sunday 25 weeks later — one day short of the next
+    // Monday. Getting this wrong reads as a 26-week block everywhere downstream.
     blockEnd: toISODate(addDays(addWeeks(blockStart, DEFAULT_BLOCK_WEEKS), -1)),
   }
 }
