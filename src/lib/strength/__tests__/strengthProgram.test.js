@@ -364,6 +364,30 @@ describe('core block', () => {
     }
   })
 
+  /**
+   * Three muscles had bands on the dashboard and nothing in the library that
+   * trained them as a target: adductors and tibialis had no movement at all,
+   * and traps were only ever a passenger on a carry — which is also why traps
+   * could never earn the lagging bonus, since that reads `muscles.primary`.
+   */
+  it('trains every muscle that has a landmark band', () => {
+    const trained = new Set()
+    for (const meso of [1, 2]) {
+      for (let i = 0; i < 4; i++) {
+        const session = buildSession({
+          ...ATHLETE,
+          injuryFlags: [],
+          splitIndex: i,
+          blockStatus: { ...week(1), mesocycle: meso },
+        })
+        for (const e of session.exercises) for (const m of e.muscles.primary) trained.add(m)
+      }
+    }
+    for (const muscle of Object.keys(VOLUME_LANDMARKS)) {
+      expect(trained.has(muscle), `${muscle} has a band but nothing trains it`).toBe(true)
+    }
+  })
+
   describe('mesocycle rotation', () => {
     const lower = (meso) =>
       buildSession({

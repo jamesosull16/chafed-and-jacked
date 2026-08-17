@@ -383,6 +383,11 @@ describe('laggingMuscles', () => {
       ['farmersCarry', 6],
       ['cableCrunch', 8],
       ['bulgarianSplitSquat', 6],
+      // The support muscles have their own bands, so a week that trains
+      // everything else and skips them is not a week with nothing lagging.
+      ['hipAdductionMachine', 6],
+      ['tibialisRaise', 6],
+      ['dumbbellShrug', 6],
     ])
     expect(laggingMuscles([s], { now: NOW })).toEqual([])
   })

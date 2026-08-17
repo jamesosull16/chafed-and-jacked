@@ -104,6 +104,7 @@ export const MUSCLE_LABELS = {
   hamstrings: 'Hamstrings',
   quads: 'Quads',
   calves: 'Calves',
+  tibialis: 'Tibialis',
   adductors: 'Adductors',
   chest: 'Chest',
   back: 'Back',
@@ -215,6 +216,48 @@ export const STRENGTH_EXERCISES = {
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Glute medius. Lean the torso forward ~15° to bias the upper glute.',
     cue: 'Slow eccentric — three seconds back in.',
+  },
+  hipAdductionMachine: {
+    id: 'hipAdductionMachine',
+    name: 'Hip Adduction Machine',
+    shortName: 'Hip Adduction',
+    chain: CHAINS.NEUTRAL,
+    pattern: PATTERNS.ISOLATION,
+    tier: 'isolation',
+    muscles: { primary: ['adductors'], secondary: [] },
+    equipment: ['machine'],
+    equipmentLevel: 'fullGym',
+    isUnilateral: false,
+    weightIncrement: 10,
+    demands: D('low', 'low', 'low', 'low'),
+    notes:
+      'Adductor magnus is a hip extensor as well as an adductor, and the groin ' +
+      'is where a runner pays for a weak one. The mirror of the abduction work.',
+    cue: 'Control the way out — the lengthened half is the half that matters.',
+  },
+  copenhagenPlank: {
+    id: 'copenhagenPlank',
+    name: 'Copenhagen Plank',
+    shortName: 'Copenhagen',
+    chain: CHAINS.NEUTRAL,
+    pattern: PATTERNS.CORE,
+    tier: 'accessory',
+    muscles: { primary: ['adductors'], secondary: ['core', 'glutes'] },
+    equipment: ['bench'],
+    equipmentLevel: 'minimal',
+    isUnilateral: true,
+    perSide: true,
+    weightIncrement: 0,
+    // Side-lying on one forearm with the top leg on a bench — a little over
+    // half of him, through a long lever.
+    bodyweightLoad: 0.6,
+    isTimeBased: true,
+    repRange: [15, 40],
+    demands: D('low', 'low', 'low', 'low'),
+    notes:
+      'The best-evidenced groin-injury intervention there is. Start with the ' +
+      'knee on the bench and progress to the foot as it gets easy.',
+    cue: 'Seconds per side. Hips stacked and lifted — no sagging toward the floor.',
   },
   bulgarianSplitSquat: {
     id: 'bulgarianSplitSquat',
@@ -544,6 +587,28 @@ export const STRENGTH_EXERCISES = {
     demands: D('low', 'low', 'low', 'moderate'),
     notes: 'Knee extended — targets the gastrocnemius.',
     cue: 'Two-second pause at the bottom stretch, full contraction at the top.',
+  },
+  tibialisRaise: {
+    id: 'tibialisRaise',
+    name: 'Tibialis Raise',
+    shortName: 'Tib Raise',
+    chain: CHAINS.ANTERIOR,
+    pattern: PATTERNS.CALF,
+    tier: 'isolation',
+    muscles: { primary: ['tibialis'], secondary: [] },
+    equipment: [],
+    equipmentLevel: 'minimal',
+    isUnilateral: false,
+    weightIncrement: 5,
+    // Heels planted, toes lifting against a wall — the shin moves a fraction
+    // of him, not all of him.
+    bodyweightLoad: 0.25,
+    demands: D('low', 'low', 'low', 'low'),
+    notes:
+      'The calf raise has an antagonist and it decelerates the foot on every ' +
+      'descent. Weak tibialis is what shin splints and a slapping downhill ' +
+      'footstrike have in common.',
+    cue: 'Back against the wall, heels a stride out. Full range, slow down.',
   },
   seatedCalfRaise: {
     id: 'seatedCalfRaise',
@@ -1038,6 +1103,26 @@ export const STRENGTH_EXERCISES = {
     demands: D('low', 'low', 'low', 'low'),
     notes: 'Anti-rotation.',
     cue: 'Resist the twist. Breathe through it.',
+  },
+  dumbbellShrug: {
+    id: 'dumbbellShrug',
+    name: 'Dumbbell Shrug',
+    shortName: 'DB Shrug',
+    chain: CHAINS.POSTERIOR,
+    pattern: PATTERNS.ISOLATION,
+    tier: 'isolation',
+    muscles: { primary: ['traps'], secondary: [] },
+    equipment: ['dumbbell'],
+    equipmentLevel: 'minimal',
+    isUnilateral: false,
+    weightIncrement: 5,
+    weightLabel: '/hand',
+    weightMultiplier: 2,
+    demands: D('low', 'low', 'low', 'moderate'),
+    notes:
+      'The only movement here that trains traps as the target rather than as ' +
+      'a passenger — which is why traps could never earn the lagging bonus.',
+    cue: 'Straight up, no rolling. Pause a beat at the top.',
   },
   farmersCarry: {
     id: 'farmersCarry',

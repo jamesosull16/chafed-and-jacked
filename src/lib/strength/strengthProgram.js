@@ -100,6 +100,8 @@ export const DAY_TEMPLATES = {
       // fails on a long descent.
       enduranceSlot('Calf — soleus', 4, ['seatedCalfRaise', 'singleLegCalfRaise']),
       enduranceSlot('Hip stability', 2, ['hipAbductionMachine', 'cableKickback', 'gluteBridge']),
+      // The calf raise's antagonist, on the same day as the calf raise.
+      enduranceSlot('Ankle — anterior', 2, ['tibialisRaise']),
       coreSlot('flexion', ['cableCrunch', 'hangingLegRaise', 'deadBug']),
       coreSlot('anti-rotation', ['pallofPress', 'deadBug', 'sidePlank']),
       coreSlot('anti-lateral flexion', ['sidePlank', 'farmersCarry', 'deadBug']),
@@ -137,6 +139,10 @@ export const DAY_TEMPLATES = {
       enduranceSlot('Single-leg hinge', 2, ['staggeredStanceRDL', 'singleLegHipThrust']),
       enduranceSlot('Quad isolation', 3, ['legExtension', 'spanishSquat']),
       enduranceSlot('Calf — gastroc', 4, ['standingCalfRaise', 'singleLegCalfRaise']),
+      // Abduction lives on the posterior day; this is the other half of the
+      // pelvis, and the half a runner tears.
+      enduranceSlot('Adductors', 3, ['hipAdductionMachine', 'copenhagenPlank']),
+      enduranceSlot('Ankle — anterior', 2, ['tibialisRaise']),
       coreSlot('anti-rotation', ['pallofPress', 'deadBug', 'sidePlank']),
       coreSlot('flexion', ['cableCrunch', 'hangingLegRaise', 'deadBug']),
       coreSlot('anti-lateral flexion', ['sidePlank', 'farmersCarry', 'deadBug']),
@@ -153,7 +159,8 @@ export const DAY_TEMPLATES = {
       slot('Unilateral pull', 3, ['singleArmRow']),
       slot('Lat isolation', 3, ['straightArmPulldown', 'latPulldown']),
       slot('Biceps', 3, ['inclineDbCurl', 'barbellCurl', 'hammerCurl']),
-      slot('Rear delts / traps', 3, ['rearDeltFly', 'facePull', 'farmersCarry']),
+      slot('Rear delts', 3, ['rearDeltFly', 'facePull']),
+      slot('Traps', 3, ['dumbbellShrug', 'farmersCarry']),
       coreSlot('carry', ['farmersCarry', 'sidePlank', 'deadBug']),
       coreSlot('anti-extension', ['deadBug', 'hangingLegRaise', 'cableCrunch']),
       coreSlot('flexion', ['hangingLegRaise', 'cableCrunch', 'pallofPress']),
@@ -210,7 +217,11 @@ export const ROTATION_PAIRS = [
   { primary: 'staggeredStanceRDL', alternate: 'singleLegHipThrust' },
   { primary: 'legExtension', alternate: 'spanishSquat' },
   { primary: 'standingCalfRaise', alternate: 'singleLegCalfRaise' },
+  { primary: 'hipAdductionMachine', alternate: 'copenhagenPlank' },
+  // The tibialis raise has no alternate — it is the only movement in the
+  // library that trains the muscle, so rotating it would mean not training it.
   // Upper
+  { primary: 'dumbbellShrug', alternate: 'farmersCarry' },
   { primary: 'barbellBenchPress', alternate: 'inclineDbPress' },
   { primary: 'dbShoulderPress', alternate: 'overheadPress' },
   { primary: 'pullUp', alternate: 'latPulldown' },

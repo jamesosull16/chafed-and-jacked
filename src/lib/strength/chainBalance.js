@@ -23,6 +23,9 @@ export const VOLUME_LANDMARKS = {
   glutes: { mev: 10, mav: [16, 22], mrv: 26, priority: 1 },
   hamstrings: { mev: 8, mav: [12, 18], mrv: 20, priority: 1 },
   calves: { mev: 8, mav: [12, 18], mrv: 22, priority: 1 },
+  // A support muscle, and small — the band is set where the adductors' is,
+  // which is "enough to be durable", not "enough to grow".
+  tibialis: { mev: 2, mav: [4, 8], mrv: 12, priority: 3 },
   quads: { mev: 8, mav: [10, 16], mrv: 20, priority: 2 },
   back: { mev: 10, mav: [14, 20], mrv: 25, priority: 2 },
   chest: { mev: 8, mav: [10, 16], mrv: 22, priority: 2 },
