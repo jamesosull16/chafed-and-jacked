@@ -22,6 +22,52 @@ export const MODEL = 'claude-opus-4-8'
 /** Enough for a log-then-explain turn plus a correction; well short of a loop. */
 export const MAX_ITERATIONS = 8
 
+/**
+ * The web, for food the model has never heard of.
+ *
+ * "Log a Duffy Roll" was a dead end: a Dublin bakery item is in no training
+ * set and no USDA table, so the coach said it didn't know and the meal went
+ * unlogged. A named product, a restaurant dish, a local bakery — the numbers
+ * exist, they were just somewhere the coach couldn't reach.
+ *
+ * Server-side: Anthropic runs the search and hands back the results inside the
+ * same request, so there is no handler here and nothing to execute. It costs
+ * $10 per thousand searches, hence `max_uses` — a bound per request, not per
+ * conversation. Five is enough to check a couple of sources and cross-read
+ * them; a turn that needs more than that is one where asking him beats
+ * guessing harder.
+ */
+export const WEB_SEARCH_TOOL = Object.freeze({
+  type: 'web_search_20260209',
+  name: 'web_search',
+  max_uses: 5,
+})
+
+/**
+ * Reading the page a search turned up.
+ *
+ * Search snippets usually carry a figure, but often a vague one — a live test
+ * on the Duffy Roll came back "roughly 300-500 calories", which is a wide
+ * enough band to swallow a whole snack. A bakery's own nutrition page has the
+ * number. This can only fetch URLs already in the conversation, so in practice
+ * it opens what the search found, or a link he pastes himself.
+ *
+ * Both bounds are load-bearing, because a fetched page lands in the context of
+ * every later request in the loop: a measured turn that searched twice and
+ * fetched twice cost 56k input tokens against a normal turn's 6k. Two fetches,
+ * and each page truncated — the number is on the page, the navigation and the
+ * marketing around it are not.
+ */
+export const WEB_FETCH_TOOL = Object.freeze({
+  type: 'web_fetch_20260209',
+  name: 'web_fetch',
+  max_uses: 2,
+  max_content_tokens: 8000,
+})
+
+/** The server-side tools this coach is given, by name — see `toolsUsed`. */
+const SERVER_TOOLS = new Set([WEB_SEARCH_TOOL.name, WEB_FETCH_TOOL.name])
+
 export { HISTORY_TURNS }
 
 // ── Reasoning effort ──────────────────────────────────────────
@@ -258,7 +304,7 @@ export async function runCoachTurn(
   // cheapest of them. `cacheRead` is the number worth watching: it is 0 on a
   // cold prefix and should be most of the input on every turn after, so a
   // persistent 0 means something volatile has crept in ahead of the breakpoint.
-  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, searches: 0, fetches: 0 }
 
   // A trigger turn is server-authored — nothing James typed. It rides as a
   // user-role message rather than a `role: "system"` one because the model
@@ -305,7 +351,7 @@ export async function runCoachTurn(
           system,
           thinking: { type: 'adaptive' },
           output_config: { effort: TURN_TIERS[tier].effort },
-          tools: TOOL_DEFINITIONS,
+          tools: [...TOOL_DEFINITIONS, WEB_SEARCH_TOOL, WEB_FETCH_TOOL],
           // A photo on a logging turn is a meal being logged — `classifyTurn`
           // says exactly that, and the low-effort tier it implies is where
           // replying instead of acting is cheapest. Making the first step a
@@ -323,12 +369,45 @@ export async function runCoachTurn(
       usage.output += response.usage?.output_tokens || 0
       usage.cacheRead += response.usage?.cache_read_input_tokens || 0
       usage.cacheWrite += response.usage?.cache_creation_input_tokens || 0
+      // Searches are counted because they are the one thing here billed per
+      // call rather than per token — a cent each, invisible in a token total.
+      // Fetches are free, but they are what pulls a page into the context of
+      // every later request in the loop, so they explain an input-token jump.
+      usage.searches += response.usage?.server_tool_use?.web_search_requests || 0
+      usage.fetches += response.usage?.server_tool_use?.web_fetch_requests || 0
+
+      // Searches don't come back as `tool_use` — they already ran, server-side —
+      // so they'd be invisible in the turn log without this. Worth having: a
+      // search is the one tool with a per-use price on it.
+      //
+      // Granted tools only: the search tool filters its own results by running
+      // code server-side, which shows up here as `code_execution` server blocks.
+      // That is search internals, not a tool this coach was given, and logging
+      // it would say the turn did something it didn't.
+      for (const block of response.content || []) {
+        if (block.type === 'server_tool_use' && SERVER_TOOLS.has(block.name)) {
+          toolsUsed.push(block.name)
+        }
+      }
 
       if (response.stop_reason === 'refusal') {
         throw new CoachError(
           'I can\'t help with that one. Try rephrasing?',
           'failed-precondition'
         )
+      }
+
+      /**
+       * A paused turn is a turn that ran out of *server-side* iterations, not
+       * one that finished. Resuming is re-sending with the paused assistant
+       * turn appended and nothing else — no user message, no tool result; the
+       * server sees the trailing `server_tool_use` and picks up where it
+       * stopped. Breaking here instead would return a half-written reply and
+       * look, from the thread, like the coach trailing off mid-sentence.
+       */
+      if (response.stop_reason === 'pause_turn') {
+        messages.push({ role: 'assistant', content: response.content })
+        continue
       }
 
       if (response.stop_reason !== 'tool_use') break

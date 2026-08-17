@@ -121,6 +121,11 @@ function scriptedModel(turns) {
     messages: {
       create: vi.fn(async () => {
         const turn = turns[Math.min(i++, turns.length - 1)]
+        // A turn given `content` outright is the escape hatch for shapes the
+        // helper doesn't model — server tool blocks, a paused turn.
+        if (turn.content) {
+          return { stop_reason: turn.stop_reason || 'end_turn', content: turn.content }
+        }
         if (turn.tools) {
           return {
             stop_reason: 'tool_use',
@@ -974,6 +979,70 @@ describe('runCoachTurn', () => {
     expect(result.dayTotals.kcal).toBe(485)
   })
 
+  it('offers the web tools alongside its own', async () => {
+    const anthropic = scriptedModel([{ text: 'ok' }])
+    await runCoachTurn({ message: 'hi' }, deps({ anthropic }))
+
+    const { tools } = anthropic.messages.create.mock.calls[0][0]
+    expect(tools.find((t) => t.name === 'web_search')).toMatchObject({
+      type: 'web_search_20260209',
+      max_uses: 5,
+    })
+    expect(tools.find((t) => t.name === 'web_fetch')).toMatchObject({
+      type: 'web_fetch_20260209',
+      max_uses: 2,
+      max_content_tokens: 8000,
+    })
+    // The tool list the MCP server shares is untouched — the web tools are
+    // added at the request, not to `TOOL_DEFINITIONS`.
+    expect(tools.filter((t) => t.input_schema)).toHaveLength(TOOL_DEFINITIONS.length)
+  })
+
+  it('records a search in the turn log, though nothing ran here to execute it', async () => {
+    const anthropic = scriptedModel([
+      {
+        content: [
+          // The search filters its own results by running code server-side, so
+          // a real turn carries `code_execution` blocks the coach never asked
+          // for. They are not tools this turn used.
+          { type: 'server_tool_use', id: 'srv_0', name: 'code_execution', input: {} },
+          { type: 'server_tool_use', id: 'srv_1', name: 'web_search', input: { query: 'duffy roll kcal' } },
+          { type: 'text', text: 'About 480 kcal, per the bakery.' },
+        ],
+      },
+    ])
+    const result = await runCoachTurn({ message: 'log a duffy roll' }, deps({ anthropic }))
+
+    expect(result.toolsUsed).toEqual(['web_search'])
+    expect(result.reply).toMatch(/480/)
+  })
+
+  /**
+   * A search runs inside the request, and that inner loop has its own cap. A
+   * turn that hits it comes back paused with a half-written reply — breaking
+   * there would post the half.
+   */
+  it('resumes a turn the server paused mid-search', async () => {
+    const anthropic = scriptedModel([
+      {
+        stop_reason: 'pause_turn',
+        content: [
+          { type: 'text', text: 'Checking the' },
+          { type: 'server_tool_use', id: 'srv_1', name: 'web_search', input: { query: 'duffy roll' } },
+        ],
+      },
+      { text: 'About 480 kcal, per the bakery.' },
+    ])
+    const result = await runCoachTurn({ message: 'log a duffy roll' }, deps({ anthropic }))
+
+    expect(anthropic.messages.create).toHaveBeenCalledTimes(2)
+    // Resumed by re-sending with the paused turn appended and nothing else —
+    // no user message, no tool result.
+    const resumed = anthropic.messages.create.mock.calls[1][0].messages
+    expect(resumed[resumed.length - 1].role).toBe('assistant')
+    expect(result.reply).toBe('About 480 kcal, per the bakery.')
+  })
+
   it('sends an attached photo as an image block before the text', async () => {
     const anthropic = scriptedModel([{ text: 'ok' }])
     await runCoachTurn(
@@ -1712,7 +1781,40 @@ describe('reasoning effort', () => {
 
     const result = await runCoachTurn({ message: 'post run fuel' }, deps({ anthropic }))
 
-    expect(result.usage).toEqual({ input: 200, output: 100, cacheRead: 4000, cacheWrite: 0 })
+    expect(result.usage).toEqual({
+      input: 200,
+      output: 100,
+      cacheRead: 4000,
+      cacheWrite: 0,
+      searches: 0,
+      fetches: 0,
+    })
+  })
+
+  // Searches are the one thing here billed per call rather than per token, so
+  // a token total alone can't tell you what a turn cost.
+  it('counts web searches across the requests that ran them', async () => {
+    const anthropic = scriptedModel([{ text: 'ok' }])
+    anthropic.messages.create.mockImplementation(async () => {
+      const call = anthropic.messages.create.mock.calls.length
+      return {
+        stop_reason: call === 1 ? 'pause_turn' : 'end_turn',
+        content:
+          call === 1
+            ? [{ type: 'server_tool_use', id: 's1', name: 'web_search', input: {} }]
+            : [{ type: 'text', text: 'About 480 kcal.' }],
+        usage: {
+          server_tool_use: {
+            web_search_requests: call === 1 ? 3 : 1,
+            web_fetch_requests: call === 1 ? 0 : 1,
+          },
+        },
+      }
+    })
+
+    const result = await runCoachTurn({ message: 'log a duffy roll' }, deps({ anthropic }))
+    expect(result.usage.searches).toBe(4)
+    expect(result.usage.fetches).toBe(1)
   })
 
   it('runs the post-workout trigger at coaching effort', async () => {
