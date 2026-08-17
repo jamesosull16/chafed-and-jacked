@@ -7,6 +7,24 @@
  *   chain      — 'posterior' | 'anterior' | 'neutral'  (drives chainBalance.js)
  *   pattern    — movement pattern, for split construction and push/pull balance
  *   muscles    — { primary: [...], secondary: [...] } for weekly set counting
+ *
+ * `primary` is **the muscle the movement targets**, and it is normally one.
+ * Everything else the movement works — and a squat works plenty — belongs in
+ * `secondary`, which credits half a set. This is not a stylistic preference:
+ * `countSets` credits every primary in full, so listing quads *and* glutes on a
+ * back squat made one set count as two across the ledger. In a lower body built
+ * around hip extension that pushed glutes to 32 weekly sets against a ceiling of
+ * 26, while the muscles those movements only assist read as untrained. The
+ * landmark bands in `chainBalance.js` come from a literature that assumes
+ * direct work counts 1 and indirect counts 0.5; this is the field that has to
+ * mean the same thing.
+ *
+ * `trainsLagging` reads it too, so the rule has a second effect: the extra set
+ * a lagging muscle earns goes to a movement that targets it, not to a squat
+ * that happens to involve it.
+ *
+ * The farmer's carry is the deliberate exception — traps and trunk are both
+ * targets of a loaded carry, not one target and one passenger.
  *   demands    — injury-relevant loading profile, read by the guardrail filter
  *
  * `demands` is deliberately descriptive rather than a hardcoded allow/deny list:
@@ -266,7 +284,7 @@ export const STRENGTH_EXERCISES = {
     chain: CHAINS.ANTERIOR,
     pattern: PATTERNS.LUNGE,
     tier: 'secondary',
-    muscles: { primary: ['quads', 'glutes'], secondary: ['adductors'] },
+    muscles: { primary: ['quads'], secondary: ['glutes', 'adductors'] },
     equipment: ['dumbbell', 'bench'],
     equipmentLevel: 'minimal',
     isUnilateral: true,
@@ -345,7 +363,7 @@ export const STRENGTH_EXERCISES = {
     chain: CHAINS.POSTERIOR,
     pattern: PATTERNS.HINGE,
     tier: 'primary',
-    muscles: { primary: ['hamstrings', 'glutes'], secondary: ['back'] },
+    muscles: { primary: ['hamstrings'], secondary: ['glutes', 'back'] },
     equipment: ['barbell'],
     equipmentLevel: 'homeGym',
     isUnilateral: false,
@@ -361,7 +379,7 @@ export const STRENGTH_EXERCISES = {
     chain: CHAINS.POSTERIOR,
     pattern: PATTERNS.HINGE,
     tier: 'secondary',
-    muscles: { primary: ['hamstrings', 'glutes'], secondary: ['core'] },
+    muscles: { primary: ['hamstrings'], secondary: ['glutes', 'core'] },
     equipment: ['dumbbell'],
     equipmentLevel: 'minimal',
     isUnilateral: true,
@@ -380,7 +398,7 @@ export const STRENGTH_EXERCISES = {
     chain: CHAINS.POSTERIOR,
     pattern: PATTERNS.HINGE,
     tier: 'accessory',
-    muscles: { primary: ['glutes', 'hamstrings'], secondary: ['back'] },
+    muscles: { primary: ['glutes'], secondary: ['hamstrings', 'back'] },
     equipment: ['machine'],
     equipmentLevel: 'fullGym',
     isUnilateral: false,
@@ -414,7 +432,7 @@ export const STRENGTH_EXERCISES = {
     chain: CHAINS.POSTERIOR,
     pattern: PATTERNS.HINGE,
     tier: 'secondary',
-    muscles: { primary: ['hamstrings', 'glutes'], secondary: ['back'] },
+    muscles: { primary: ['hamstrings'], secondary: ['glutes', 'back'] },
     equipment: ['barbell', 'rack'],
     equipmentLevel: 'homeGym',
     isUnilateral: false,
@@ -469,7 +487,7 @@ export const STRENGTH_EXERCISES = {
     chain: CHAINS.ANTERIOR,
     pattern: PATTERNS.SQUAT,
     tier: 'primary',
-    muscles: { primary: ['quads', 'glutes'], secondary: ['core', 'back'] },
+    muscles: { primary: ['quads'], secondary: ['glutes', 'core', 'back'] },
     equipment: ['barbell', 'rack'],
     equipmentLevel: 'homeGym',
     isUnilateral: false,
@@ -537,7 +555,7 @@ export const STRENGTH_EXERCISES = {
     chain: CHAINS.ANTERIOR,
     pattern: PATTERNS.LUNGE,
     tier: 'accessory',
-    muscles: { primary: ['quads', 'glutes'], secondary: ['adductors'] },
+    muscles: { primary: ['quads'], secondary: ['glutes', 'adductors'] },
     equipment: ['dumbbell'],
     equipmentLevel: 'minimal',
     isUnilateral: true,
@@ -556,7 +574,7 @@ export const STRENGTH_EXERCISES = {
     chain: CHAINS.ANTERIOR,
     pattern: PATTERNS.LUNGE,
     tier: 'accessory',
-    muscles: { primary: ['quads', 'glutes'], secondary: [] },
+    muscles: { primary: ['quads'], secondary: ['glutes'] },
     equipment: ['dumbbell', 'box'],
     equipmentLevel: 'minimal',
     isUnilateral: true,

@@ -351,9 +351,13 @@ export function assessVolume(sessions = [], opts = {}) {
       for (const ex of session.exercises || []) {
         const def = STRENGTH_EXERCISES[ex.id]
         if (!def || !consumesAllowance(def, consumes)) continue
-        const credit = creditedSets(def, ex.sets)
-        if (def.muscles.primary.includes(muscle)) used += credit
-        else if ((def.muscles.secondary || []).includes(muscle)) used += credit * 0.5
+        // Full credit, whether the muscle is this movement's target or not.
+        // The ceiling governs lengthened loading of a healing tendon, and a set
+        // of 45° back extensions loads it exactly as much whether the set is
+        // booked as hamstring work or as glute work. Crediting it by the
+        // hypertrophy rule would have halved what the rehab ceiling counted the
+        // moment those movements were relabelled.
+        used += creditedSets(def, ex.sets)
       }
     }
     return Math.round(used * 2) / 2
