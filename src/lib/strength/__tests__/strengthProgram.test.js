@@ -18,7 +18,6 @@ const ATHLETE = {
   injuryFlags: ['highHamstring', 'knee', 'tightHips', 'ankleMobility'],
   equipment: 'fullGym',
   daysPerWeek: 4,
-  sessionMinutes: 75,
 }
 
 function statusForWeek(week) {
@@ -130,11 +129,39 @@ describe('session shape', () => {
     expect(primary.restSeconds).toBeGreaterThanOrEqual(120)
   })
 
-  it('fits inside the session time budget', () => {
+  /**
+   * There used to be a time budget, and it took back exactly the work the
+   * block had just decided to add: it shaved sets off whichever isolation
+   * exercise had the most, which is always the one the lagging-muscle bonus
+   * topped up. A lateral raise carried a "+1 set" badge into a session where
+   * the clock had cut it from six sets to two.
+   */
+  it('prescribes the whole session, however long it runs', () => {
     for (let i = 0; i < 4; i++) {
-      const session = buildSession({ ...ATHLETE, splitIndex: i, blockStatus: statusForWeek(4) })
-      expect(session.estimatedMinutes).toBeLessThanOrEqual(ATHLETE.sessionMinutes)
+      const status = statusForWeek(4)
+      const biased = buildSession({
+        ...ATHLETE,
+        laggingMuscles: [{ muscle: 'sideDelts' }, { muscle: 'chest' }],
+        splitIndex: i,
+        blockStatus: status,
+      })
+      const plain = buildSession({ ...ATHLETE, splitIndex: i, blockStatus: status })
+
+      // Nothing dropped for running long.
+      expect(biased.exercises).toHaveLength(plain.exercises.length)
+
+      for (const ex of biased.exercises) {
+        const before = plain.exercises.find((e) => e.id === ex.id)
+        // The badge is a promise about the set count: one more than the same
+        // exercise gets without the bias, never fewer.
+        expect(ex.sets).toBe(before.sets + (ex.biasedForLagging ? 1 : 0))
+      }
     }
+  })
+
+  it('still reports how long a session runs, it just no longer cuts it short', () => {
+    const session = buildSession({ ...ATHLETE, splitIndex: 0, blockStatus: statusForWeek(4) })
+    expect(session.estimatedMinutes).toBeGreaterThan(0)
   })
 
   it('carries the mesocycle RIR target onto every exercise', () => {
@@ -326,16 +353,15 @@ describe('core block', () => {
     expect(direct).toBeLessThanOrEqual(mavMax)
   })
 
-  it('survives a short session — core is not the thing that gets cut', () => {
+  it('finishes every day of the split — core is not the thing that gets cut', () => {
     // It was optional in the first pass, which meant a tight time budget
     // dropped it and "core after every session" quietly became "sometimes".
-    const rushed = buildSession({
-      ...ATHLETE,
-      sessionMinutes: 35,
-      splitIndex: 0,
-      blockStatus: week(1),
-    })
-    expect(coreOf(rushed)).toHaveLength(CORE_BLOCK_SIZE)
+    // The budget is gone; this holds the guarantee it used to break.
+    for (let i = 0; i < 4; i++) {
+      expect(coreOf(buildSession({ ...ATHLETE, splitIndex: i, blockStatus: week(1) }))).toHaveLength(
+        CORE_BLOCK_SIZE
+      )
+    }
   })
 
   it('never prescribes the same movement twice in one session', () => {

@@ -447,10 +447,15 @@ describe('profile', () => {
   it('writes settings through the whitelist', async () => {
     const store = fakeStore({ profile: { mode: 'strength' } })
     await build(store).update_profile({
-      strength: { blockStart: '2026-07-20', sessionMinutes: 75 },
+      // `sessionMinutes` is no longer a setting — the whitelist drops it like
+      // any other unknown field rather than writing a knob nothing reads.
+      strength: { blockStart: '2026-07-20', trainingDaysPerWeek: 4, sessionMinutes: 75 },
       profile: { heightInches: 71 },
     })
-    expect(store._data.profile.strength).toEqual({ blockStart: '2026-07-20', sessionMinutes: 75 })
+    expect(store._data.profile.strength).toEqual({
+      blockStart: '2026-07-20',
+      trainingDaysPerWeek: 4,
+    })
     expect(store._data.profile.profile).toEqual({ heightInches: 71 })
   })
 

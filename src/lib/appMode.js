@@ -175,7 +175,6 @@ export function defaultStrengthSettings(today = new Date()) {
     calorieSurplus: BODY_COMP_GOALS.leanBulk.kcalDelta,
     trainingDaysPerWeek: 4,
     trainingDayIndices: [...DEFAULT_TRAINING_DAY_INDICES],
-    sessionMinutes: 75,
     equipment: 'fullGym',
     injuryFlags: ['highHamstring', 'knee', 'tightHips', 'ankleMobility'],
     blockStart: toISODate(blockStart),
@@ -211,7 +210,6 @@ export function normalizeProfile(userProfile, today = new Date()) {
         Array.isArray(strength.trainingDayIndices) && strength.trainingDayIndices.length > 0
           ? strength.trainingDayIndices
           : defaults.trainingDayIndices,
-      sessionMinutes: strength.sessionMinutes ?? defaults.sessionMinutes,
       equipment: strength.equipment ?? defaults.equipment,
       injuryFlags: Array.isArray(strength.injuryFlags)
         ? strength.injuryFlags

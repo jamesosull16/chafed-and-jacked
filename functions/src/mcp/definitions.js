@@ -491,7 +491,6 @@ export const TOOL_DEFINITIONS = [
               items: { type: 'number' },
               description: 'Weekday numbers, Sunday 0 to Saturday 6.',
             },
-            sessionMinutes: { type: 'number' },
             equipment: { type: 'string' },
             injuryFlags: { type: 'array', items: { type: 'string' } },
             bodyCompGoal: { type: 'string' },

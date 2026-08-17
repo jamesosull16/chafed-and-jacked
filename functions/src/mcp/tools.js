@@ -735,7 +735,6 @@ export function createHandlers({ store, estimate, timezoneOffset = 0 }) {
         'blockEnd',
         'trainingDaysPerWeek',
         'trainingDayIndices',
-        'sessionMinutes',
         'equipment',
         'injuryFlags',
         'bodyCompGoal',

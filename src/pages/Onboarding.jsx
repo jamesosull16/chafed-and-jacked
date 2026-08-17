@@ -51,7 +51,6 @@ export default function Onboarding() {
     // Strength
     bodyCompGoal: 'leanBulk',
     trainingDayIndices: defaults.trainingDayIndices,
-    sessionMinutes: defaults.sessionMinutes,
     equipment: 'fullGym',
     injuryFlags: [],
     // Running
@@ -114,7 +113,6 @@ export default function Onboarding() {
         calorieSurplus: BODY_COMP_GOALS[data.bodyCompGoal].kcalDelta,
         trainingDayIndices: data.trainingDayIndices,
         trainingDaysPerWeek: data.trainingDayIndices.length,
-        sessionMinutes: Number(data.sessionMinutes),
         equipment: data.equipment,
         injuryFlags: data.injuryFlags,
       },

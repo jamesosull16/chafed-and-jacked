@@ -318,7 +318,6 @@ export function estimateSessionMinutes(exercises, mobilityMinutes = 0) {
  * @param params.injuryFlags       athlete's active flags
  * @param params.equipment         'fullGym' | 'homeGym' | 'minimal'
  * @param params.daysPerWeek       split size
- * @param params.sessionMinutes    time budget, drives trimming
  * @param params.exerciseHistory   { [exerciseId]: { currentWeight, lastReps } }
  * @param params.laggingMuscles    from chainBalance.laggingMuscles(), biases volume
  */
@@ -328,7 +327,6 @@ export function buildSession({
   injuryFlags = [],
   equipment = 'fullGym',
   daysPerWeek = 4,
-  sessionMinutes = 75,
   exerciseHistory = {},
   laggingMuscles = [],
   hamstringStage = 3,
@@ -460,8 +458,6 @@ export function buildSession({
     }
   }
 
-  // Trim to the time budget, dropping optional slots from the end first — the
-  // primary movements are the ones that drive the block's objectives.
   const mobility = getMobilityBlock({
     injuryFlags,
     slot: 'warmup',
@@ -469,24 +465,26 @@ export function buildSession({
     emphasis: template.emphasis,
   })
 
-  let kept = exercises
-  while (
-    estimateSessionMinutes(kept, mobility.totalMinutes) > sessionMinutes &&
-    kept.some((e) => e.optional)
-  ) {
-    const lastOptional = kept.map((e) => e.optional).lastIndexOf(true)
-    kept = kept.filter((_, i) => i !== lastOptional)
-  }
-  // Still over budget with nothing optional left — shave a set off the highest
-  // volume isolation work rather than dropping a movement entirely.
-  let guard = 0
-  while (estimateSessionMinutes(kept, mobility.totalMinutes) > sessionMinutes && guard++ < 20) {
-    const target = [...kept]
-      .filter((e) => e.sets > 2 && e.tier === 'isolation')
-      .sort((a, b) => b.sets - a.sets)[0]
-    if (!target) break
-    target.sets -= 1
-  }
+  /**
+   * The session is what the block prescribes. It takes as long as it takes.
+   *
+   * There was a time budget here, and it did real damage. It dropped optional
+   * movements and then shaved sets off whichever isolation exercise had the
+   * most — which is precisely the exercise the lagging-muscle bonus had just
+   * added a set to. Side delts came up short one week, earned their extra set
+   * the next, and had it taken straight back off by the clock: a "+1 set" badge
+   * on a lateral raise cut from six sets to two. The muscle stayed behind, so
+   * it stayed flagged, so the loop ran again.
+   *
+   * It also got worse as the block ramped. Higher volume meant longer sessions
+   * meant more shaving, so planned calf volume *fell* from 12.5 sets in week 5
+   * to 10.5 in week 8 while the mesocycle was supposedly building.
+   *
+   * `estimatedMinutes` is still computed and still shown — knowing a session
+   * runs 85 minutes is useful. Silently deleting the last twenty of them was
+   * not.
+   */
+  const kept = exercises
 
   return {
     splitIndex,

@@ -126,7 +126,6 @@ export function useStrengthBlock() {
       hamstringStage: analysisOpts.hamstringStage,
       equipment: strength.equipment,
       daysPerWeek: strength.trainingDaysPerWeek,
-      sessionMinutes: strength.sessionMinutes,
       exerciseHistory,
       laggingMuscles: lagging,
       cappedUsage,

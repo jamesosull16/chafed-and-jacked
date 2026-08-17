@@ -139,7 +139,6 @@ export default function Settings() {
     await updateStrengthSettings({
       ...blockDraft,
       calorieSurplus: Number(blockDraft.calorieSurplus),
-      sessionMinutes: Number(blockDraft.sessionMinutes),
       trainingDaysPerWeek: blockDraft.trainingDayIndices.length,
     })
     setBlockSaving(false)
@@ -417,19 +416,6 @@ export default function Settings() {
                 {splitLabels.map((s) => s.name).join(' · ')}
               </p>
             </div>
-
-            <Field label="Session length (minutes)">
-              {({ id }) => (
-                <Input
-                  id={id}
-                  type="number"
-                  value={blockDraft.sessionMinutes}
-                  onChange={(e) =>
-                    setBlockDraft({ ...blockDraft, sessionMinutes: e.target.value })
-                  }
-                />
-              )}
-            </Field>
 
             <div>
               <p className="text-xs font-medium text-muted mb-1.5">Equipment</p>
