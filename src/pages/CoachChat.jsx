@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, Sparkles } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
@@ -133,7 +133,9 @@ export default function CoachChat() {
   const [photoError, setPhotoError] = useState(null)
   const [loggingIndex, setLoggingIndex] = useState(null)
   const [savingEntry, setSavingEntry] = useState(null)
+  const threadRef = useRef(null)
   const threadEndRef = useRef(null)
+  const openedAtBottom = useRef(false)
   const library = useSavedMeals()
 
   const todayId = formatLocalDate()
@@ -274,8 +276,48 @@ export default function CoachChat() {
 
   const { messages, pending, loading, sending, error, send } = useCoachChat({ buildContext })
 
-  // Keep the newest message in view as the thread grows.
+  /**
+   * Open on the newest message, not the oldest.
+   *
+   * A thread is history: the interesting end is the bottom, and every visit was
+   * starting at the top of it and asking to be scrolled. This jumps before the
+   * browser paints — `useLayoutEffect` and an instant `scrollTop`, not the
+   * smooth scroll used while chatting — so the thread is simply *already* at the
+   * bottom rather than visibly flying there on every open.
+   */
+  useLayoutEffect(() => {
+    if (openedAtBottom.current || loading) return
+    const thread = threadRef.current
+    if (!thread) return
+
+    const pin = () => {
+      thread.scrollTop = thread.scrollHeight
+    }
+    pin()
+    openedAtBottom.current = true
+
+    // A meal photo in the history reserves no height until it decodes, so the
+    // thread grows a beat after the jump and leaves the newest message just
+    // off-screen. Re-pin as they land, and stop the moment he scrolls himself —
+    // `load` doesn't bubble, hence the capture listener.
+    const onLoad = (e) => {
+      if (e.target.tagName === 'IMG') pin()
+    }
+    const stop = () => {
+      thread.removeEventListener('load', onLoad, true)
+      thread.removeEventListener('wheel', stop)
+      thread.removeEventListener('touchmove', stop)
+    }
+    thread.addEventListener('load', onLoad, true)
+    thread.addEventListener('wheel', stop)
+    thread.addEventListener('touchmove', stop)
+    return stop
+  }, [loading, messages])
+
+  // Keep the newest message in view as the thread grows. Smooth here, because
+  // this one follows a message the athlete just watched appear.
   useEffect(() => {
+    if (!openedAtBottom.current) return
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, pending, sending])
 
@@ -361,7 +403,10 @@ export default function CoachChat() {
         />
       </header>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3 bg-surface/40">
+      <div
+        ref={threadRef}
+        className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3 bg-surface/40"
+      >
         {isEmpty && (
           <div className="text-center py-10">
             <div className="w-12 h-12 rounded-2xl bg-brand-subtle flex items-center justify-center mx-auto mb-3">

@@ -44,6 +44,13 @@ const MEAL = { id: 'sm-1', name: 'Overnight oats', ...ENTRY, useCount: 3 }
 let container
 let root
 
+/**
+ * `Sheet` portals to `document.body`, so a sheet's markup is never inside the
+ * root React renders into. Scope sheet queries to the body; `container` still
+ * holds everything a component renders in place.
+ */
+const sheet = () => document.body
+
 beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -60,13 +67,25 @@ const render = async (ui) => act(async () => root.render(ui))
 describe('SaveMealSheet', () => {
   it('renders a draft, then survives the render where it closes and the draft goes null', async () => {
     await render(<SaveMealSheet open draft={ENTRY} onClose={() => {}} onSave={() => {}} />)
-    expect(container.textContent).toContain('Save to library')
-    expect(container.querySelector('input').value).toBe('Overnight oats')
+    expect(sheet().textContent).toContain('Save to library')
+    expect(sheet().querySelector('input').value).toBe('Overnight oats')
 
     // Exactly what the page does on save: write, then clear the entry it was
     // naming. This is the render that white-screened.
     await render(<SaveMealSheet open={false} draft={null} onClose={() => {}} onSave={() => {}} />)
+    expect(sheet().textContent).toBe('')
+  })
+
+  /**
+   * The coach page pins itself with `position: fixed`, which opens a stacking
+   * context — anything rendered inside it is stuck below the bottom nav no
+   * matter its z-index, which is how the save button ended up behind the nav
+   * bar. Rendering to the body is what keeps the footer reachable.
+   */
+  it('renders outside the tree it was opened from, so no page can stack over it', async () => {
+    await render(<SaveMealSheet open draft={ENTRY} onClose={() => {}} onSave={() => {}} />)
     expect(container.textContent).toBe('')
+    expect(document.body.textContent).toContain('Save to library')
   })
 
   it('saves the edited name and macros rather than the draft it started from', async () => {
@@ -74,7 +93,7 @@ describe('SaveMealSheet', () => {
     const onClose = vi.fn()
     await render(<SaveMealSheet open draft={ENTRY} onClose={onClose} onSave={onSave} />)
 
-    const nameInput = container.querySelector('input')
+    const nameInput = sheet().querySelector('input')
     await act(async () => {
       Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
@@ -83,7 +102,7 @@ describe('SaveMealSheet', () => {
       nameInput.dispatchEvent(new Event('input', { bubbles: true }))
     })
 
-    const save = [...container.querySelectorAll('button')].find((b) =>
+    const save = [...sheet().querySelectorAll('button')].find((b) =>
       b.textContent.includes('Save to library')
     )
     await act(async () => save.click())
@@ -109,14 +128,14 @@ describe('SaveMealSheet', () => {
     )
 
     const del = () =>
-      [...container.querySelectorAll('button')].find((b) =>
+      [...sheet().querySelectorAll('button')].find((b) =>
         (b.getAttribute('aria-label') || '').includes('delete') ||
         (b.getAttribute('aria-label') || '').includes('Delete')
       )
 
     await act(async () => del().click())
     expect(onDelete).not.toHaveBeenCalled()
-    expect(container.textContent).toContain('Sure?')
+    expect(sheet().textContent).toContain('Sure?')
 
     await act(async () => del().click())
     expect(onDelete).toHaveBeenCalled()
@@ -129,11 +148,11 @@ describe('LogSavedMealSheet', () => {
     const onClose = vi.fn()
     await render(<LogSavedMealSheet open meal={MEAL} onClose={onClose} onLog={onLog} />)
 
-    const double = [...container.querySelectorAll('button')].find((b) => b.textContent === '2×')
+    const double = [...sheet().querySelectorAll('button')].find((b) => b.textContent === '2×')
     await act(async () => double.click())
-    expect(container.textContent).toContain('Log 1000 kcal')
+    expect(sheet().textContent).toContain('Log 1000 kcal')
 
-    const log = [...container.querySelectorAll('button')].find((b) =>
+    const log = [...sheet().querySelectorAll('button')].find((b) =>
       b.textContent.includes('Log 1000')
     )
     await act(async () => log.click())
@@ -143,7 +162,7 @@ describe('LogSavedMealSheet', () => {
     })
 
     await render(<LogSavedMealSheet open={false} meal={null} onClose={onClose} onLog={onLog} />)
-    expect(container.textContent).toBe('')
+    expect(sheet().textContent).toBe('')
   })
 })
 

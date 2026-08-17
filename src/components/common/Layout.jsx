@@ -17,9 +17,11 @@ export default function Layout({ children }) {
     <div className="min-h-screen bg-bg text-text">
       <main className="max-w-lg mx-auto px-4 pt-4 pb-28">{children}</main>
 
+      {/* Explicitly below `Sheet`'s z-50 — a sheet is modal and must cover the
+          nav, including its footer. */}
       <nav
         aria-label="Primary"
-        className="fixed bottom-0 inset-x-0 bg-bg/90 backdrop-blur-md border-t border-border-default safe-area-pb"
+        className="fixed bottom-0 inset-x-0 z-30 bg-bg/90 backdrop-blur-md border-t border-border-default safe-area-pb"
       >
         <div className="max-w-lg mx-auto flex">
           {NAV_ITEMS.map(({ to, label, icon: Icon }) => {

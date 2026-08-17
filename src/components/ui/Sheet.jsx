@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from './cn'
 
@@ -6,6 +7,13 @@ import { cn } from './cn'
  * Sheet — bottom sheet on mobile, centred dialog on wider screens. Traps nothing
  * fancy, but does handle Escape, scroll lock, backdrop dismissal, and returning
  * focus to whatever opened it.
+ *
+ * Rendered through a portal to `document.body`, because `z-50` is only worth
+ * anything in the stacking context it lives in. The coach page pins itself with
+ * `position: fixed`, which opens a stacking context of its own — a sheet opened
+ * from a chat card was therefore trapped inside it and painted *under* the
+ * bottom nav, which comes later in the document. The sheet was fine; its footer,
+ * and so the save button, was behind the nav bar.
  */
 export default function Sheet({ open, onClose, title, description, children, footer }) {
   const panelRef = useRef(null)
@@ -34,7 +42,7 @@ export default function Sheet({ open, onClose, title, description, children, foo
 
   if (!open) return null
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center">
       <div
         className="absolute inset-0 bg-text/25 backdrop-blur-[2px]"
@@ -73,6 +81,7 @@ export default function Sheet({ open, onClose, title, description, children, foo
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
