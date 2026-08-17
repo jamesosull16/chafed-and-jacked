@@ -106,6 +106,33 @@ export const MOBILITY_DRILLS = {
     slot: 'standalone',
     cue: 'Hold a rack for support. Heels elevated if they lift. Pry the knees out with the elbows.',
   },
+  worldsGreatestStretch: {
+    id: 'worldsGreatestStretch',
+    name: "World's Greatest Stretch",
+    targets: ['hipFlexors', 'hipRotation', 'tSpine'],
+    prescription: '5 reps per side',
+    seconds: 150,
+    slot: 'warmup',
+    cue: 'Lunge, elbow to instep, then rotate the top arm to the ceiling and follow it.',
+  },
+  hipAirplane: {
+    id: 'hipAirplane',
+    name: 'Hip Airplane',
+    targets: ['hipRotation'],
+    prescription: '5 reps per side',
+    seconds: 120,
+    slot: 'warmup',
+    cue: 'Hinged on one leg, rotate the pelvis open and closed. This is stance phase, slowed down.',
+  },
+  thoracicExtension: {
+    id: 'thoracicExtension',
+    name: 'Thoracic Extension over Roller',
+    targets: ['tSpine'],
+    prescription: '2 × 45s',
+    seconds: 120,
+    slot: 'warmup',
+    cue: 'Roller under the mid-back, hands behind the head, extend over it segment by segment.',
+  },
   thoracicOpener: {
     id: 'thoracicOpener',
     name: 'Open-Book T-Spine Rotation',
@@ -128,8 +155,25 @@ export const MOBILITY_DRILLS = {
   },
 }
 
-/** Drills matched to the athlete's restrictions, highest-relevance first. */
-export function drillsForFlags(injuryFlags = []) {
+/**
+ * What every session covers, flags or no flags.
+ *
+ * Selection used to come only from the injury flags, which meant an athlete
+ * with none got a single drill: clear the flags and the block collapsed to one
+ * thoracic rotation, with the hips and ankles — a runner's actual restrictions
+ * — dropping out entirely. Flags now *raise* a target's priority rather than
+ * being the only thing that puts it on the list.
+ */
+export const BASE_TARGETS = [
+  'hipFlexors',
+  'hipRotation',
+  'adductors',
+  'ankleDorsiflexion',
+  'tSpine',
+]
+
+/** Targets the athlete's flags argue for, if any. */
+export function flagTargets(injuryFlags = []) {
   const wanted = new Set()
   if (injuryFlags.includes('ankleMobility')) wanted.add('ankleDorsiflexion')
   if (injuryFlags.includes('tightHips')) {
@@ -138,8 +182,12 @@ export function drillsForFlags(injuryFlags = []) {
     wanted.add('adductors')
   }
   if (injuryFlags.includes('highHamstring')) wanted.add('hamstringMobility')
-  // Everyone gets thoracic work — it costs nothing and pressing volume needs it.
-  wanted.add('tSpine')
+  return wanted
+}
+
+/** Drills matched to the athlete's restrictions, highest-relevance first. */
+export function drillsForFlags(injuryFlags = []) {
+  const wanted = new Set([...flagTargets(injuryFlags), ...BASE_TARGETS])
 
   return Object.values(MOBILITY_DRILLS)
     .map((d) => ({ drill: d, hits: d.targets.filter((t) => wanted.has(t)).length }))
@@ -160,23 +208,46 @@ export function getMobilityBlock({
   slot = 'warmup',
   minutes = 8,
   emphasis = null,
+  blockWeek = 1,
 } = {}) {
   const budget = minutes * 60
-  const candidates = drillsForFlags(injuryFlags).filter(
-    (d) => d.slot === slot || slot === 'standalone'
-  )
+  const flagged = flagTargets(injuryFlags)
 
-  const ranked = emphasis
-    ? [...candidates].sort(
-        (a, b) => Number(b.targets.includes(emphasis)) - Number(a.targets.includes(emphasis))
-      )
-    : candidates
+  // Cover targets in priority order — the day's emphasis first, then whatever
+  // the flags argue for, then the rest. Filling the budget by ranking drills
+  // instead meant one drill that happened to hit three targets crowded out the
+  // targets it didn't hit.
+  const targets = [
+    ...new Set([
+      ...(emphasis ? [emphasis] : []),
+      ...BASE_TARGETS.filter((t) => flagged.has(t)),
+      ...[...flagged],
+      ...BASE_TARGETS,
+    ]),
+  ]
 
   const chosen = []
+  const taken = new Set()
   let used = 0
-  for (const drill of ranked) {
+
+  for (const target of targets) {
+    const pool = Object.values(MOBILITY_DRILLS).filter(
+      (d) =>
+        d.targets.includes(target) &&
+        (slot === 'standalone' || d.slot === slot) &&
+        !taken.has(d.id)
+    )
+    if (pool.length === 0) continue
+
+    // Weekly, not per mesocycle. Mobility is the part of the session most
+    // easily tuned out, and five weeks of the same three drills is how it
+    // becomes a ritual instead of training. A drill with no counterpart in its
+    // target simply recurs — that is the pool being thin, not a decision.
+    const drill = pool[(Math.max(1, blockWeek) - 1) % pool.length]
     if (used + drill.seconds > budget) continue
+
     chosen.push(drill)
+    taken.add(drill.id)
     used += drill.seconds
   }
 

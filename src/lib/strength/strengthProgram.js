@@ -579,6 +579,7 @@ export function buildSession({
     slot: 'warmup',
     minutes: 8,
     emphasis: template.emphasis,
+    blockWeek,
   })
 
   /**
