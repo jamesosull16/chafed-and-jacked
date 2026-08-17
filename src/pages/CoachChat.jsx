@@ -134,11 +134,20 @@ export default function CoachChat() {
   const [loggingIndex, setLoggingIndex] = useState(null)
   const [savingEntry, setSavingEntry] = useState(null)
   const threadRef = useRef(null)
+  const [threadMounted, setThreadMounted] = useState(false)
   const threadEndRef = useRef(null)
   const openedAtBottom = useRef(false)
   const library = useSavedMeals()
 
   const todayId = formatLocalDate()
+
+  // The node in a ref, its presence in state — the scroll-to-bottom effect
+  // needs to re-run on the commit where the container appears, and a ref alone
+  // is invisible to the dependency array.
+  const attachThread = useCallback((node) => {
+    threadRef.current = node
+    setThreadMounted(!!node)
+  }, [])
 
   const refreshTotals = useCallback(async () => {
     try {
@@ -284,11 +293,18 @@ export default function CoachChat() {
    * browser paints — `useLayoutEffect` and an instant `scrollTop`, not the
    * smooth scroll used while chatting — so the thread is simply *already* at the
    * bottom rather than visibly flying there on every open.
+   *
+   * The container mounting is itself a dependency, which is what the state flag
+   * is for. The page is gated on two independent loads — the thread and the
+   * block — and the scroll container only exists once both are done. Depending
+   * on `[loading, messages]` alone missed the commit where the container
+   * appeared whenever the block resolved last: nothing in those deps changed,
+   * so the effect never re-ran and the jump silently didn't happen. Which load
+   * won the race decided whether the feature worked.
    */
   useLayoutEffect(() => {
-    if (openedAtBottom.current || loading) return
     const thread = threadRef.current
-    if (!thread) return
+    if (openedAtBottom.current || !threadMounted || !thread || !messages.length) return
 
     const pin = () => {
       thread.scrollTop = thread.scrollHeight
@@ -312,7 +328,7 @@ export default function CoachChat() {
     thread.addEventListener('wheel', stop)
     thread.addEventListener('touchmove', stop)
     return stop
-  }, [loading, messages])
+  }, [threadMounted, messages])
 
   // Keep the newest message in view as the thread grows. Smooth here, because
   // this one follows a message the athlete just watched appear.
@@ -404,7 +420,7 @@ export default function CoachChat() {
       </header>
 
       <div
-        ref={threadRef}
+        ref={attachThread}
         className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3 bg-surface/40"
       >
         {isEmpty && (
