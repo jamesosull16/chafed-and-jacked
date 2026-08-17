@@ -28,6 +28,28 @@ const SECONDS_PER_SET_WORK = 45
 const slot = (role, sets, candidates, opts = {}) => ({ role, sets, candidates, ...opts })
 
 /**
+ * Endurance loading, for the lower-body work that exists to serve running.
+ *
+ * The block's compounds stay heavy — that is where strength comes from, and an
+ * ultrarunner who can't produce force is not helped by doing twenty more reps
+ * of something light. What changes is the accessory work around them:
+ * single-leg, calf and hip-stability movements move to the loading the running
+ * programme already prescribes for exactly these patterns (see `lib/program.js`
+ * — "≥12 reps, <70% 1RM, short rest", ACSM muscular-endurance guidance), because
+ * their job is repeated sub-maximal contraction over hours, not a heavy single.
+ *
+ * A slot opts in with `endurance: true`; it overrides the exercise's own tier
+ * defaults rather than editing the exercise, because the same movement is
+ * heavy work in another context and the definitions are shared.
+ */
+const ENDURANCE_REPS = [12, 20]
+const ENDURANCE_REST = 75
+
+/** An accessory slot loaded for muscular endurance rather than hypertrophy. */
+const enduranceSlot = (role, sets, candidates, opts = {}) =>
+  slot(role, sets, candidates, { ...opts, endurance: true })
+
+/**
  * Every session ends on a dedicated core block of three movements.
  *
  * These are real logged sets, not a checklist: they carry weight, reps and
@@ -61,19 +83,23 @@ export const DAY_TEMPLATES = {
   lowerPosterior: {
     id: 'lowerPosterior',
     name: 'Lower — Posterior',
-    focus: 'Glutes & hamstrings',
+    focus: 'Glutes, hamstrings & run-specific strength',
     emphasis: 'hipRotation',
     slots: [
-      slot('Primary glute', 4, ['barbellHipThrust', 'gluteBridge', 'singleLegHipThrust']),
-      slot('Hamstring', 4, ['lyingLegCurl', 'seatedLegCurl', 'hamstringBridgeIsometric']),
-      slot('Hinge', 3, [
-        'romanianDeadlift',
-        'staggeredStanceRDL',
-        'backExtension45',
-        'singleLegHipThrust',
-      ]),
-      slot('Glute accessory', 3, ['cableKickback', 'hipAbductionMachine', 'gluteBridge']),
-      slot('Calf', 4, ['seatedCalfRaise', 'singleLegCalfRaise']),
+      slot('Primary glute', 3, ['barbellHipThrust', 'gluteBridge', 'singleLegHipThrust']),
+      slot('Hinge', 4, ['romanianDeadlift', 'goodMorning', 'staggeredStanceRDL', 'backExtension45']),
+      // Eccentric hamstring work is the best-evidenced hamstring-injury
+      // intervention there is, and a hamstring strain is what ends an ultra
+      // build. It rotates to a curl rather than out of the programme.
+      enduranceSlot('Eccentric hamstring', 3, ['nordicCurl', 'lyingLegCurl', 'seatedLegCurl']),
+      // Step-ups are the uphill pattern under load; the lunge trains the
+      // eccentric control that descending asks for.
+      enduranceSlot('Single-leg drive', 3, ['stepUp', 'reverseLunge', 'bulgarianSplitSquat']),
+      // Seated, so the knee is bent and the load goes through the soleus —
+      // the muscle that takes the greatest force in running and the one that
+      // fails on a long descent.
+      enduranceSlot('Calf — soleus', 4, ['seatedCalfRaise', 'singleLegCalfRaise']),
+      enduranceSlot('Hip stability', 2, ['hipAbductionMachine', 'cableKickback', 'gluteBridge']),
       coreSlot('flexion', ['cableCrunch', 'hangingLegRaise', 'deadBug']),
       coreSlot('anti-rotation', ['pallofPress', 'deadBug', 'sidePlank']),
       coreSlot('anti-lateral flexion', ['sidePlank', 'farmersCarry', 'deadBug']),
@@ -102,11 +128,15 @@ export const DAY_TEMPLATES = {
     focus: 'Quads with posterior finish',
     emphasis: 'ankleDorsiflexion',
     slots: [
-      slot('Primary quad', 4, ['legPress', 'hackSquat', 'barbellBackSquat', 'gobletSquat']),
-      slot('Unilateral', 3, ['bulgarianSplitSquat', 'reverseLunge', 'stepUp']),
-      slot('Quad isolation', 3, ['legExtension', 'spanishSquat']),
-      slot('Glute', 3, ['cableKickback', 'hipAbductionMachine', 'singleLegHipThrust']),
-      slot('Calf', 4, ['standingCalfRaise', 'singleLegCalfRaise']),
+      // Squat first now that nothing gates it. A loaded squat pattern is what
+      // holds form together late in a race; the machines are the fallback.
+      slot('Primary quad', 4, ['barbellBackSquat', 'hackSquat', 'legPress', 'gobletSquat']),
+      enduranceSlot('Single-leg strength', 3, ['bulgarianSplitSquat', 'stepUp', 'reverseLunge']),
+      // Single-leg hinge: the stance-phase hip stability that decides whether
+      // a pelvis stays level at hour six.
+      enduranceSlot('Single-leg hinge', 2, ['staggeredStanceRDL', 'singleLegHipThrust']),
+      enduranceSlot('Quad isolation', 3, ['legExtension', 'spanishSquat']),
+      enduranceSlot('Calf — gastroc', 4, ['standingCalfRaise', 'singleLegCalfRaise']),
       coreSlot('anti-rotation', ['pallofPress', 'deadBug', 'sidePlank']),
       coreSlot('flexion', ['cableCrunch', 'hangingLegRaise', 'deadBug']),
       coreSlot('anti-lateral flexion', ['sidePlank', 'farmersCarry', 'deadBug']),
@@ -146,6 +176,68 @@ export const DAY_TEMPLATES = {
       coreSlot('anti-lateral flexion', ['sidePlank', 'farmersCarry', 'deadBug']),
     ],
   },
+}
+
+/**
+ * EXERCISE ROTATION — mirrors `lib/program.js` in the running block.
+ *
+ * Each pair names a movement and the one it swaps with. Odd mesocycles use the
+ * primary, even mesocycles the alternate, so a 25-week block alternates
+ * A B A B A rather than prescribing the same lift for six months. Anything not
+ * listed here never changes — that is the point of the table being explicit
+ * rather than "rotate everything": the lifts the block is *measured* by stay
+ * put, so their loading history means something across the whole block.
+ *
+ * Lower-body pairs are chosen so both halves are run-specific, not so the
+ * alternate is a lesser version of the primary. The bilateral↔unilateral pairs
+ * are deliberate: one side trains force, the other trains it on one leg, which
+ * is the only way running ever asks for it.
+ */
+export const ROTATION_PAIRS = [
+  // Lower — posterior. The barbell hip thrust is deliberately absent: it is the
+  // lift this block is measured by, and its only unilateral alternate is an
+  // accessory-tier movement, so rotating it would quietly drop the heavy glute
+  // anchor to 10-15 reps every second mesocycle. The unilateral work it would
+  // have rotated to is already a slot of its own.
+  { primary: 'romanianDeadlift', alternate: 'goodMorning' },
+  { primary: 'nordicCurl', alternate: 'lyingLegCurl' },
+  { primary: 'stepUp', alternate: 'reverseLunge' },
+  { primary: 'seatedCalfRaise', alternate: 'singleLegCalfRaise' },
+  { primary: 'cableKickback', alternate: 'hipAbductionMachine' },
+  // Lower — quad
+  { primary: 'barbellBackSquat', alternate: 'hackSquat' },
+  { primary: 'bulgarianSplitSquat', alternate: 'stepUp' },
+  { primary: 'staggeredStanceRDL', alternate: 'singleLegHipThrust' },
+  { primary: 'legExtension', alternate: 'spanishSquat' },
+  { primary: 'standingCalfRaise', alternate: 'singleLegCalfRaise' },
+  // Upper
+  { primary: 'barbellBenchPress', alternate: 'inclineDbPress' },
+  { primary: 'dbShoulderPress', alternate: 'overheadPress' },
+  { primary: 'pullUp', alternate: 'latPulldown' },
+  { primary: 'chestSupportedRow', alternate: 'seatedCableRow' },
+  { primary: 'inclineDbCurl', alternate: 'hammerCurl' },
+  { primary: 'rearDeltFly', alternate: 'facePull' },
+]
+
+const ROTATION_BY_PRIMARY = new Map(ROTATION_PAIRS.map((p) => [p.primary, p.alternate]))
+
+/**
+ * Which movement a slot's candidate resolves to this mesocycle.
+ *
+ * Same shape as the running block's `resolveExerciseForMesocycle`: odd
+ * mesocycles keep the primary, even ones take the alternate. Unpaired
+ * exercises pass straight through.
+ *
+ * Rotation happens *before* the availability and guardrail checks, not after,
+ * so an alternate that the athlete's equipment or injuries rule out falls
+ * through the slot's candidate list like any other blocked movement rather
+ * than leaving the slot empty.
+ */
+export function resolveExerciseForMesocycle(exerciseId, mesocycle) {
+  if (!mesocycle) return exerciseId
+  const alternate = ROTATION_BY_PRIMARY.get(exerciseId)
+  if (!alternate) return exerciseId
+  return (mesocycle - 1) % 2 === 0 ? exerciseId : alternate
 }
 
 /** Which templates run, in order, for a given number of training days. */
@@ -248,7 +340,8 @@ export function buildWeekSchedule({
 function resolveSlot(slotDef, context) {
   let firstBlocked = null
 
-  for (const id of slotDef.candidates) {
+  for (const candidateId of slotDef.candidates) {
+    const id = resolveExerciseForMesocycle(candidateId, context.mesocycle)
     // Already prescribed by an earlier slot. Candidate lists overlap by design
     // — farmers' carry is both a trap accessory and a loaded carry — and
     // without this a day whose earlier slot fell through to a shared fallback
@@ -342,7 +435,8 @@ export function buildSession({
   const volumeMultiplier = blockStatus?.volumeMultiplier ?? 1
   const loadMultiplier = blockStatus?.loadMultiplier ?? 1
   const rirTarget = blockStatus?.rirTarget ?? 2
-  const context = { injuryFlags, blockWeek, equipment, taken: new Set() }
+  const mesocycle = blockStatus?.mesocycle ?? null
+  const context = { injuryFlags, blockWeek, equipment, mesocycle, taken: new Set() }
 
   const laggingSet = new Set(laggingMuscles.map((m) => m.muscle || m))
   const cappedSet = new Set(cappedMuscles({ injuryFlags, hamstringStage }))
@@ -381,8 +475,11 @@ export function buildSession({
       group: slotDef.group || 'main',
       optional: !!slotDef.optional,
       sets,
-      repRange: [repMin, repMax],
-      restSeconds: restFor(exercise),
+      // A timed hold has no rep range to widen — its `reps` field is seconds,
+      // so an endurance override would read as a 20-second plank.
+      repRange: slotDef.endurance && !exercise.isTimeBased ? [...ENDURANCE_REPS] : [repMin, repMax],
+      restSeconds: slotDef.endurance ? ENDURANCE_REST : restFor(exercise),
+      endurance: !!slotDef.endurance,
       rirTarget,
       // A bodyweight load is a fact about the athlete, not a prescription.
       // Scaling it by the week's load multiplier and rounding to the nearest

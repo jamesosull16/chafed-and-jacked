@@ -364,6 +364,83 @@ describe('core block', () => {
     }
   })
 
+  describe('mesocycle rotation', () => {
+    const lower = (meso) =>
+      buildSession({
+        ...ATHLETE,
+        injuryFlags: [],
+        splitIndex: 0,
+        blockStatus: { ...week(1), mesocycle: meso },
+      }).exercises.filter((e) => e.group !== 'core')
+
+    it('swaps paired movements on even mesocycles, mirroring the running block', () => {
+      const odd = lower(1).map((e) => e.id)
+      const even = lower(2).map((e) => e.id)
+      expect(odd).toContain('romanianDeadlift')
+      expect(even).toContain('goodMorning')
+      expect(even).not.toContain('romanianDeadlift')
+      // Third mesocycle comes back round — A B A, not a one-way walk.
+      expect(lower(3).map((e) => e.id)).toEqual(odd)
+    })
+
+    /**
+     * The barbell hip thrust is the lift the block is measured by, and its only
+     * unilateral alternate is accessory-tier — rotating it would drop the heavy
+     * glute anchor to 10-15 reps every second mesocycle.
+     */
+    it('leaves the heavy anchors alone', () => {
+      for (const meso of [1, 2, 3, 4]) {
+        expect(lower(meso).map((e) => e.id)).toContain('barbellHipThrust')
+      }
+    })
+
+    it('rotates before the guardrails, so a blocked alternate falls through the list', () => {
+      // Nordics are blocked by the knee flag; the eccentric hamstring slot must
+      // still resolve to something rather than vanishing.
+      const withKnee = buildSession({
+        ...ATHLETE,
+        injuryFlags: ['knee'],
+        splitIndex: 0,
+        blockStatus: { ...week(1), mesocycle: 1 },
+      })
+      const slotRoles = withKnee.exercises.map((e) => e.slotRole)
+      expect(slotRoles).toContain('Eccentric hamstring')
+      expect(withKnee.exercises.map((e) => e.id)).not.toContain('nordicCurl')
+    })
+  })
+
+  describe('run-specific loading', () => {
+    const lowerDay = () =>
+      buildSession({
+        ...ATHLETE,
+        injuryFlags: [],
+        splitIndex: 0,
+        blockStatus: { ...week(1), mesocycle: 1 },
+      })
+
+    it('keeps the compounds heavy and loads the accessories for endurance', () => {
+      const byRole = Object.fromEntries(lowerDay().exercises.map((e) => [e.slotRole, e]))
+
+      // Heavy: hypertrophy reps, long rest.
+      expect(byRole['Primary glute'].repRange[1]).toBeLessThanOrEqual(12)
+      expect(byRole['Primary glute'].restSeconds).toBeGreaterThanOrEqual(120)
+      expect(byRole['Primary glute'].endurance).toBe(false)
+
+      // Endurance: the loading the running programme prescribes for these
+      // patterns — ≥12 reps, short rest.
+      for (const role of ['Single-leg drive', 'Calf — soleus', 'Hip stability']) {
+        expect(byRole[role].repRange).toEqual([12, 20])
+        expect(byRole[role].restSeconds).toBeLessThanOrEqual(90)
+        expect(byRole[role].endurance).toBe(true)
+      }
+    })
+
+    it('leaves a timed hold in seconds rather than widening it to a rep range', () => {
+      const timed = lowerDay().exercises.filter((e) => e.isTimeBased)
+      for (const e of timed) expect(e.repRange).not.toEqual([12, 20])
+    })
+  })
+
   it('never prescribes the same movement twice in one session', () => {
     for (const equipment of ['fullGym', 'homeGym', 'minimal']) {
       for (const flags of [[], ['highHamstring'], ATHLETE.injuryFlags]) {
