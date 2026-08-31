@@ -133,3 +133,29 @@ export const CONFIDENCE_COPY = {
   medium: { label: 'Estimated portions', tone: 'warning' },
   low: { label: 'Rough estimate', tone: 'danger' },
 }
+
+/**
+ * Price typed ingredient lines.
+ *
+ * One call for the whole list rather than one per line: it is cheaper, it is a
+ * single spinner instead of a cascade of them, and the model prices an
+ * ingredient better with the rest of the dish beside it — "olive oil" in a
+ * roasting tray is a different amount from "olive oil" on a salad.
+ *
+ * @param lines   array of typed strings, one ingredient each
+ * @param context optional description of the dish, for that same reason
+ * @returns {{ items: Array, grounded: boolean }} one item per line, in order
+ */
+export async function resolveIngredients(lines, { context } = {}) {
+  const cleaned = (lines || []).map((l) => String(l || '').trim()).filter(Boolean)
+  if (!cleaned.length) throw new Error('Nothing to look up.')
+
+  const callable = httpsCallable(functions, 'resolveIngredientsCallable', { timeout: 120_000 })
+
+  try {
+    const { data } = await callable({ lines: cleaned, context })
+    return data
+  } catch (err) {
+    throw new Error(err?.message || 'Could not look up those ingredients.')
+  }
+}

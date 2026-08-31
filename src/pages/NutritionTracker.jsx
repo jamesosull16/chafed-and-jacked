@@ -13,6 +13,8 @@ import {
   Bookmark,
   BookmarkCheck,
   Utensils,
+  Calculator,
+  ListPlus,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useAppMode } from '../hooks/useAppMode'
@@ -46,6 +48,8 @@ import {
 import MealLibrary from '../components/nutrition/MealLibrary'
 import SaveMealSheet from '../components/nutrition/SaveMealSheet'
 import MealDetailSheet from '../components/nutrition/MealDetailSheet'
+import IngredientEditor from '../components/nutrition/IngredientEditor'
+import { blankRow, resolvedItems, buildRecipeMeal, recipeToSavedMeal } from '../lib/recipe'
 import { replaceLogEntry, findEntryById } from '../lib/nutritionLog'
 import { cn } from '../components/ui/cn'
 
@@ -360,56 +364,118 @@ function EstimateSheet({ open, onClose, onSave }) {
   )
 }
 
+/**
+ * Enter a meal by hand.
+ *
+ * Two ways in, because two different things are known. Off a wrapper, the
+ * macros are the fact and typing four numbers is the fastest route to them.
+ * Out of a pan, the fact is what went in it — "2 cans of 15 oz garbanzo beans"
+ * — and the macros are what has to be worked out, along with the fact that the
+ * pan holds four dinners and only one of them is tonight.
+ */
 function ManualEntryCard({ onAdd }) {
+  const [mode, setMode] = useState('totals')
   const [fields, setFields] = useState({ label: '', kcal: '', protein: '', carbs: '', fat: '' })
+  const [rows, setRows] = useState([blankRow()])
+  const [servings, setServings] = useState(1)
+  const [eaten, setEaten] = useState(1)
   const [keep, setKeep] = useState(false)
   const keepId = useId()
-  const complete = ['kcal', 'protein', 'carbs', 'fat'].every((k) => fields[k] !== '')
+
+  const byIngredients = mode === 'ingredients'
+  const items = resolvedItems(rows)
+  const complete = byIngredients
+    ? items.length > 0
+    : ['kcal', 'protein', 'carbs', 'fat'].every((k) => fields[k] !== '')
   // A saved meal is found by name, so an unnamed one is unfindable.
   const canKeep = !!fields.label.trim()
 
-  function submit() {
-    onAdd(
-      {
-        id: crypto.randomUUID(),
-        label: fields.label.trim() || 'Meal',
-        kcal: Number(fields.kcal) || 0,
-        protein: Number(fields.protein) || 0,
-        carbs: Number(fields.carbs) || 0,
-        fat: Number(fields.fat) || 0,
-        loggedAt: new Date().toISOString(),
-        source: 'manual',
-      },
-      keep && canKeep ? { name: fields.label } : null
-    )
+  function reset() {
     setFields({ label: '', kcal: '', protein: '', carbs: '', fat: '' })
+    setRows([blankRow()])
+    setServings(1)
+    setEaten(1)
     setKeep(false)
+  }
+
+  function submit() {
+    const label = fields.label.trim() || 'Meal'
+    const base = { id: crypto.randomUUID(), loggedAt: new Date().toISOString(), source: 'manual' }
+
+    const entry = byIngredients
+      ? buildRecipeMeal({ base, label, items, servings, eaten })
+      : {
+          ...base,
+          label,
+          kcal: Number(fields.kcal) || 0,
+          protein: Number(fields.protein) || 0,
+          carbs: Number(fields.carbs) || 0,
+          fat: Number(fields.fat) || 0,
+        }
+
+    // The library keeps one serving of the recipe, not the plate — so a batch
+    // eaten two servings at a time is still logged one serving at a time
+    // afterwards. `entryToSavedMeal` cannot work that out from the entry alone
+    // once the plate is no longer a single serving, so it is done here where
+    // the batch is still in hand.
+    const keeping = keep && canKeep
+    const saved =
+      keeping && byIngredients
+        ? { meal: recipeToSavedMeal({ name: label, items, servings }) }
+        : keeping
+          ? { name: label }
+          : null
+
+    onAdd(entry, saved)
+    reset()
   }
 
   return (
     <Card>
-      <CardLabel>Or enter it manually</CardLabel>
+      <div className="flex items-center justify-between gap-2">
+        <CardLabel>Or enter it manually</CardLabel>
+        <Button
+          variant="ghost"
+          size="xs"
+          icon={byIngredients ? Calculator : ListPlus}
+          onClick={() => setMode(byIngredients ? 'totals' : 'ingredients')}
+        >
+          {byIngredients ? 'Just the totals' : 'By ingredient'}
+        </Button>
+      </div>
       <div className="mt-3 space-y-2">
         <Input
           aria-label="Meal label"
-          placeholder="Label (optional)"
+          placeholder={byIngredients ? 'Name it — “Chickpea traybake”' : 'Label (optional)'}
           value={fields.label}
           onChange={(e) => setFields({ ...fields, label: e.target.value })}
         />
-        <div className="grid grid-cols-4 gap-2">
-          {MACROS.map((m) => (
-            <Input
-              key={m.key}
-              type="number"
-              inputMode="decimal"
-              aria-label={m.label}
-              placeholder={m.label === 'Calories' ? 'kcal' : m.label}
-              value={fields[m.key]}
-              onChange={(e) => setFields({ ...fields, [m.key]: e.target.value })}
-              className="text-center px-1"
-            />
-          ))}
-        </div>
+        {byIngredients ? (
+          <IngredientEditor
+            rows={rows}
+            onRowsChange={setRows}
+            servings={servings}
+            onServingsChange={setServings}
+            eaten={eaten}
+            onEatenChange={setEaten}
+            context={fields.label}
+          />
+        ) : (
+          <div className="grid grid-cols-4 gap-2">
+            {MACROS.map((m) => (
+              <Input
+                key={m.key}
+                type="number"
+                inputMode="decimal"
+                aria-label={m.label}
+                placeholder={m.label === 'Calories' ? 'kcal' : m.label}
+                value={fields[m.key]}
+                onChange={(e) => setFields({ ...fields, [m.key]: e.target.value })}
+                className="text-center px-1"
+              />
+            ))}
+          </div>
+        )}
         <label
           htmlFor={keepId}
           className={cn(
@@ -622,7 +688,11 @@ export default function NutritionTracker() {
    */
   async function addEntry(entry, keep) {
     await mutateEntry(arrayUnion(entry))
-    if (keep?.name) await library.saveMeal(entryToSavedMeal(entry, { name: keep.name }))
+    // `keep.meal` is a serving the caller already worked out — a recipe knows
+    // what one of itself is, which an entry holding two servings of it does
+    // not. Everything else is derived from the entry as eaten.
+    if (keep?.meal) await library.saveMeal(keep.meal)
+    else if (keep?.name) await library.saveMeal(entryToSavedMeal(entry, { name: keep.name }))
   }
 
   /**

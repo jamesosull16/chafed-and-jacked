@@ -157,8 +157,13 @@ export default function MealLibrary({ meals, loading, onLog, onUpdate, onDelete 
         mode="edit"
         draft={editing}
         onClose={() => setEditing(null)}
-        onSave={async ({ name, kcal, protein, carbs, fat }) => {
-          await onUpdate(editing.id, { name, kcal, protein, carbs, fat })
+        onSave={async (meal) => {
+          // The whole meal, not four named fields. A picked-apart patch is how
+          // an edited ingredient list reached this line and got dropped on the
+          // floor, leaving the library holding the old breakdown under the new
+          // totals. `id` and `key` are the document's, not the payload's.
+          const { id: _id, key: _key, ...patch } = meal
+          await onUpdate(editing.id, patch)
         }}
         onDelete={async () => {
           await onDelete(editing.id)

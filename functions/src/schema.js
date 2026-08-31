@@ -182,3 +182,127 @@ export function toLogEntry(estimate, { id, description, photoUrl, source, mealTy
     ...(estimate.assumptions?.length && { assumptions: estimate.assumptions }),
   }
 }
+
+// ── Ingredient lines ─────────────────────────────────────────────────
+
+/**
+ * The contract for `ingredients.js`: one item per typed line, in the same
+ * order, carrying the arithmetic that got from the line to the grams.
+ *
+ * `index` is required and load-bearing. The editor holds a row per line and
+ * has to put each answer back in the row it came from — matching on array
+ * position alone would silently shuffle every ingredient's macros the first
+ * time the model returned them out of order.
+ */
+export const INGREDIENT_SCHEMA = {
+  type: 'object',
+  properties: {
+    items: {
+      type: 'array',
+      description: 'Exactly one entry per input line, in the order given.',
+      items: {
+        type: 'object',
+        properties: {
+          index: { type: 'integer', description: 'The 0-based index of the line this answers.' },
+          name: {
+            type: 'string',
+            description: 'Database-style food name, e.g. "chickpeas, canned, drained"',
+          },
+          amount: {
+            type: 'string',
+            description: 'Short echo of the amount as understood, e.g. "2 × 15 oz can, drained"',
+          },
+          grams: { type: 'number', description: 'Total edible mass for the whole line, in grams' },
+          kcal: { type: 'number' },
+          protein_g: { type: 'number' },
+          carbs_g: { type: 'number' },
+          fat_g: { type: 'number' },
+          note: {
+            type: 'string',
+            description:
+              'The arithmetic, whenever the typed number was corrected — drained yields, volume densities, trimming. Empty when the line was taken at face value.',
+          },
+          confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+        },
+        required: [
+          'index',
+          'name',
+          'amount',
+          'grams',
+          'kcal',
+          'protein_g',
+          'carbs_g',
+          'fat_g',
+          'note',
+          'confidence',
+        ],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['items'],
+  additionalProperties: false,
+}
+
+/** A single ingredient heavier than this, or richer, is a typo not a portion. */
+const MAX_PER_ITEM = { grams: 20000, kcal: 8000, protein_g: 800, carbs_g: 2000, fat_g: 900 }
+
+/**
+ * Validate resolved ingredients against the lines that were asked about.
+ *
+ * Coverage is enforced rather than patched. A missing line would land in the
+ * editor as a row that simply stayed blank while the others filled in — easy to
+ * miss, and it undercounts the meal by exactly one ingredient. A visible
+ * failure he can retry is the better outcome.
+ */
+export function validateIngredients(raw, lines = []) {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'Lookup was not an object' }
+  if (!Array.isArray(raw.items)) return { ok: false, error: 'Lookup contained no items' }
+
+  const slots = new Array(lines.length).fill(null)
+
+  for (const item of raw.items) {
+    const index = Number(item?.index)
+    if (!Number.isInteger(index) || index < 0 || index >= lines.length) {
+      return { ok: false, error: `Lookup returned an item for line ${item?.index}, which was not asked about` }
+    }
+    // First answer wins. A duplicated index is the model repeating itself, and
+    // taking the later one would let a stray repeat overwrite a good answer.
+    if (slots[index]) continue
+    if (!item.name || typeof item.name !== 'string') {
+      return { ok: false, error: `Item for "${lines[index]}" is missing a name` }
+    }
+    for (const key of [...MACRO_KEYS, 'grams']) {
+      const value = Number(item[key])
+      if (!Number.isFinite(value) || value < 0) {
+        return { ok: false, error: `Item "${item.name}" has an invalid ${key}` }
+      }
+      if (value > MAX_PER_ITEM[key]) {
+        return { ok: false, error: `Item "${item.name}" has an implausible ${key} (${round(value)})` }
+      }
+    }
+    slots[index] = {
+      index,
+      input: lines[index],
+      name: String(item.name).slice(0, 120),
+      // `quantity` is the estimator's field name for the human-readable
+      // portion, and these items flow into the same `entry.items` array — one
+      // shape for a breakdown, whether it came from a photo or a typed line.
+      quantity: String(item.amount || '').slice(0, 80),
+      grams: round(Number(item.grams), 1),
+      kcal: round(Number(item.kcal)),
+      protein_g: round(Number(item.protein_g), 1),
+      carbs_g: round(Number(item.carbs_g), 1),
+      fat_g: round(Number(item.fat_g), 1),
+      ...(item.note && { note: String(item.note).slice(0, 300) }),
+      confidence: ['high', 'medium', 'low'].includes(item.confidence) ? item.confidence : 'low',
+    }
+  }
+
+  const missing = slots.findIndex((slot) => slot === null)
+  if (missing !== -1) {
+    return { ok: false, error: `Nothing came back for "${lines[missing]}"` }
+  }
+
+  return { ok: true, items: slots }
+}

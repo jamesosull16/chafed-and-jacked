@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
-import { Pencil, Check, Trash2, Bookmark, BookmarkCheck, Camera } from 'lucide-react'
+import { Pencil, Check, Trash2, Bookmark, BookmarkCheck, Camera, ListPlus } from 'lucide-react'
 import { Sheet, Button, Badge, Field, Input, CardLabel } from '../ui'
 import { cn } from '../ui/cn'
 import { CONFIDENCE_COPY } from '../../lib/mealEstimation'
+import IngredientEditor from './IngredientEditor'
 import {
-  itemGrams,
-  hasWeighedItems,
-  resizeItem,
-  totalsFromItems,
-  entryWithPortions,
-  entryWithMacros,
-} from '../../lib/portions'
+  blankRow,
+  rowsFromItems,
+  resolvedItems,
+  recipeFromEntry,
+  buildRecipeMeal,
+  mealWithMacros,
+  normaliseServings,
+} from '../../lib/recipe'
 
 const MACROS = [
   { key: 'kcal', label: 'Calories', unit: '' },
@@ -53,64 +55,40 @@ function Totals({ totals, was }) {
   )
 }
 
-/**
- * One line of the breakdown.
- *
- * `editable` is false either because the sheet is being read rather than
- * edited, or because this item never had a weight to scale its macros by — in
- * which case it rides along at whatever it was estimated at.
- */
-function ItemRow({ item, shown, editable, value, onChange }) {
-  const grams = itemGrams(item)
+/** One line of the breakdown, as read rather than edited. */
+function ItemRow({ item }) {
   return (
     <li className="flex items-center justify-between gap-3 min-h-8">
       <span className="text-sm text-text min-w-0 flex-1 truncate">
         {item.name}
-        {!editable && (
-          <span className="text-subtle">
-            {' · '}
-            {item.quantity || (grams ? `${grams}g` : '—')}
-          </span>
-        )}
-      </span>
-      {editable && (
-        <span className="flex items-center gap-1 shrink-0">
-          {/* Width on the wrapper, not the input: `Input`'s base is `w-full`
-              and `cn` doesn't resolve Tailwind conflicts, so a width passed in
-              here would be ignored — which is how a set row shipped three
-              times at the wrong size. */}
-          <span className="w-20">
-            <Input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="5"
-              aria-label={`Grams of ${item.name}`}
-              value={value}
-              onChange={onChange}
-              className="text-center px-1"
-            />
-          </span>
-          <span className="text-xs text-subtle">g</span>
+        <span className="text-subtle">
+          {' · '}
+          {item.quantity || (item.grams > 0 ? `${item.grams}g` : '—')}
         </span>
-      )}
+      </span>
       <span className="text-xs text-muted tabular-nums shrink-0 w-16 text-right">
-        {Math.round(shown.kcal)} kcal
+        {Math.round(item.kcal)} kcal
       </span>
     </li>
   )
 }
 
 /**
- * Everything behind a logged meal, and the amounts made correctable.
+ * Everything behind a logged meal, and the ingredients made correctable.
  *
  * One sheet for the Fuel page and the coach thread, because "what was actually
  * in that" and "that portion was wrong" are the same visit: he taps the meal to
  * see the breakdown, and the reason he wanted the breakdown is usually that one
  * line of it is wrong.
  *
- * Read-only when no `onSave` is given — a meal on a past day is history, and
- * the write path here only reaches today's log.
+ * Editing runs through the same ingredient list that builds a meal in the first
+ * place, so a card can gain an ingredient he forgot, lose one that was never
+ * there, and be re-weighed — the three corrections that used to need a delete
+ * and a re-log. A meal with no breakdown at all keeps the four-number path, and
+ * can be broken into ingredients on demand.
+ *
+ * Read-only when no `onSave` is given — a meal on a past day reached through
+ * the coach thread is history, and that write path only reaches today's log.
  */
 export default function MealDetailSheet({
   open,
@@ -124,15 +102,20 @@ export default function MealDetailSheet({
   note,
 }) {
   const [editing, setEditing] = useState(false)
-  const [amounts, setAmounts] = useState([])
+  const [rows, setRows] = useState([])
+  const [servings, setServings] = useState(1)
+  const [eaten, setEaten] = useState(1)
   const [macros, setMacros] = useState(null)
   const [busy, setBusy] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   useEffect(() => {
     if (!open || !entry) return
+    const recipe = recipeFromEntry(entry)
     setEditing(startInEdit && !!onSave)
-    setAmounts((entry.items || []).map((item) => itemGrams(item) ?? ''))
+    setRows(recipe.items.length ? rowsFromItems(recipe.items) : [])
+    setServings(recipe.servings)
+    setEaten(recipe.eaten)
     setMacros({
       kcal: Math.round(entry.kcal ?? 0),
       protein: Math.round((entry.protein ?? 0) * 10) / 10,
@@ -149,25 +132,40 @@ export default function MealDetailSheet({
   // the save sheet.
   if (!open || !entry || !macros) return null
 
-  const weighed = hasWeighedItems(entry)
   const items = entry.items || []
-  const editedItems = items.map((item, i) => resizeItem(item, amounts[i]))
   const stored = {
     kcal: entry.kcal ?? 0,
     protein: entry.protein ?? 0,
     carbs: entry.carbs ?? 0,
     fat: entry.fat ?? 0,
   }
-  const totals = editing ? (weighed ? totalsFromItems(editedItems) : macros) : stored
+
+  // Ingredients are the edit path whenever there are any rows — which is
+  // whenever the meal had a breakdown, or he asked for one.
+  const byIngredients = rows.length > 0
+  const edited = resolvedItems(rows)
+  const factor = normaliseServings(eaten) / normaliseServings(servings)
+  const next = byIngredients
+    ? buildRecipeMeal({
+        base: entry,
+        items: edited,
+        servings,
+        eaten,
+        editedAt: new Date().toISOString(),
+      })
+    : mealWithMacros(entry, macros)
+
+  const totals = editing
+    ? { kcal: next.kcal, protein: next.protein, carbs: next.carbs, fat: next.fat }
+    : stored
   const confidence = entry.confidence ? CONFIDENCE_COPY[entry.confidence] : null
   const loggedAt = entry.loggedAt ? new Date(entry.loggedAt) : null
+  const recipeServings = entry.recipe?.servings
 
   async function handleSave() {
     setBusy(true)
     try {
-      await onSave(
-        weighed ? entryWithPortions(entry, amounts) : entryWithMacros(entry, macros)
-      )
+      await onSave(next)
       onClose()
     } finally {
       setBusy(false)
@@ -176,6 +174,10 @@ export default function MealDetailSheet({
 
   const description = [
     loggedAt && `Logged ${loggedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`,
+    // What the card is a portion of, where it is a portion of something —
+    // otherwise the numbers look like they lost an ingredient.
+    recipeServings &&
+      `${entry.quantity || 1} of ${recipeServings} serving${recipeServings === 1 ? '' : 's'}`,
     entry.mealType,
     entry.editedAt && 'edited',
   ]
@@ -186,6 +188,9 @@ export default function MealDetailSheet({
   // than none: it renders as a bar of dead space under the content that looks
   // like controls that failed to load.
   const hasActions = !!(onSave || onDelete || onSaveToLibrary)
+  // Saving an empty ingredient list would zero the meal. Whatever went wrong,
+  // that is never the correction he meant to make.
+  const canSave = !byIngredients || edited.length > 0
 
   return (
     <Sheet
@@ -199,7 +204,12 @@ export default function MealDetailSheet({
             <Button variant="secondary" className="flex-1" onClick={() => setEditing(false)}>
               Cancel
             </Button>
-            <Button className="flex-1" icon={Check} onClick={handleSave} disabled={busy}>
+            <Button
+              className="flex-1"
+              icon={Check}
+              onClick={handleSave}
+              disabled={busy || !canSave}
+            >
               {busy ? 'Saving…' : 'Save changes'}
             </Button>
           </div>
@@ -266,34 +276,35 @@ export default function MealDetailSheet({
 
         <Totals totals={totals} was={editing ? stored : null} />
 
-        {items.length > 0 && (
+        {editing && byIngredients && (
           <div>
-            <CardLabel>{editing ? 'How much of each?' : 'Breakdown'}</CardLabel>
-            <ul className="mt-2 space-y-1.5">
-              {items.map((item, i) => (
-                <ItemRow
-                  key={`${item.name}-${i}`}
-                  item={item}
-                  shown={editedItems[i]}
-                  editable={editing && weighed && itemGrams(item) !== null}
-                  value={amounts[i]}
-                  onChange={(e) => {
-                    const next = [...amounts]
-                    next[i] = e.target.value
-                    setAmounts(next)
-                  }}
-                />
-              ))}
-            </ul>
+            <CardLabel>Ingredients</CardLabel>
+            <div className="mt-2">
+              <IngredientEditor
+                rows={rows}
+                onRowsChange={setRows}
+                servings={servings}
+                onServingsChange={setServings}
+                eaten={eaten}
+                onEatenChange={setEaten}
+                context={entry.label}
+                busy={busy}
+              />
+            </div>
+            {factor !== 1 && (
+              <p className="mt-2 text-[11px] text-subtle">
+                The ingredients are the whole batch. This card holds what you ate.
+              </p>
+            )}
           </div>
         )}
 
-        {editing && !weighed && (
+        {editing && !byIngredients && (
           <div>
             <CardLabel>Totals</CardLabel>
             <p className="text-xs text-subtle mt-1">
-              This meal was logged without weighed items, so there is nothing to resize — correct
-              the totals instead.
+              This meal was logged as four numbers, with nothing behind them to resize — correct
+              the totals, or break it into ingredients.
             </p>
             <div className="grid grid-cols-4 gap-2 mt-2">
               {MACROS.map((m) => (
@@ -312,10 +323,31 @@ export default function MealDetailSheet({
                 </Field>
               ))}
             </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={ListPlus}
+              fullWidth
+              className="mt-2"
+              onClick={() => setRows([blankRow()])}
+            >
+              Break into ingredients
+            </Button>
           </div>
         )}
 
-        {entry.assumptions?.length > 0 && (
+        {!editing && items.length > 0 && (
+          <div>
+            <CardLabel>Breakdown</CardLabel>
+            <ul className="mt-2 space-y-1.5">
+              {items.map((item, i) => (
+                <ItemRow key={`${item.name}-${i}`} item={item} />
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {!editing && entry.assumptions?.length > 0 && (
           <div>
             <CardLabel>What was assumed</CardLabel>
             <ul className="mt-2 space-y-1 list-disc list-inside">

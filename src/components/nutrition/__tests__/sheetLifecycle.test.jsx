@@ -34,12 +34,50 @@ const ENTRY = {
   protein: 30,
   carbs: 60,
   fat: 15,
+  // A meal's breakdown sums to its totals — the estimator guarantees it, and
+  // the sheet now derives the saved numbers from the ingredients, so a fixture
+  // where the two disagree would be testing a state the app cannot produce.
   items: [
-    { name: 'oats', quantity: '100g', grams: 100, kcal: 379, protein_g: 13, carbs_g: 68, fat_g: 6 },
+    { name: 'oats', quantity: '100g', grams: 100, kcal: 500, protein_g: 30, carbs_g: 60, fat_g: 15 },
   ],
 }
 
 const MEAL = { id: 'sm-1', name: 'Overnight oats', ...ENTRY, useCount: 3 }
+
+/**
+ * A library meal built from a batch: `items` is the one serving the library
+ * stores and logs, `recipe` is the pot it was a quarter of.
+ */
+const TRAYBAKE = {
+  id: 'sm-2',
+  name: 'Chickpea traybake',
+  kcal: 239,
+  protein: 9.5,
+  carbs: 29.8,
+  fat: 8.8,
+  useCount: 2,
+  items: [
+    { name: 'chickpeas, canned, drained', quantity: '127.5g', grams: 127.5, kcal: 177, protein_g: 9.5, carbs_g: 29.8, fat_g: 1.8 },
+    { name: 'olive oil', quantity: '7g', grams: 7, kcal: 62, protein_g: 0, carbs_g: 0, fat_g: 7 },
+  ],
+  recipe: {
+    servings: 4,
+    items: [
+      {
+        input: '2 cans of 15 oz garbanzo beans',
+        name: 'chickpeas, canned, drained',
+        quantity: '2 × 15 oz can, drained',
+        grams: 510,
+        kcal: 709,
+        protein_g: 38,
+        carbs_g: 119,
+        fat_g: 7,
+        note: 'A 15 oz can is 425g net; about 255g drained.',
+      },
+      { input: '2 tbsp olive oil', name: 'olive oil', quantity: '2 tbsp', grams: 28, kcal: 248, protein_g: 0, carbs_g: 0, fat_g: 28 },
+    ],
+  },
+}
 
 let container
 let root
@@ -112,6 +150,40 @@ describe('SaveMealSheet', () => {
     // explain itself later.
     expect(onSave.mock.calls[0][0].items).toHaveLength(1)
     expect(onClose).toHaveBeenCalled()
+  })
+
+  /**
+   * The library stores a serving, so the batch has to be divided by the yield
+   * on the way in — and shown divided, because that is the number that gets
+   * logged on every future tap.
+   */
+  it('edits the batch behind a saved meal and stores one serving of it', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined)
+    await render(<SaveMealSheet open mode="edit" draft={TRAYBAKE} onClose={() => {}} onSave={onSave} />)
+
+    const lines = [...sheet().querySelectorAll('input[aria-label="Ingredient"]')]
+    expect(lines[0].value).toBe('2 cans of 15 oz garbanzo beans')
+    expect(sheet().textContent).toContain('239')
+
+    // Same pot, half the dinners out of it.
+    const makes = sheet().querySelector('input[aria-label="Servings this makes"]')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(makes, '2')
+      makes.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(sheet().textContent).toContain('479')
+
+    const save = [...sheet().querySelectorAll('button')].find((b) =>
+      b.textContent.includes('Save changes')
+    )
+    await act(async () => save.click())
+
+    const saved = onSave.mock.calls[0][0]
+    expect(saved.kcal).toBe(479)
+    expect(saved.items[0].grams).toBe(255)
+    expect(saved.recipe).toEqual({ servings: 2, items: TRAYBAKE.recipe.items })
+    // The library's own bookkeeping is not the sheet's to reset.
+    expect(saved.useCount).toBe(2)
   })
 
   it('needs two taps to delete, so a mis-tap cannot empty the library', async () => {

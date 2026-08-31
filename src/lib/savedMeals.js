@@ -118,6 +118,10 @@ export function savedMealToEntry(meal, { quantity = 1, macros, id, loggedAt, mea
     ...(meal?.id && { savedMealId: meal.id }),
     ...(factor !== 1 && { quantity: factor }),
     ...(items.length && { items }),
+    // The batch behind a serving, carried unscaled: `recipe.items` is the pot
+    // and `quantity` says how much of it landed here, so multiplying it too
+    // would double the correction the moment the meal was edited.
+    ...(meal?.recipe?.items?.length && { recipe: meal.recipe }),
     ...(meal?.confidence && { confidence: meal.confidence }),
     ...(meal?.assumptions?.length && { assumptions: meal.assumptions }),
     ...(type && { mealType: type }),
@@ -140,6 +144,12 @@ export function entryToSavedMeal(entry, { name } = {}) {
     carbs: round(entry?.carbs, 1),
     fat: round(entry?.fat, 1),
     ...(entry?.items?.length && { items: entry.items }),
+    // The recipe survives only where the entry is one serving of it, which is
+    // the case its items already describe. A double portion stores as-eaten by
+    // the rule above, and a batch claiming four servings over a plate holding
+    // two would be a lie the editor would then act on.
+    ...(entry?.recipe?.items?.length &&
+      (entry.quantity ?? 1) === 1 && { recipe: entry.recipe }),
     ...(entry?.confidence && { confidence: entry.confidence }),
     ...(entry?.assumptions?.length && { assumptions: entry.assumptions }),
     ...(entry?.mealType && { mealType: entry.mealType }),

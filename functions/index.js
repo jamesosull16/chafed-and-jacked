@@ -21,6 +21,7 @@ import { initializeApp, getApps } from 'firebase-admin/app'
 import Anthropic from '@anthropic-ai/sdk'
 
 import { estimateMeal, EstimationError } from './src/estimator.js'
+import { resolveIngredients, IngredientError } from './src/ingredients.js'
 import { createStore, localDateId } from './src/store.js'
 import { createMcpServer } from './src/mcp/server.js'
 import { runCoachTurn, CoachError, MODEL } from './src/coach/orchestrator.js'
@@ -64,7 +65,7 @@ function estimator() {
 }
 
 function toHttpsError(err) {
-  if (err instanceof EstimationError || err instanceof CoachError) {
+  if (err instanceof EstimationError || err instanceof IngredientError || err instanceof CoachError) {
     return new HttpsError(err.code, err.message)
   }
   if (err instanceof RateLimitError) {
@@ -88,6 +89,28 @@ export const estimateMealCallable = onCall(RUNTIME, async (request) => {
   try {
     return await estimateMeal(
       { description, imageBase64, mediaType },
+      { anthropic: client(), usdaApiKey: USDA_API_KEY.value() }
+    )
+  } catch (err) {
+    throw toHttpsError(err)
+  }
+})
+
+/**
+ * Price a typed ingredient list.
+ *
+ * The recipe editor's lookup: the athlete types "2 cans of 15 oz garbanzo
+ * beans" and gets grams and macros back. Separate from `estimateMealCallable`
+ * because the question is different — that one asks what a plate contains, this
+ * one is told what it contains and asked what that weighs.
+ */
+export const resolveIngredientsCallable = onCall(RUNTIME, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in to look up ingredients.')
+
+  const { lines, context } = request.data || {}
+  try {
+    return await resolveIngredients(
+      { lines, context },
       { anthropic: client(), usdaApiKey: USDA_API_KEY.value() }
     )
   } catch (err) {

@@ -1,7 +1,18 @@
 import { useEffect, useState } from 'react'
-import { BookmarkPlus, Trash2 } from 'lucide-react'
+import { BookmarkPlus, Trash2, ListPlus } from 'lucide-react'
 import { Sheet, Button, Field, Input, CardLabel } from '../ui'
 import { libraryKey, normaliseName } from '../../lib/savedMeals'
+import IngredientEditor from './IngredientEditor'
+import {
+  blankRow,
+  rowsFromItems,
+  resolvedItems,
+  recipeFromEntry,
+  recipeToSavedMeal,
+  entryTotals,
+  scaleItems,
+  normaliseServings,
+} from '../../lib/recipe'
 
 const MACROS = [
   { key: 'kcal', label: 'Calories' },
@@ -18,6 +29,10 @@ const MACROS = [
  * in it are searchable. The name is prefilled from the log entry but always
  * editable: "chicken thigh, rice, and a big spoon of peanut butter" is a fine
  * description of a meal and a useless thing to search for at 6am.
+ *
+ * The ingredients are editable here too, and that is the version of a
+ * correction worth making: fixing the beans in the library fixes every future
+ * log of the meal, where fixing them on today's card fixes today.
  */
 export default function SaveMealSheet({
   open,
@@ -29,11 +44,14 @@ export default function SaveMealSheet({
   mode = 'create',
 }) {
   const [fields, setFields] = useState(null)
+  const [rows, setRows] = useState([])
+  const [servings, setServings] = useState(1)
   const [busy, setBusy] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   useEffect(() => {
     if (!open || !draft) return
+    const recipe = recipeFromEntry(draft)
     setFields({
       name: normaliseName(draft.name || draft.label || ''),
       kcal: Math.round(draft.kcal ?? 0),
@@ -41,6 +59,8 @@ export default function SaveMealSheet({
       carbs: Math.round((draft.carbs ?? 0) * 10) / 10,
       fat: Math.round((draft.fat ?? 0) * 10) / 10,
     })
+    setRows(recipe.items.length ? rowsFromItems(recipe.items) : [])
+    setServings(recipe.servings)
     setBusy(false)
     setConfirmingDelete(false)
   }, [open, draft])
@@ -64,17 +84,37 @@ export default function SaveMealSheet({
   const collides =
     mode === 'create' && !!name && !!isDuplicate?.(name) && libraryKey(name) !== libraryKey(draft?.name)
 
+  const items = resolvedItems(rows)
+  const byIngredients = items.length > 0
+  // The library stores a serving, so that is what the numbers on this sheet
+  // describe — the editor shows the same figure under "Per serving".
+  const serving = entryTotals(scaleItems(items, 1 / normaliseServings(servings)))
+
   async function handleSave() {
     setBusy(true)
     try {
-      await onSave({
-        ...draft,
-        name,
-        kcal: Number(fields.kcal) || 0,
-        protein: Number(fields.protein) || 0,
-        carbs: Number(fields.carbs) || 0,
-        fat: Number(fields.fat) || 0,
-      })
+      if (byIngredients) {
+        await onSave(recipeToSavedMeal({ name, items, servings, base: draft }))
+      } else {
+        // Ingredients deleted down to none is a deliberate act — the meal goes
+        // back to being four numbers, and keeping a breakdown that no longer
+        // adds up to them would leave the card explaining itself with items the
+        // totals disagree with.
+        const base = { ...draft }
+        if (rows.length) {
+          delete base.items
+          delete base.recipe
+          delete base.assumptions
+        }
+        await onSave({
+          ...base,
+          name,
+          kcal: Number(fields.kcal) || 0,
+          protein: Number(fields.protein) || 0,
+          carbs: Number(fields.carbs) || 0,
+          fat: Number(fields.fat) || 0,
+        })
+      }
       onClose()
     } finally {
       setBusy(false)
@@ -132,31 +172,64 @@ export default function SaveMealSheet({
           )}
         </Field>
 
-        <div>
-          <CardLabel>One serving</CardLabel>
-          <div className="grid grid-cols-4 gap-2 mt-2">
-            {MACROS.map((m) => (
-              <Field key={m.key} label={m.label}>
-                {({ id, ...a11y }) => (
-                  <Input
-                    id={id}
-                    {...a11y}
-                    type="number"
-                    inputMode="decimal"
-                    value={fields[m.key]}
-                    onChange={(e) => setFields({ ...fields, [m.key]: e.target.value })}
-                    className="text-center px-1"
-                  />
-                )}
-              </Field>
-            ))}
+        {/* With ingredients on the meal the four numbers are an output, not an
+            input. Two places to type the same total is two answers to which one
+            is right. */}
+        {byIngredients ? (
+          <div>
+            <CardLabel>One serving</CardLabel>
+            <div className="grid grid-cols-4 gap-2 mt-2">
+              {MACROS.map((m) => (
+                <div key={m.key} className="bg-surface rounded-xl py-2 text-center">
+                  <p className="text-base font-semibold text-text tabular-nums">
+                    {Math.round(serving[m.key])}
+                  </p>
+                  <p className="text-[10px] text-subtle mt-0.5">{m.label}</p>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div>
+            <CardLabel>One serving</CardLabel>
+            <div className="grid grid-cols-4 gap-2 mt-2">
+              {MACROS.map((m) => (
+                <Field key={m.key} label={m.label}>
+                  {({ id, ...a11y }) => (
+                    <Input
+                      id={id}
+                      {...a11y}
+                      type="number"
+                      inputMode="decimal"
+                      value={fields[m.key]}
+                      onChange={(e) => setFields({ ...fields, [m.key]: e.target.value })}
+                      className="text-center px-1"
+                    />
+                  )}
+                </Field>
+              ))}
+            </div>
+          </div>
+        )}
 
-        {draft.items?.length > 0 && (
-          <p className="text-xs text-subtle">
-            Keeping the breakdown: {draft.items.map((i) => i.name).join(' · ')}
-          </p>
+        {rows.length > 0 ? (
+          <div>
+            <CardLabel>Ingredients</CardLabel>
+            <div className="mt-2">
+              <IngredientEditor
+                rows={rows}
+                onRowsChange={setRows}
+                servings={servings}
+                onServingsChange={setServings}
+                context={fields.name}
+                busy={busy}
+              />
+            </div>
+          </div>
+        ) : (
+          <Button variant="secondary" size="sm" icon={ListPlus} fullWidth onClick={() => setRows([blankRow()])}>
+            Add ingredients
+          </Button>
         )}
       </div>
     </Sheet>
