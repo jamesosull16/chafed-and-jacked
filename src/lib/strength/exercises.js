@@ -1121,6 +1121,11 @@ export const STRENGTH_EXERCISES = {
     equipmentLevel: 'minimal',
     isUnilateral: false,
     weightIncrement: 0,
+    // Hanging free, the legs are the whole resistance — roughly a third of him
+    // through a long lever, with the grip and lats holding the rest up. Without
+    // this the set row offered no BW toggle and no way to log an unweighted
+    // raise, which is the only way this movement is ever done here.
+    bodyweightLoad: 0.4,
     demands: D('moderate', 'low', 'low', 'low'),
     notes: 'Straight-leg raises load the hamstrings in a lengthened position at the top.',
     cue: 'Bend the knees while the proximal hamstring is symptomatic.',
