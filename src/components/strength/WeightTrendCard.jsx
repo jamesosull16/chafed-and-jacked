@@ -13,6 +13,9 @@ const STATUS_TONE = {
   above: 'warning',
   tooFast: 'danger',
   tooSlow: 'warning',
+  wrongDirection: 'danger',
+  // Not a warning about the body — a warning about the evidence.
+  logIncomplete: 'neutral',
   insufficientData: 'neutral',
 }
 
@@ -23,7 +26,13 @@ const STATUS_TONE = {
  * last two weigh-ins, because day-to-day weight is mostly water and a two-point
  * rate would send the surplus oscillating.
  */
-export default function WeightTrendCard({ bodyMetrics, goal, currentSurplus, onApplySurplus }) {
+export default function WeightTrendCard({
+  bodyMetrics,
+  goal,
+  currentSurplus,
+  onApplySurplus,
+  logCoverage = null,
+}) {
   const points = [...bodyMetrics]
     .filter((m) => m.weight)
     .sort((a, b) => new Date(a.date) - new Date(b.date))
@@ -55,6 +64,9 @@ export default function WeightTrendCard({ bodyMetrics, goal, currentSurplus, onA
     bodyCompGoal: goal.id,
     currentSurplus,
     weeksOfData: Math.round(spanWeeks),
+    // The trend says the direction is wrong; only the log can say whether the
+    // target is the thing to change.
+    logCoverage,
   })
 
   const data = points.map((m) => ({
@@ -98,6 +110,15 @@ export default function WeightTrendCard({ bodyMetrics, goal, currentSurplus, onA
       </ResponsiveContainer>
 
       <p className="text-xs text-muted mt-2">{rate.message}</p>
+
+      {rate.status === 'logIncomplete' && (
+        <Link
+          to="/nutrition"
+          className="inline-flex items-center mt-2 text-sm font-medium text-brand hover:text-brand-hover"
+        >
+          Fill in the missing days →
+        </Link>
+      )}
 
       {shouldAdjust && onApplySurplus && (
         <Button

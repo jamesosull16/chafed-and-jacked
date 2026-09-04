@@ -220,7 +220,7 @@ export function useStrengthBlock() {
    * place rather than appended. What actually changes is the sets, and what the
    * sets imply: volume, and the weight the next session suggests.
    */
-  async function updateSession(sessionId, session, sessionData, { mobilityCompleted } = {}) {
+  async function updateSession(sessionId, session, sessionData, { mobilityCompleted, sRPE } = {}) {
     if (!user || !sessionId) return null
 
     const existing = sessions.find((s) => s.id === sessionId)
@@ -234,6 +234,9 @@ export function useStrengthBlock() {
       exercises: exerciseResults,
       totalVolume: Math.round(sessionTonnage(exerciseResults)),
       ...(mobilityCompleted && { mobilityCompleted }),
+      // `undefined` would strip a rating already on the document; null is how
+      // the athlete clears one deliberately.
+      ...(sRPE !== undefined && { sRPE }),
     }
     delete doc.id
 
@@ -284,7 +287,7 @@ export function useStrengthBlock() {
    * Sets are stored with their RIR and side intact — chainBalance needs both,
    * and a session logged without them can never be analysed retroactively.
    */
-  async function saveSession(session, sessionData, { durationMinutes, mobilityCompleted = [] }) {
+  async function saveSession(session, sessionData, { durationMinutes, mobilityCompleted = [], sRPE = null }) {
     if (!user) return null
 
     const exerciseResults = collectResults(session, sessionData)
@@ -306,6 +309,9 @@ export function useStrengthBlock() {
       exercises: exerciseResults,
       totalVolume: Math.round(totalVolume),
       duration: durationMinutes,
+      // Session RPE, for sRPE x duration. Null at save time by design — it is
+      // rated afterwards, not at the end of the last set. See SessionRpe.jsx.
+      sRPE,
       mobilityCompleted,
       completed: true,
     }

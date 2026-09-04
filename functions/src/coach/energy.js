@@ -82,6 +82,42 @@ export function estimateStrengthCalories(liftStats, weightLbs) {
 }
 
 /**
+ * Build the energy-maths shape from the stored documents.
+ *
+ * `athleteFrom` reads flat fields — `weightLbs`, `heightInches`, `ageYears` —
+ * and the user document nests them under `profile` and keeps bodyweight in the
+ * `bodyMetrics` collection entirely. Passing the raw document in therefore
+ * produced `null`, silently, and `estimateEnergyBalance` returned null on every
+ * turn: the coach has never once had an expenditure figure to reason from.
+ * Nothing errored, the ENERGY TODAY line simply never rendered.
+ */
+export function buildEnergyProfile(profile, latestMetrics = null) {
+  const p = profile?.profile || {}
+  const onboarding = profile?.onboarding || {}
+  return {
+    weightLbs: Number(latestMetrics?.weight) || Number(onboarding.initialWeight) || null,
+    heightInches: Number(p.heightInches) || null,
+    ageYears: ageFromBirthday(p.birthday),
+    sex: p.biologicalSex || 'male',
+    currentBodyFatPct:
+      Number(latestMetrics?.bodyFatPct) || Number(onboarding.initialBodyFat) || null,
+    vo2max: Number(p.vo2max) || null,
+  }
+}
+
+/** Whole years, from a YYYY-MM-DD birthday. */
+export function ageFromBirthday(birthday) {
+  if (!birthday) return null
+  const born = new Date(`${birthday}T00:00:00`)
+  if (Number.isNaN(born.getTime())) return null
+  const now = new Date()
+  let age = now.getFullYear() - born.getFullYear()
+  const monthDelta = now.getMonth() - born.getMonth()
+  if (monthDelta < 0 || (monthDelta === 0 && now.getDate() < born.getDate())) age--
+  return age > 0 && age < 120 ? age : null
+}
+
+/**
  * Normalise the stored profile into the shape the energy maths wants.
  * Returns null when bodyweight is missing, which is the one field nothing here
  * can be derived without.

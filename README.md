@@ -17,7 +17,7 @@ Recharts · installable PWA.
 ```bash
 npm install
 npm run dev      # local dev
-npm test         # vitest — 745 tests
+npm test         # vitest — 818 tests
 npm run build    # production build
 npm run lint
 ```
@@ -150,6 +150,34 @@ against a full lifting day's **368 g**.
 
 `dayType` is `lift | run | both | rest`, derived from what actually happened.
 
+### Log completeness, and why it gates the guardrail
+
+`lib/logCompleteness.js` reports how much of the last seven days the food log
+can actually speak to. It exists because of a specific failure: four weeks into
+a cut the athlete had gained 5.7 lb while the log reported 2101 kcal/day against
+a maintenance of ~2615. Both numbers were true and the conclusion drawn from
+them would have been wrong — two days had no document and seven more sat under
+1500 kcal, every one a Saturday or a Sunday.
+
+"Complete" is not knowable, so it is never claimed. Only three things are:
+
+| | |
+|---|---|
+| `missing` | No document, or one with no entries. Certain. |
+| `implausible` | Logged intake below **resting metabolism**. Not a claim about appetite — BMR is what the body spends doing nothing, so a full day below it is a gap. Deliberately not a fraction of the calorie *target*, which would flag hard days and excuse rest days. |
+| `logged` | Everything else. **Not** a claim of completeness. |
+| `inProgress` | Today, held out of the arithmetic entirely. At 9am nobody has eaten a day's food. |
+
+The consequence is the point: **the rate-of-gain guardrail will not move a
+target the athlete is demonstrably not eating to.** Its whole prescription
+assumes the target is being hit and is simply set wrong; when the gap is worth
+more per day than the 150 kcal it would adjust by, it returns `logIncomplete`,
+leaves the target alone, and says what is missing. With a complete log and the
+same weight trend, it adjusts as before.
+
+The coach gets the same figure, so it stops reasoning about a deficit the log
+cannot account for.
+
 ### Rate-of-gain guardrail
 
 Target 0.25–0.5% bodyweight per week for a lean bulk. Below the band, add 150
@@ -167,6 +195,40 @@ usual cause, and no calorie adjustment fixes it.
 > Protein, 2017. Garthe et al., *Int J Sport Nutr Exerc Metab* 23(1):39–48, 2013.
 > Slater & Phillips, *J Sports Sci* 29(sup1):S67–77, 2011. IOC Consensus on
 > Sports Nutrition, 2011. IOC RED-S Consensus, 2018. Helms et al., 2014.
+
+---
+
+## Training load
+
+`lib/trainingLoad.js` — session RPE × duration, in AU, lifting and running on
+one scale.
+
+```
+Session load (AU) = sRPE (1-10) × duration (min)
+```
+
+Miles cannot tell twenty-five slow returning miles from twenty-five seasoned
+ones, and cannot price a lifting session at all — which is why the mileage-based
+tiers in `loadScaling.js` read "Full Send" through an entire return-to-run
+build. This is the metric `skills/endurance-running-coach/references/return-to-run.md`
+§6 actually prescribes, and lifting counts toward it: two sessions at RPE 7 ×
+60 min is 840 AU, not a rounding error against a 600-900 AU run week.
+
+**sRPE is collected after the session, not during it.** The methodology is
+specific — rate it twenty to thirty minutes later, once it has settled, and rate
+the whole session rather than its hardest interval. So the control lives on the
+summary after saving and on a reopened session, never mid-workout. An unrated
+session is *unknown* load rather than zero, which is why every total ships with
+its coverage.
+
+The ACWR is reported with its caveats attached and is **not interpretable**
+until all four weeks of the chronic window carry load — a 28-day average
+including near-empty weeks produces ratios of 1.3-1.4 that mean nothing.
+
+**No load-scaling multiplier is derived from any of this yet, deliberately.**
+The first rated week is the first data point the metric has ever had, and
+banding it today would be the same mistake as inventing an activity factor.
+`loadScaling.js` stays on mileage until there is a baseline to replace it with.
 
 ---
 
@@ -273,6 +335,8 @@ src/
     macroCalculator.js      the nutrition model (pure) — one, not per-mode
     nutritionAdvice.js      display shape, hydration, tip rotation
     runLog.js               run append, shared with the coach's log_run
+    trainingLoad.js         sRPE x duration, ACWR — lifting and running on one scale
+    logCompleteness.js      what the food log can and cannot speak to
     strength/               exercises · injuryGuardrails · strengthProgram
                             strengthPeriodization · chainBalance · mobility
     program.js periodization.js progression.js loadScaling.js   running engine

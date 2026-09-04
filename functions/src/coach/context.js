@@ -22,7 +22,13 @@ import {
   normaliseMileageDoc,
   hoursSince,
 } from './training.js'
-import { estimateEnergyBalance } from './energy.js'
+import {
+  estimateEnergyBalance,
+  buildEnergyProfile,
+  athleteFrom,
+  calculateBMR,
+} from './energy.js'
+import { assessLogCoverage, recentDayIds, MIN_WINDOW_DAYS as COVERAGE_DAYS } from './logCoverage.js'
 
 /**
  * How much history to pull for the rollup. 30 sessions and 21 mileage docs
@@ -140,9 +146,15 @@ function consumedFrom(entries = []) {
 export async function buildTurnContext({ store, dateId, clientContext = {}, now = new Date() }) {
   // Training reads are server-side and unconditional: advice about what the
   // athlete did is worthless if the client can claim he did something else.
-  const [profile, log, sessions, mileageDocs, plans, checkIns] = await Promise.all([
+  const [profile, log, recentLogs, metrics, sessions, mileageDocs, plans, checkIns] = await Promise.all([
     store.getProfile(),
     store.getDoc('nutritionLogs', dateId),
+    // The week, not just today. A daily average over a window with holes in it
+    // reads as knowledge — see logCoverage.js.
+    store.query('nutritionLogs', { orderField: 'date', direction: 'desc', limit: COVERAGE_DAYS }),
+    // Bodyweight lives here, not on the profile — without it nothing in the
+    // energy model can be derived at all.
+    store.query('bodyMetrics', { orderField: 'date', direction: 'desc', limit: 1 }),
     store.query('workoutSessions', { orderField: 'date', direction: 'desc', limit: SESSION_SCAN }),
     store.query('dailyMileage', { orderField: 'date', direction: 'desc', limit: MILEAGE_SCAN }),
     store.query('mileageLogs', { orderField: 'weekStart', direction: 'desc', limit: 2 }),
@@ -154,6 +166,25 @@ export async function buildTurnContext({ store, dateId, clientContext = {}, now 
 
   const entries = log?.entries || []
   const consumed = consumedFrom(entries)
+
+  /**
+   * How much of the week the log can speak to.
+   *
+   * BMR comes from the same energy model the expenditure figure does, so the
+   * "below resting metabolism" line is drawn at the number the coach is already
+   * quoting rather than a second, independent one.
+   */
+  const energyProfile = buildEnergyProfile(profile, (metrics || [])[0] || null)
+  const athlete = athleteFrom(energyProfile)
+  const bmr = athlete && (athlete.heightCm || athlete.bodyFatPct) ? calculateBMR(athlete) : null
+  const byDate = new Map((recentLogs || []).map((d) => [d.id || d.date, d]))
+  const logCoverage = assessLogCoverage(
+    recentDayIds(dateId, COVERAGE_DAYS).map((id) => ({
+      dateId: id,
+      log: id === dateId ? log : byDate.get(id) || null,
+    })),
+    { bmr, todayId: dateId }
+  )
   const targets = macroSet(clientContext.targets)
 
   const guardrails = deriveGuardrails(profile, now)
@@ -187,8 +218,9 @@ export async function buildTurnContext({ store, dateId, clientContext = {}, now 
     })),
     // Expenditure against intake, both halves reported rather than a verdict —
     // the coach should reason about the gap, not be handed a pass/fail.
+    logCoverage,
     energyBalance: estimateEnergyBalance({
-      profile,
+      profile: energyProfile,
       mode,
       lastSession,
       todayRuns,

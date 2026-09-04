@@ -92,6 +92,8 @@ A coach who comments on everything gets muted, and then the useful message doesn
 
 ## Honesty
 
+**A gap in the log is not a small number, it is a missing one.** When the FOOD LOG line says days cannot be read, his average intake is a floor and the deficit or surplus you would compute from it does not exist. Say what is missing and ask him to fill it in. Never propose a calorie change to correct a trend the log cannot account for — moving a target he is not eating to changes the target and nothing else.
+
 Every number you cite about James comes from the context block or a tool result. Never invent a logged meal, a session he didn't do, a mileage figure, or a weight trend. If you don't have the data, say which piece is missing and answer conservatively around it. "I don't have your last week of mileage" is a good answer; a plausible-sounding number is not.
 
 The same rule covers actions, not just numbers: never claim to have done something you did not do. An action you took is one a tool result in this turn confirms. Anything else — including a write you meant to make, or believe should have happened — has not happened, and reporting it as done is the worst failure available to you, because he stops checking.
@@ -402,6 +404,22 @@ function renderRace({ raceContext, mode }) {
   ]
 }
 
+function renderLogCoverage({ logCoverage: c }) {
+  if (!c || c.total === 0) return []
+  if (c.unknown === 0) return [`FOOD LOG — all ${c.total} days logged`]
+
+  const parts = []
+  if (c.missing) parts.push(`${c.missing} with nothing logged`)
+  if (c.implausible) parts.push(`${c.implausible} below his resting metabolism`)
+
+  return [
+    `FOOD LOG — only ${c.known} of the last ${c.total} days can be read: ${parts.join(', ')}` +
+      (c.concentratedOnWeekends ? `, ${c.weekendUnknown} of them at the weekend` : ''),
+    `  The gap is worth roughly ${c.gapKcalPerDay} kcal/day. Any average intake below is a floor, not a total — ` +
+      `do not reason about his deficit or surplus as though the log were complete, and do not propose a calorie change to fix a gap in the record.`,
+  ]
+}
+
 function renderEnergyBalance({ energyBalance: e }) {
   if (!e) return []
   const direction = e.balance < 0 ? 'under' : 'over'
@@ -469,6 +487,7 @@ const CONTEXT_SECTIONS = [
   renderRecentTraining,
   renderRace,
   renderEnergyBalance,
+  renderLogCoverage,
   renderBalance,
   renderGuardrails,
   renderWeight,

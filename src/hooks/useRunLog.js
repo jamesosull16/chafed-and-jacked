@@ -99,7 +99,7 @@ export function useRunLog() {
    *
    * @param {number} miles
    * @param {string|null} dateStr  YYYY-MM-DD, defaults to today
-   * @param {Object} opts          { duration_minutes, avg_hr_bpm }
+   * @param {Object} opts          { duration_minutes, avg_hr_bpm, sRPE }
    */
   const addRun = useCallback(
     async (miles, dateStr = null, opts = {}) => {
@@ -110,6 +110,9 @@ export function useRunLog() {
       const run = { miles, enteredAt: new Date().toISOString() }
       if (opts.duration_minutes) run.duration_minutes = opts.duration_minutes
       if (opts.avg_hr_bpm) run.avg_hr_bpm = opts.avg_hr_bpm
+      // Session RPE. A run is logged after the fact, so the "rate it twenty
+      // minutes later" rule is satisfied by the act of logging it.
+      if (opts.sRPE) run.sRPE = opts.sRPE
 
       const { runs, miles: total } = appendRun(existing, run)
       await setDocument(`dailyMileage/${date}`, { date, runs, miles: total })

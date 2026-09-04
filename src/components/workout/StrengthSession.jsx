@@ -16,6 +16,7 @@ import { useStrengthBlock } from '../../hooks/useStrengthBlock'
 import { Card, CardHeader, Button, Badge, SkeletonPage, ProgressBar, EmptyState } from '../ui'
 import { cn } from '../ui/cn'
 import SetRow from './SetRow'
+import SessionRpe from './SessionRpe'
 
 const DRAFT_KEY = 'cj_strength_session'
 const DRAFT_TTL_MS = 6 * 60 * 60 * 1000
@@ -452,6 +453,10 @@ export default function StrengthSession({ searchParams }) {
   const [startTime, setStartTime] = useState(() => Date.now())
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(null)
+  // Session RPE lives outside the save because it is meant to be answered
+  // afterwards — see SessionRpe.jsx for why that timing is not a detail.
+  const [sessionRpe, setSessionRpe] = useState(null)
+  const [rating, setRating] = useState(false)
   const [restored, setRestored] = useState(false)
 
   // The session is derived, not stored — it is a pure function of the block
@@ -503,9 +508,11 @@ export default function StrengthSession({ searchParams }) {
   useEffect(() => {
     if (!loggedSession) return
     // Hydrating React state from data fetched outside it — the documented
-    // exception to the rule, and the reason it is disabled on the line below
-    // rather than on the effect, which is where it actually reports.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // exception to `react-hooks/set-state-in-effect`. The disable directive
+    // this used to carry is gone because the rule stopped reporting here once
+    // `rateSession` was added: it sets the same kind of state from an event
+    // handler, which changes how the rule classifies the component. Worth
+    // knowing that the rule is not reliably watching this file.
     setSessionData(
       Object.fromEntries(
         (loggedSession.exercises || []).map((ex) => [
@@ -515,6 +522,7 @@ export default function StrengthSession({ searchParams }) {
       )
     )
     setMobilityDone(loggedSession.mobilityCompleted || [])
+    setSessionRpe(loggedSession.sRPE ?? null)
   }, [loggedSession])
 
   // Restore an in-progress session once per day, so locking the phone
@@ -533,7 +541,6 @@ export default function StrengthSession({ searchParams }) {
       if (!raw) return
       const draft = JSON.parse(raw)
       if (draft.dayId === dayId && Date.now() - draft.savedAt < DRAFT_TTL_MS) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setSessionData(draft.sessionData || {})
         setMobilityDone(draft.mobilityDone || [])
         setStartTime(draft.startTime)
@@ -597,6 +604,27 @@ export default function StrengthSession({ searchParams }) {
     [session, isReview]
   )
 
+  /**
+   * Rate a session that has already been written.
+   *
+   * Deliberately its own path rather than part of the save. The rating is
+   * meant to happen twenty minutes later, so it has to be settable against a
+   * document that already exists — including one logged days ago and reopened.
+   */
+  async function rateSession(next) {
+    setSessionRpe(next)
+    if (!saved?.id) return
+    setRating(true)
+    try {
+      await updateSession(saved.id, session, sessionData, {
+        mobilityCompleted: mobilityDone,
+        sRPE: next,
+      })
+    } finally {
+      setRating(false)
+    }
+  }
+
   async function handleFinish() {
     if (!session || saving) return
     setSaving(true)
@@ -607,6 +635,7 @@ export default function StrengthSession({ searchParams }) {
       // long he trained.
       const result = await updateSession(loggedSession.id, session, sessionData, {
         mobilityCompleted: mobilityDone,
+        sRPE: sessionRpe,
       })
       if (result) setSaved({ ...result, durationMinutes: result.duration, amended: true })
       setSaving(false)
@@ -617,6 +646,7 @@ export default function StrengthSession({ searchParams }) {
     const result = await saveSession(session, sessionData, {
       durationMinutes,
       mobilityCompleted: mobilityDone,
+      sRPE: sessionRpe,
     })
     if (result) {
       localStorage.removeItem(DRAFT_KEY)
@@ -650,6 +680,15 @@ export default function StrengthSession({ searchParams }) {
               <p className="text-xs text-subtle">{stat.unit}</p>
             </Card>
           ))}
+        </div>
+
+        <div className="w-full max-w-sm mt-4">
+          <SessionRpe
+            value={sessionRpe}
+            durationMinutes={saved.durationMinutes}
+            onChange={rateSession}
+            busy={rating}
+          />
         </div>
 
         <Button size="lg" className="mt-6" onClick={() => navigate('/')}>

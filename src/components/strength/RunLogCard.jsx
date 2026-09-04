@@ -21,6 +21,7 @@ export default function RunLogCard({ todayRuns = [], weekDailySum = 0, weekDaily
   const [miles, setMiles] = useState('')
   const [duration, setDuration] = useState('')
   const [hr, setHr] = useState('')
+  const [rpe, setRpe] = useState('')
   const [busy, setBusy] = useState(false)
 
   const todayMiles = todayRuns.reduce((s, r) => s + (r.miles || 0), 0)
@@ -29,6 +30,7 @@ export default function RunLogCard({ todayRuns = [], weekDailySum = 0, weekDaily
     setMiles('')
     setDuration('')
     setHr('')
+    setRpe('')
     setAdding(false)
   }
 
@@ -40,6 +42,7 @@ export default function RunLogCard({ todayRuns = [], weekDailySum = 0, weekDaily
       const opts = {}
       if (duration) opts.duration_minutes = parseFloat(duration)
       if (hr) opts.avg_hr_bpm = parseFloat(hr)
+      if (rpe) opts.sRPE = parseFloat(rpe)
       await onAddRun(distance, null, opts)
       reset()
     } finally {
@@ -75,6 +78,7 @@ export default function RunLogCard({ todayRuns = [], weekDailySum = 0, weekDaily
               <span className="text-xs text-muted flex-1 truncate">
                 {run.duration_minutes ? `${run.duration_minutes} min` : 'no duration'}
                 {run.avg_hr_bpm ? ` · ${run.avg_hr_bpm} bpm` : ''}
+                {run.sRPE ? ` · RPE ${run.sRPE}` : ''}
                 {!run.duration_minutes || !run.avg_hr_bpm ? ' · distance estimate' : ''}
               </span>
               {onDeleteRun && (
@@ -136,6 +140,24 @@ export default function RunLogCard({ todayRuns = [], weekDailySum = 0, weekDaily
               )}
             </Field>
           </div>
+
+          <Field
+            label="How hard was it? (1-10)"
+            hint="Overall effort, not the hardest mile. This times the duration is the only number that prices a run and a lift on the same scale."
+          >
+            {({ id, ...a11y }) => (
+              <Input
+                id={id}
+                {...a11y}
+                type="number"
+                inputMode="numeric"
+                min="1"
+                max="10"
+                value={rpe}
+                onChange={(e) => setRpe(e.target.value)}
+              />
+            )}
+          </Field>
           <p className="text-xs text-muted">
             Minutes and heart rate are optional, but without both the calories are estimated from
             distance alone — around 25% adrift on a long run, and your fuel target moves with it.

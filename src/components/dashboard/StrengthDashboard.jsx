@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Dumbbell, ChevronRight, Sparkles } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -7,6 +7,9 @@ import { useStrengthBlock } from '../../hooks/useStrengthBlock'
 import { useRunLog } from '../../hooks/useRunLog'
 import { useFirestore, formatLocalDate } from '../../hooks/useFirestore'
 import { calculateAge } from '../../lib/bodyMetrics'
+import { trainingLoadSummary } from '../../lib/trainingLoad'
+import { assessLogCoverage } from '../../lib/logCompleteness'
+import { calculateBMR } from '../../lib/macroCalculator'
 import { Card, CardLabel, Badge, SkeletonPage, Button } from '../ui'
 import BlockProgressCard from '../strength/BlockProgressCard'
 import ChainBalanceCard from '../strength/ChainBalanceCard'
@@ -14,6 +17,7 @@ import VolumeLandmarks from '../strength/VolumeLandmarks'
 import WeekSchedule from '../strength/WeekSchedule'
 import WeightTrendCard from '../strength/WeightTrendCard'
 import RunLogCard from '../strength/RunLogCard'
+import TrainingLoadCard from '../strength/TrainingLoadCard'
 import { UpperBodyBalance, MobilityCard, GuardrailsCard } from '../strength/BalanceExtras'
 import NutritionPanel from './NutritionPanel'
 
@@ -66,6 +70,7 @@ export default function StrengthDashboard() {
     isTrainingDay,
     todayLiftStats,
     bodyMetrics,
+    sessions,
   } = useStrengthBlock()
 
   // Runs are part of a strength day now, so the dashboard reads them and the
@@ -76,11 +81,20 @@ export default function StrengthDashboard() {
     todayMiles,
     weekDailySum,
     weekDailyMinutes,
+    allDailyMiles,
     addRun,
     deleteRun,
   } = useRunLog()
 
+  // Lifting and running on one scale. `sessions` carries the lifts, the run log
+  // the runs — the metric is worthless if it sees only half the week.
+  const load = useMemo(
+    () => trainingLoadSummary({ sessions, runs: allDailyMiles }),
+    [sessions, allDailyMiles]
+  )
+
   const [todayNutritionLog, setTodayNutritionLog] = useState(null)
+  const [recentLogs, setRecentLogs] = useState([])
   const [latest, setLatest] = useState({ weight: null, bodyFatPct: null })
 
   useEffect(() => {
@@ -89,12 +103,17 @@ export default function StrengthDashboard() {
 
     async function load() {
       try {
-        const [log, metrics] = await Promise.all([
+        const [log, metrics, week] = await Promise.all([
           getDocument(`nutritionLogs/${formatLocalDate()}`),
           getCollection('bodyMetrics', 'date', 'desc', 1),
+          // The week, so the weight card can tell "the target is wrong" from
+          // "the log cannot say". Without this the guardrail's logIncomplete
+          // branch exists and never fires.
+          getCollection('nutritionLogs', 'date', 'desc', 7),
         ])
         if (cancelled) return
         setTodayNutritionLog(log)
+        setRecentLogs(week)
         setLatest({
           weight: metrics[0]?.weight ?? userProfile?.onboarding?.initialWeight ?? null,
           bodyFatPct: metrics[0]?.bodyFatPct ?? userProfile?.onboarding?.initialBodyFat ?? null,
@@ -108,6 +127,37 @@ export default function StrengthDashboard() {
       cancelled = true
     }
   }, [user, getDocument, getCollection, userProfile])
+
+  const todayId = formatLocalDate()
+
+  /**
+   * How much of the week the food log can speak to.
+   *
+   * BMR is derived the same way the fuel panel derives it, from the latest
+   * weigh-in, so the "below resting metabolism" line sits at the number the
+   * rest of the dashboard already uses.
+   */
+  const logCoverage = useMemo(() => {
+    if (!latest.weight) return null
+    const byDate = new Map(recentLogs.map((d) => [d.id || d.date, d]))
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date()
+      d.setDate(d.getDate() - (6 - i))
+      const dateId = formatLocalDate(d)
+      return { dateId, log: dateId === todayId ? todayNutritionLog : byDate.get(dateId) || null }
+    })
+    // The real function, not a local copy of the formula — a second BMR in the
+    // codebase is a second thing to keep in step, and this one draws a
+    // threshold the guardrail acts on.
+    const bmr = calculateBMR({
+      weightKg: latest.weight / 2.205,
+      heightCm: (userProfile?.profile?.heightInches || 70) * 2.54,
+      age: calculateAge(userProfile?.profile?.birthday),
+      sex: userProfile?.profile?.biologicalSex || 'male',
+      bodyFatPct: latest.bodyFatPct,
+    })
+    return assessLogCoverage(days, { bmr, todayId })
+  }, [recentLogs, todayNutritionLog, latest, todayId, userProfile])
 
   if (loading) return <SkeletonPage cards={4} />
 
@@ -152,11 +202,14 @@ export default function StrengthDashboard() {
         today={formatLocalDate()}
       />
 
+      <TrainingLoadCard load={load} />
+
       <WeightTrendCard
         bodyMetrics={bodyMetrics}
         goal={goal}
         currentSurplus={strength.calorieSurplus}
         onApplySurplus={(kcal) => updateStrengthSettings({ calorieSurplus: kcal })}
+        logCoverage={logCoverage}
       />
 
       <NutritionPanel

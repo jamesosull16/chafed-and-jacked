@@ -20,6 +20,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useAppMode } from '../hooks/useAppMode'
 import { useWorkout } from '../hooks/useWorkout'
 import { useStrengthBlock } from '../hooks/useStrengthBlock'
+import { assessLogCoverage } from '../lib/logCompleteness'
 import { useFirestore, formatLocalDate } from '../hooks/useFirestore'
 import { useSavedMeals } from '../hooks/useSavedMeals'
 import { getNutritionAdvice } from '../lib/nutritionAdvice'
@@ -642,8 +643,30 @@ export default function NutritionTracker() {
     [advice]
   )
 
-  const entries = todayLog?.entries || []
+  // Memoised because the coverage below depends on it, and a fresh [] every
+  // render would recompute the whole week on every keystroke.
+  const entries = useMemo(() => todayLog?.entries || [], [todayLog])
   const consumed = sumEntries(entries)
+
+  /**
+   * How much of the week the log can actually speak to.
+   *
+   * Today is taken from the live subscription rather than the mount-time
+   * fetch, or the current day would read as a gap until the page remounted.
+   * BMR comes from the advice so the implausible band exists at all — without
+   * it every day with a single entry counts as logged.
+   */
+  const coverage = useMemo(
+    () =>
+      assessLogCoverage(
+        history.map((day) => ({
+          dateId: day.dateId,
+          log: day.dateId === todayId ? { entries } : day.log,
+        })),
+        { bmr: advice?.bmr || null, todayId }
+      ),
+    [history, todayId, entries, advice]
+  )
 
   /**
    * Add or remove one entry, as a field transform rather than a whole array.
@@ -924,44 +947,73 @@ export default function NutritionTracker() {
           <ManualEntryCard onAdd={addEntry} />
 
           <Card>
-            <CardLabel>Last 7 days</CardLabel>
-            <div className="grid grid-cols-7 gap-1 mt-3">
-              {history.map((day) => {
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <CardLabel>Last 7 days</CardLabel>
+              <Badge
+                tone={
+                  coverage.unknown === 0 ? 'success' : coverage.coverage < 0.7 ? 'warning' : 'neutral'
+                }
+              >
+                {coverage.known}/{coverage.total} logged
+              </Badge>
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {history.map((day, i) => {
                 const isToday = day.dateId === todayId
                 // Today comes from the live subscription; the fetched copy is a
                 // mount-time snapshot and goes stale the moment anything is logged.
                 const dayEntries = isToday ? entries : day.log?.entries || []
                 const kcal = dayEntries.reduce((a, e) => a + (e.kcal || 0), 0)
                 const target = (isToday ? targets?.kcal : day.log?.targets?.kcal) || 0
-                const hasData = dayEntries.length > 0
+                const status = coverage.days[i]?.status || 'missing'
 
                 return (
                   <button
                     key={day.dateId}
                     type="button"
-                    disabled={isToday || !hasData}
+                    // A gap day is the one most worth opening, and it used to be
+                    // the only one that could not be. `!hasData` disabled exactly
+                    // the days that needed filling in.
+                    disabled={isToday}
                     onClick={() => navigate(`/nutrition?date=${day.dateId}`)}
+                    title={
+                      status === 'inProgress'
+                        ? 'Today — still in progress'
+                        : status === 'missing'
+                        ? 'Nothing logged — tap to add it'
+                        : status === 'implausible'
+                          ? `Only ${Math.round(kcal)} kcal, below your resting metabolism — something is missing`
+                          : undefined
+                    }
                     className={cn(
-                      'flex flex-col items-center py-2 rounded-xl transition-colors min-h-14',
+                      'flex flex-col items-center py-2 rounded-xl border transition-colors min-h-14',
                       isToday
-                        ? 'bg-brand-subtle border border-brand-border'
-                        : hasData
-                          ? 'hover:bg-surface'
-                          : 'opacity-40'
+                        ? 'bg-brand-subtle border-brand-border'
+                        : status === 'logged'
+                          ? 'border-transparent hover:bg-surface'
+                          : status === 'implausible'
+                            ? 'bg-warning-subtle border-warning-border hover:bg-bg'
+                            : status === 'inProgress'
+                              ? 'border-transparent'
+                              : 'border-dashed border-border-strong hover:bg-surface'
                     )}
                   >
                     <span
-                      className={cn(
-                        'text-xs font-medium',
-                        isToday ? 'text-brand' : 'text-muted'
-                      )}
+                      className={cn('text-xs font-medium', isToday ? 'text-brand' : 'text-muted')}
                     >
                       {day.date.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2)}
                     </span>
-                    <span className="text-xs text-text tabular-nums mt-0.5">
-                      {hasData ? Math.round(kcal) : '—'}
+                    <span
+                      className={cn(
+                        'text-xs tabular-nums mt-0.5',
+                        status === 'logged' || status === 'inProgress' || isToday
+                          ? 'text-text'
+                          : 'text-warning-strong'
+                      )}
+                    >
+                      {status === 'missing' ? '+' : Math.round(kcal)}
                     </span>
-                    {target > 0 && hasData && (
+                    {target > 0 && status !== 'missing' && (
                       <span className="text-[10px] text-subtle tabular-nums">
                         /{Math.round(target)}
                       </span>
@@ -970,6 +1022,14 @@ export default function NutritionTracker() {
                 )
               })}
             </div>
+
+            <p className="text-xs text-muted mt-3 leading-relaxed">{coverage.summary}</p>
+            {coverage.unknown > 0 && (
+              <p className="text-xs text-subtle mt-1.5 leading-relaxed">
+                A day under your resting metabolism counts as a gap, not a light day. Until these
+                are filled in, the weight trend has more to say about your intake than the log does.
+              </p>
+            )}
           </Card>
         </>
       )}

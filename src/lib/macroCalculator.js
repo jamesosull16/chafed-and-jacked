@@ -363,6 +363,8 @@ export function getFatTarget(calorieTarget, proteinGrams, carbGrams, weightKg) {
   return Math.max(fatFromRemainder, fatFloor)
 }
 
+import { unloggedKcalPerDay } from './logCompleteness.js'
+
 // ── Body-composition goal ─────────────────────────────────────
 
 /** Baseline kcal delta per body-composition goal, before any user override. */
@@ -409,6 +411,7 @@ export function assessRateOfGain({
   bodyCompGoal = 'leanBulk',
   currentSurplus = 300,
   weeksOfData = 0,
+  logCoverage = null,
 } = {}) {
   const goalRanges = {
     leanBulk: [0.0025, 0.005],
@@ -450,18 +453,44 @@ export function assessRateOfGain({
   // target" was the real output for a cut that was going backwards. It also
   // came back tagged `tooSlow`, which any UI reading the status rather than the
   // copy would render as a mild "push a bit harder".
+  // A calorie target is only the lever when it is the thing being eaten to.
+  //
+  // The guardrail's whole prescription — move the target by 150 — assumes the
+  // target is being hit and is simply set wrong. When the food log has holes in
+  // it that assumption fails silently, and adjusting a number nobody is eating
+  // to changes nothing except the number. So the log gets a say before the
+  // target does, and only when the direction of travel is actually wrong: a
+  // rate inside the band needs no adjustment and no caveat.
+  const gapKcal = logCoverage ? unloggedKcalPerDay(logCoverage) : 0
+  const logCannotSupportIt = !!logCoverage && !logCoverage.sufficient && gapKcal >= RATE_ADJUSTMENT_KCAL
+
   const wrongWay =
     (isLosingGoal && weeklyChangeLbs > 0) || (minRate > 0 && weeklyChangeLbs < 0)
   if (wrongWay) {
+    if (logCannotSupportIt) {
+      return {
+        ...common,
+        status: 'logIncomplete',
+        // Deliberately unchanged. Nothing has been learned about the target.
+        suggestedSurplus: currentSurplus,
+        logCoverage,
+        message:
+          `${verb} ${magnitude} lb/week while trying to ${isLosingGoal ? 'lose' : 'gain'} ${band}/week — ` +
+          `the wrong direction. But ${logCoverage.summary.charAt(0).toLowerCase()}${logCoverage.summary.slice(1)} ` +
+          `That gap is worth about ${gapKcal} kcal a day, more than the ${RATE_ADJUSTMENT_KCAL} this would change the target by, ` +
+          `so the target is not what there is evidence to move. Close the logging gap first.`,
+      }
+    }
     return {
       ...common,
       status: 'wrongDirection',
       suggestedSurplus: currentSurplus - (isLosingGoal ? RATE_ADJUSTMENT_KCAL : -RATE_ADJUSTMENT_KCAL),
+      logCoverage,
       message: isLosingGoal
         ? `${verb} ${magnitude} lb/week while trying to lose ${band}/week — the wrong direction, not a slow one. ` +
-          `Before changing the target, check the food log is complete: an untracked day or two a week is the usual cause and no calorie change fixes it.`
+          `You are eating to target and still gaining, so the target itself is too high. Cut ${RATE_ADJUSTMENT_KCAL} kcal.`
         : `${verb} ${magnitude} lb/week while trying to gain ${band}/week — the wrong direction, not a slow one. ` +
-          `Check the log is complete before adding calories.`,
+          `You are eating to target and still losing, so add ${RATE_ADJUSTMENT_KCAL} kcal.`,
     }
   }
 
