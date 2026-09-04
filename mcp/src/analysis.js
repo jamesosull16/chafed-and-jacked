@@ -21,7 +21,7 @@
 
 import { getNutritionAdvice } from '../../src/lib/nutritionAdvice.js'
 import { assessRateOfGain } from '../../src/lib/macroCalculator.js'
-import { normalizeProfile, MODES } from '../../src/lib/appMode.js'
+import { normalizeProfile } from '../../src/lib/appMode.js'
 import { calculateAge } from '../../src/lib/bodyMetrics.js'
 import {
   getBlockStatus,
@@ -127,6 +127,14 @@ export function createAnalysisHandlers({ store }) {
     }
   }
 
+  /** Today's logged runs. The fuelling model needs both halves of the day. */
+  async function todayRuns(dateId) {
+    const doc = await store.getDoc('dailyMileage', dateId)
+    if (!doc) return []
+    if (doc.runs) return doc.runs
+    return doc.miles ? [{ miles: doc.miles }] : []
+  }
+
   async function recentSessions(limit = 60) {
     return store.query('workoutSessions', { orderField: 'date', direction: 'desc', limit })
   }
@@ -140,16 +148,21 @@ export function createAnalysisHandlers({ store }) {
         throw new Error('No bodyweight on record — log a weigh-in before asking for targets.')
       }
 
-      const isStrength = profile.mode !== MODES.RUNNING
       const days = profile.strength?.trainingDayIndices || [1, 2, 4, 5]
+      // Runs are read whatever the mode. There is one fuelling model now, and
+      // omitting them here would have this tool quote a target the app doesn't
+      // show — the exact drift this module exists to avoid.
+      const runs = await todayRuns(dateId)
       const advice = getNutritionAdvice({
         weightLbs,
         heightInches: profile.profile?.heightInches || 0,
         ageYears: calculateAge(profile.profile?.birthday),
         sex: profile.profile?.biologicalSex || 'male',
         currentBodyFatPct: bodyFatPct,
+        vo2max: profile.profile?.vo2max || null,
         todayLiftStats: await todayLiftStats(dateId),
-        mode: isStrength ? 'strength' : 'running',
+        dailyMiles: runs.reduce((sum, r) => sum + (r.miles || 0), 0),
+        todayRuns: runs,
         strength: {
           ...profile.strength,
           isTrainingDay: getSplitIndexForDate(new Date(`${dateId}T12:00:00`), days) !== null,
@@ -171,6 +184,9 @@ export function createAnalysisHandlers({ store }) {
           basis: advice.calories.breakdown,
           bmr: advice.bmr,
           tdee: advice.tdee,
+          dayType: advice.dayType,
+          runKcal: advice.runKcal,
+          strengthKcal: advice.strengthKcal,
           surplus: advice.surplus ?? null,
           deficit: advice.deficit ?? null,
           bodyCompGoal: advice.bodyCompGoal ?? null,

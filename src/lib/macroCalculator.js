@@ -4,16 +4,27 @@
  * Pure-function module for daily macro targets.
  * All inputs are passed in — no data-layer reads.
  *
- * Branches on training mode:
+ * ONE model, whatever programme planned the day:
  *
- *   'running'  — endurance model. TDEE = BMR×1.2 + run kcal + strength kcal,
- *                carbs laddered by run duration, phase-scaled deficit.
- *   'strength' — hypertrophy model. TDEE = BMR×activityFactor + strength kcal
- *                (no run term), carbs on a training-day/rest-day split, and a
- *                configurable surplus rather than a deficit.
+ *   TDEE  = BMR × neatFactor + lift kcal + net run kcal
+ *   target = TDEE + the body-composition goal's kcal delta
  *
- * Mode defaults to 'running' so every pre-existing caller keeps its exact
- * behaviour; the strength path is opt-in.
+ * It used to be two, selected by `mode`, and that was the bug. The strength
+ * model had no run term at all, so a 90-minute run changed nothing: the same
+ * calories, the same carbs, and — because "training day" was read off the
+ * *lifting* calendar — a Saturday long run labelled "Rest day". Meanwhile the
+ * two models disagreed by ~800 kcal on a day with no run in it, because each
+ * had been calibrated separately (1.5 with no run term against 1.2 with one).
+ *
+ * There is no arithmetic that reconciles 1.2 and 1.5; one of them had to win.
+ * `DEFAULT_NEAT_FACTOR` is the strength block's 1.5 carried forward, so days
+ * without a run keep the numbers they already had and this change is provably
+ * about runs and nothing else. It is a calibration, not a derivation, and it is
+ * pending revalidation against a weight trend — see `assessRateOfGain`.
+ *
+ * `mode` still selects the *programme* (which engine plans the sessions). It no
+ * longer selects a fuelling model, because a day's energy cost doesn't care
+ * which screen logged it.
  *
  * Key references:
  * - Mifflin-St Jeor (1990) — BMR
@@ -130,125 +141,211 @@ export function calculateRunKcal(run, profile) {
   return { kcal: distanceRunKcal(run.miles || 0, weightLbs), source: 'distance' }
 }
 
+// ── Net run kcal ──────────────────────────────────────────────
+
+/**
+ * Strip the resting metabolism a run's gross figure already contains.
+ *
+ * Keytel returns *gross* expenditure — every one of those minutes would have
+ * cost something lying on the sofa, and the activity factor has already been
+ * paid for them. Adding the gross number on top double-counts: ~103 kcal on a
+ * 90-minute run, ~230 on a three-hour one. Small next to the run itself, but
+ * it is a real error and it grows with exactly the sessions that matter most.
+ */
+export function netRunKcal(grossKcal, bmr, durationMinutes) {
+  if (!grossKcal) return 0
+  if (!bmr || !durationMinutes) return grossKcal
+  return Math.max(0, grossKcal - (bmr / 1440) * durationMinutes)
+}
+
 // ── TDEE ──────────────────────────────────────────────────────
 
 /**
- * TDEE = (BMR × 1.2) + run_kcal + weight_session_kcal
+ * Non-exercise activity multiplier on BMR.
+ *
+ * Carries everything that isn't a logged session. 1.5 is the strength block's
+ * calibrated value, kept so this refactor doesn't silently move the targets it
+ * wasn't meant to touch. It was never decomposed — the ~2 × 25 min of weekly
+ * conditioning it nominally includes is only ~57 kcal/day, so most of the gap
+ * to the endurance model's 1.2 is a NEAT difference, not a cardio one.
  */
-export function calculateTDEE(bmr, runKcal, strengthKcal) {
-  return (bmr * 1.2) + runKcal + strengthKcal
+export const DEFAULT_NEAT_FACTOR = 1.5
+
+/** Kept as an alias: the old name is the same number and the same job. */
+export const DEFAULT_STRENGTH_ACTIVITY_FACTOR = DEFAULT_NEAT_FACTOR
+
+/**
+ * TDEE = BMR × neatFactor + lift kcal + run kcal.
+ *
+ * Both exercise terms are explicit, so a day with a lift, a run, both or
+ * neither all cost what they actually cost.
+ */
+export function calculateTDEE(bmr, runKcal = 0, strengthKcal = 0, neatFactor = DEFAULT_NEAT_FACTOR) {
+  return bmr * neatFactor + (runKcal || 0) + (strengthKcal || 0)
 }
 
-// ── Calorie target (phase-aware) ──────────────────────────────
+// ── Calorie target ────────────────────────────────────────────
 
-const DEFICIT_BY_PHASE = {
-  build: 400,
-  deload: 300,
+/**
+ * How large a deficit a race phase will tolerate, regardless of goal.
+ *
+ * This is the surviving half of the old endurance deficit table. It is no
+ * longer *the* deficit — the body-composition goal owns that now — it is a cap,
+ * because eating into a taper or a race day is a race-day decision and not a
+ * body-composition one. Deliberately not applied to `deload` or
+ * `accumulation`: a strength deload capped at −300 would quietly change the
+ * block's calories, which is a coaching call nobody has made.
+ */
+const MAX_DEFICIT_BY_PHASE = {
   taper: 250,
   peak: 250,
   race: 0,
 }
 
-export function getCalorieTarget(tdee, isCutting, trainingPhase) {
-  if (!isCutting) return { target: tdee, deficit: null }
-  const deficit = trainingPhase in DEFICIT_BY_PHASE ? DEFICIT_BY_PHASE[trainingPhase] : 400
-  return { target: tdee - deficit, deficit }
+/**
+ * Calorie target from TDEE and the body-composition goal.
+ *
+ * `surplusOverride` wins when supplied — the rate-of-gain guardrail nudges it
+ * over the block, so the stored value is the source of truth.
+ */
+export function getCalorieTarget(tdee, { bodyCompGoal = 'leanBulk', surplusOverride, trainingPhase } = {}) {
+  let delta =
+    typeof surplusOverride === 'number'
+      ? surplusOverride
+      : (GOAL_KCAL_DELTA[bodyCompGoal] ?? GOAL_KCAL_DELTA.leanBulk)
+
+  const cap = trainingPhase != null ? MAX_DEFICIT_BY_PHASE[trainingPhase] : undefined
+  const phaseCapped = cap !== undefined && delta < -cap
+  if (phaseCapped) delta = -cap
+
+  return {
+    target: tdee + delta,
+    delta,
+    bodyCompGoal,
+    deficit: delta < 0 ? Math.abs(delta) : null,
+    surplus: delta > 0 ? delta : null,
+    phaseCapped,
+  }
 }
 
-// ── Protein (phase + session-aware) ───────────────────────────
+// ── Protein ───────────────────────────────────────────────────
 
 /**
- * Protein target in g/kg.
- * - Cutting: 2.2 g/kg (Helms et al.)
- * - Deload: 1.6 g/kg
- * - Taper/Peak: 1.8 g/kg
- * - Default build: 1.7 g/kg baseline, 2.0 g/kg if run ≥ 90 min
+ * Protein in g/kg — 2.0 baseline, 2.2 in a deficit (Helms et al.).
+ *
+ * The endurance ladder (1.7 baseline, 1.6 on a deload, 2.0 for a long run) is
+ * gone. It sat below the hypertrophy number in every case, and the whole point
+ * of concurrent training is that the lifting stimulus doesn't stop mattering
+ * because a run happened — ISSN puts concurrent athletes at the *upper* end of
+ * 1.6-2.2, not the lower.
  */
-export function getProteinTarget(weightKg, trainingPhase, isCutting, runDurationMin) {
-  let perKg, rationale
-
-  if (isCutting) {
-    perKg = 2.2
-    rationale = 'High protein to preserve lean mass during deficit (Helms et al.)'
-  } else if (trainingPhase === 'deload') {
-    perKg = 1.6
-    rationale = 'Recovery week — lower end of concurrent training range'
-  } else if (trainingPhase === 'taper' || trainingPhase === 'peak') {
-    perKg = 1.8
-    rationale = 'Moderate protein for taper — maintain, not build'
-  } else if (runDurationMin && runDurationMin >= 90) {
-    perKg = 2.0
-    rationale = 'Elevated for long run (≥90 min) — ISSN concurrent training upper range'
-  } else {
-    perKg = 1.7
-    rationale = 'Concurrent training baseline (ISSN 1.6-2.2 g/kg)'
+export function getProteinTarget(weightKg, bodyCompGoal = 'leanBulk') {
+  const cutting = bodyCompGoal === 'cut'
+  return {
+    grams: weightKg * (cutting ? 2.2 : 2.0),
+    perKg: cutting ? 2.2 : 2.0,
+    rationale: cutting
+      ? 'Upper ISSN range to protect lean mass through the deficit (Helms et al.)'
+      : 'Concurrent training baseline — ISSN 1.6-2.2 g/kg, mid-upper while lifting',
   }
-
-  return { grams: weightKg * perKg, perKg, rationale }
 }
+
+/** Retained name — the strength path and the only path are now the same thing. */
+export const getStrengthProteinTarget = getProteinTarget
 
 // ── Carbs (session-aware with mileage fallback) ───────────────
 
+/** Hard ceiling. Past this it stops being fuelling and starts being fat gain. */
+const MAX_CARB_PER_KG = 10
+
 /**
- * Carb target in g/kg — duration-based when available, mileage-based fallback.
+ * The endurance ladder — what a run asks for over and above the day's base,
+ * in g/kg. Returns null when the run doesn't move the number.
  *
- * Duration tiers:
- *   No run or < 45 min:   5 g/kg
- *   45–90 min:            6 g/kg
- *   90–180 min:           8 g/kg
- *   > 180 min:           10 g/kg
+ * The old ladder's bottom rungs (5 g/kg for a short run, 5 for no run at all,
+ * 6 for anything under 6 miles) were never "what a run needs" — they were what
+ * an endurance athlete eats on an ordinary day, and that model had no other
+ * baseline to fall back on. This one does. Left in, they inverted the answer:
+ * a 28-minute jog on a cut asked for 409 g of carbohydrate against a full
+ * lifting day's 368.
  *
- * Mileage fallback (existing logic):
- *   Rest day:             3–5 g/kg
- *   < 6 mi:              5–7 g/kg
- *   6–12 mi:             6–8 g/kg
- *   > 12 mi:             8–10 g/kg
+ * So the short rungs return null and the day's own base stands. That also
+ * matches the coaching line the app already gives — an easy run under about
+ * 75 minutes needs nothing beyond normal eating, so it should not produce a
+ * fuelling plan.
  */
-export function getCarbTarget(weightKg, run, didLift) {
+function enduranceCarbLadder(run) {
   const miles = run?.miles || 0
   const duration = run?.duration_minutes || 0
-  const hasDuration = duration > 0
 
-  let perKg, guidance
+  if (duration > 0) {
+    if (duration < 45) return null
+    if (duration <= 90) return { perKg: 6, note: 'moderate run (45-90 min)' }
+    if (duration <= 180) return { perKg: 8, note: 'long run (90-180 min)' }
+    return { perKg: 10, note: 'ultra-long run (>3 hrs)' }
+  }
 
-  if (hasDuration) {
-    // Duration-based tiers
-    if (duration < 45) {
-      perKg = 5
-      guidance = miles > 0 ? 'Short run — moderate carbs' : 'Rest day — moderate carbs for glycogen maintenance'
-    } else if (duration <= 90) {
-      perKg = 6
-      guidance = 'Moderate run (45-90 min) — prioritize carbs around your run'
-    } else if (duration <= 180) {
-      perKg = 8
-      guidance = 'Long run (90-180 min) — high carbs essential for recovery'
+  // No duration logged — fall back to distance, which is coarser and so is
+  // deliberately more conservative about claiming a run needs extra fuel.
+  if (miles < 6) return null
+  if (miles < 12) return { perKg: 7, note: 'moderate run' }
+  return { perKg: 9, note: 'heavy mileage' }
+}
+
+/**
+ * Carb target in g/kg — the higher of what the lifting day wants and what the
+ * run wants, which is the whole point of combining the two.
+ *
+ * The hypertrophy split (6 g/kg training / 4 g/kg rest) is the floor, because
+ * lifting doesn't stop needing glycogen when a run happens. A run then raises
+ * it to whatever the endurance ladder asks: a 75-minute lift and a three-hour
+ * long run are not the same fuelling problem, and taking the max is how one
+ * number serves both without splitting the difference and being wrong twice.
+ *
+ * The +1 for doing both is deliberately conditional. On a lift-only day the
+ * training-day base of 6 *is* the lifting allowance; adding a bonus on top
+ * would count the same session twice.
+ */
+export function getCarbTarget(
+  weightKg,
+  { run = null, didLift = false, isTrainingDay = false, bodyCompGoal = 'leanBulk' } = {}
+) {
+  const cutting = bodyCompGoal === 'cut'
+  const lifting = isTrainingDay || didLift
+  const hasRun = !!(run && (run.miles > 0 || run.duration_minutes > 0))
+
+  let perKg = lifting ? (cutting ? 4.5 : 6) : cutting ? 3 : 4
+  let guidance = lifting
+    ? cutting
+      ? 'Training day in a deficit — put most carbs around the session.'
+      : 'Training day — carbs before and after the session drive performance and recovery.'
+    : 'Rest day — lower carbs, protein and fat hold steady.'
+
+  if (hasRun) {
+    const ladder = enduranceCarbLadder(run)
+    if (!ladder) {
+      guidance = `${guidance} The run was short enough to need nothing extra.`
     } else {
-      perKg = 10
-      guidance = 'Ultra-long run (>3 hrs) — maximum carb intake for recovery'
-    }
-  } else {
-    // Mileage-based fallback
-    if (miles === 0) {
-      perKg = 4 // midpoint of 3-5 range
-      guidance = 'Rest day — moderate carbs for glycogen maintenance'
-    } else if (miles < 6) {
-      perKg = 6 // midpoint of 5-7 range
-      guidance = 'Light run — moderate carbs to replenish'
-    } else if (miles < 12) {
-      perKg = 7 // midpoint of 6-8 range
-      guidance = 'Moderate run — prioritize carbs around your run'
-    } else {
-      perKg = 9 // midpoint of 8-10 range
-      guidance = 'Heavy mileage — high carbs essential for recovery'
+      if (ladder.perKg > perKg) {
+        perKg = ladder.perKg
+        guidance = `Fuelled for the ${ladder.note} — the run asks for more than the lifting day does.`
+      } else {
+        guidance = `${guidance} The ${ladder.note} is already covered by it.`
+      }
+      if (lifting) {
+        perKg += 1
+        guidance += ' Ran and lifted, so a little more on top.'
+      }
     }
   }
 
-  if (didLift) {
-    perKg += 1
-    guidance += ' + strength session'
-  }
-
+  perKg = Math.min(perKg, MAX_CARB_PER_KG)
   return { grams: weightKg * perKg, perKg, guidance }
+}
+
+/** Retained name — there is one carb model now, and this is it. */
+export function getStrengthCarbTarget(weightKg, isTrainingDay = true, bodyCompGoal = 'leanBulk') {
+  return getCarbTarget(weightKg, { isTrainingDay, bodyCompGoal })
 }
 
 // ── Fat (remainder, floored at 0.8 g/kg) ─────────────────────
@@ -266,26 +363,7 @@ export function getFatTarget(calorieTarget, proteinGrams, carbGrams, weightKg) {
   return Math.max(fatFromRemainder, fatFloor)
 }
 
-// ── STRENGTH MODE ─────────────────────────────────────────────
-
-/**
- * Default multiplier on BMR for a lifter training 4x/week.
- *
- * The endurance model uses 1.2 because run calories are added separately and
- * would otherwise be double-counted. In strength mode there is no run term, so
- * the factor has to carry all non-lifting activity itself — collapsing to 1.2
- * would under-feed rest days badly.
- */
-export const DEFAULT_STRENGTH_ACTIVITY_FACTOR = 1.5
-
-/** TDEE for strength mode: no run term, lifting-appropriate activity factor. */
-export function calculateStrengthTDEE(
-  bmr,
-  strengthKcal = 0,
-  activityFactor = DEFAULT_STRENGTH_ACTIVITY_FACTOR
-) {
-  return bmr * activityFactor + strengthKcal
-}
+// ── Body-composition goal ─────────────────────────────────────
 
 /** Baseline kcal delta per body-composition goal, before any user override. */
 export const GOAL_KCAL_DELTA = {
@@ -297,63 +375,17 @@ export const GOAL_KCAL_DELTA = {
 }
 
 /**
- * Calorie target in strength mode.
+ * Retained names, now thin wrappers.
  *
- * `surplusOverride` wins when supplied — the rate-of-gain guardrail nudges it
- * up and down over the block, so the stored value is the source of truth.
+ * `calculateStrengthTDEE` never had a run term; the unified `calculateTDEE`
+ * defaults its run argument to zero, so passing none reproduces it exactly.
  */
+export function calculateStrengthTDEE(bmr, strengthKcal = 0, activityFactor = DEFAULT_NEAT_FACTOR) {
+  return calculateTDEE(bmr, 0, strengthKcal, activityFactor)
+}
+
 export function getStrengthCalorieTarget(tdee, bodyCompGoal = 'leanBulk', surplusOverride) {
-  const delta =
-    typeof surplusOverride === 'number'
-      ? surplusOverride
-      : (GOAL_KCAL_DELTA[bodyCompGoal] ?? GOAL_KCAL_DELTA.leanBulk)
-  return { target: tdee + delta, delta, bodyCompGoal }
-}
-
-/**
- * Protein for hypertrophy — ISSN range is 1.6-2.2 g/kg; 2.0 is the default for
- * a surplus, 2.2 in a deficit where lean-mass retention is the binding
- * constraint.
- */
-export function getStrengthProteinTarget(weightKg, bodyCompGoal = 'leanBulk') {
-  let perKg, rationale
-
-  if (bodyCompGoal === 'cut') {
-    perKg = 2.2
-    rationale = 'Upper ISSN range to protect lean mass through the deficit (Helms et al.)'
-  } else if (bodyCompGoal === 'recomp' || bodyCompGoal === 'maintain') {
-    perKg = 2.0
-    rationale = 'Recomposition needs the surplus-level protein without the surplus calories'
-  } else {
-    perKg = 2.0
-    rationale = 'Hypertrophy baseline — ISSN 1.6-2.2 g/kg, mid-upper for a lean bulk'
-  }
-
-  return { grams: weightKg * perKg, perKg, rationale }
-}
-
-/**
- * Carbs for hypertrophy: 4-6 g/kg, weighted toward training days.
- *
- * Deliberately NOT the endurance duration ladder — a 75-minute lifting session
- * does not empty glycogen the way a three-hour run does, and 10 g/kg would just
- * be fat gain.
- */
-export function getStrengthCarbTarget(weightKg, isTrainingDay = true, bodyCompGoal = 'leanBulk') {
-  let perKg, guidance
-
-  if (isTrainingDay) {
-    perKg = bodyCompGoal === 'cut' ? 4.5 : 6
-    guidance =
-      bodyCompGoal === 'cut'
-        ? 'Training day in a deficit — put most carbs around the session.'
-        : 'Training day — carbs before and after the session drive performance and recovery.'
-  } else {
-    perKg = bodyCompGoal === 'cut' ? 3 : 4
-    guidance = 'Rest day — lower carbs, protein and fat hold steady.'
-  }
-
-  return { grams: weightKg * perKg, perKg, guidance }
+  return getCalorieTarget(tdee, { bodyCompGoal, surplusOverride })
 }
 
 /**
@@ -413,6 +445,26 @@ export function assessRateOfGain({
     : `${targetRange[0]}-${targetRange[1]} lb`
   const common = { actualPctPerWeek: actualPctDisplay, weeklyChangeLbs, targetRange }
 
+  // Moving the wrong way entirely is not a rate problem, and describing it as
+  // one produces nonsense: "gaining 0.85 lb/week — slower than the 0.9-1.8 lb
+  // target" was the real output for a cut that was going backwards. It also
+  // came back tagged `tooSlow`, which any UI reading the status rather than the
+  // copy would render as a mild "push a bit harder".
+  const wrongWay =
+    (isLosingGoal && weeklyChangeLbs > 0) || (minRate > 0 && weeklyChangeLbs < 0)
+  if (wrongWay) {
+    return {
+      ...common,
+      status: 'wrongDirection',
+      suggestedSurplus: currentSurplus - (isLosingGoal ? RATE_ADJUSTMENT_KCAL : -RATE_ADJUSTMENT_KCAL),
+      message: isLosingGoal
+        ? `${verb} ${magnitude} lb/week while trying to lose ${band}/week — the wrong direction, not a slow one. ` +
+          `Before changing the target, check the food log is complete: an untracked day or two a week is the usual cause and no calorie change fixes it.`
+        : `${verb} ${magnitude} lb/week while trying to gain ${band}/week — the wrong direction, not a slow one. ` +
+          `Check the log is complete before adding calories.`,
+    }
+  }
+
   if (actualPct < minRate) {
     return {
       ...common,
@@ -441,130 +493,97 @@ export function assessRateOfGain({
   }
 }
 
+// ── Day type ──────────────────────────────────────────────────
+
+/**
+ * What kind of day this is, for labelling and for the carb split.
+ *
+ * `isLiftScheduled` matters separately from `didLift`: carb targets have to be
+ * visible in the morning, not only after the session. Runs count too — reading
+ * "training day" off the lifting calendar alone is what labelled a Saturday
+ * long run "Rest day" and fed it accordingly.
+ */
+export function dayTypeOf({ didLift = false, isLiftScheduled = false, hasRun = false } = {}) {
+  const lifting = didLift || isLiftScheduled
+  if (lifting && hasRun) return 'both'
+  if (lifting) return 'lift'
+  if (hasRun) return 'run'
+  return 'rest'
+}
+
+const DAY_TYPE_LABEL = { both: 'Lift + run', lift: 'Training day', run: 'Run day', rest: 'Rest day' }
+
 // ── Main entry point ──────────────────────────────────────────
 
 /**
- * Calculate daily macro targets from profile, run, and weight session data.
+ * Daily macro targets from profile, run and lifting data.
+ *
+ * One path. `mode` is accepted and ignored for fuelling purposes — it selects
+ * the programme elsewhere, not the energy model.
  *
  * @param {Object} params
- * @param {Object} params.profile - {
- *   weightLbs, heightInches, ageYears, sex,
- *   bodyFatPct?, vo2max?
- * }
- * @param {Object} params.run - {
- *   miles, duration_minutes?, avg_hr_bpm?
- * }  (nullable — rest day)
- * @param {Object} params.weightSession - {
- *   totalVolume?, totalDuration?, sessionCount?
- * }  (nullable — no lift today)
- * @param {Object} params.phase - {
- *   trainingPhase, isCutting
- * }
- *
- * @returns {{
- *   kcal: number,
- *   protein_g: number,
- *   carbs_g: number,
- *   fat_g: number,
- *   source: 'keytel'|'keytel_vo2'|'distance',
- *   runKcal: number,
- *   bmr: number,
- *   tdee: number,
- *   deficit: number|null,
- *   protein: { grams: number, perKg: number, rationale: string },
- *   carbs: { grams: number, perKg: number, guidance: string },
- * }}
+ * @param {Object} params.profile       { weightLbs, heightInches, ageYears, sex, bodyFatPct?, vo2max? }
+ * @param {Object} params.run           { miles, duration_minutes?, avg_hr_bpm? } — nullable
+ * @param {Object} params.weightSession { totalVolume?, totalDuration?, sessionCount?, _computedKcal? } — nullable
+ * @param {Object} params.phase         { trainingPhase } — caps the deficit into a taper or race
+ * @param {Object} params.strength      { bodyCompGoal, calorieSurplus, neatFactor?, isTrainingDay? }
  */
-export function calculateDailyMacros({ profile, run, weightSession, phase, mode, strength }) {
+export function calculateDailyMacros({ profile, run, weightSession, phase, strength }) {
   if (!profile || !profile.weightLbs) return null
 
-  // Convert units
   const weightKg = lbsToKg(profile.weightLbs)
-  const heightCm = inchesToCm(profile.heightInches || 70)
-  const age = profile.ageYears || 35
-
   const profileMetric = {
     weightKg,
     weightLbs: profile.weightLbs,
-    heightCm,
-    age,
+    heightCm: inchesToCm(profile.heightInches || 70),
+    age: profile.ageYears || 35,
     sex: profile.sex || 'male',
     bodyFatPct: profile.bodyFatPct || null,
     vo2max: profile.vo2max || null,
   }
 
-  // 1. BMR — shared by both models
-  const bmr = calculateBMR(profileMetric)
-
-  if (mode === 'strength') {
-    return strengthMacros({ bmr, weightKg, weightSession, strength })
-  }
-
-  // 2. Run kcal (Keytel or distance fallback)
-  const runResult = calculateRunKcal(run, profileMetric)
-
-  // 3. Strength kcal — pass through from existing estimateStrengthCalories (not reimplemented here)
-  const strengthKcal = weightSession?._computedKcal || 0
-
-  // 4. TDEE
-  const tdee = calculateTDEE(bmr, runResult.kcal, strengthKcal)
-
-  // 5. Calorie target (phase-aware deficit)
-  const { trainingPhase = 'build', isCutting = false } = phase || {}
-  const { target: calorieTarget, deficit } = getCalorieTarget(tdee, isCutting, trainingPhase)
-
-  // 6. Macros
-  const didLift = !!(weightSession && weightSession.sessionCount > 0)
-  const runDuration = run?.duration_minutes || 0
-
-  const protein = getProteinTarget(weightKg, trainingPhase, isCutting, runDuration)
-  const carbs = getCarbTarget(weightKg, run, didLift)
-  const fat_g = getFatTarget(calorieTarget, protein.grams, carbs.grams, weightKg)
-
-  return {
-    kcal: Math.round(calorieTarget),
-    protein_g: Math.round(protein.grams),
-    carbs_g: Math.round(carbs.grams),
-    fat_g: Math.round(fat_g),
-    source: runResult.source,
-    runKcal: Math.round(runResult.kcal),
-    bmr: Math.round(bmr),
-    tdee: Math.round(tdee),
-    deficit,
-    protein,
-    carbs,
-  }
-}
-
-/**
- * Strength-mode macros. Same return shape as the endurance path so every UI
- * consumer works unchanged; `source` is 'strength' and run fields are zeroed.
- */
-function strengthMacros({ bmr, weightKg, weightSession, strength }) {
   const {
     bodyCompGoal = 'leanBulk',
     calorieSurplus,
-    activityFactor = DEFAULT_STRENGTH_ACTIVITY_FACTOR,
+    neatFactor = DEFAULT_NEAT_FACTOR,
+    activityFactor,
     isTrainingDay,
   } = strength || {}
 
+  const bmr = calculateBMR(profileMetric)
+
+  // Run: gross from Keytel (or the distance fallback), then net of the resting
+  // metabolism those minutes already carried inside the activity factor.
+  const runResult = calculateRunKcal(run, profileMetric)
+  const runKcal = netRunKcal(runResult.kcal, bmr, run?.duration_minutes || 0)
+
   const strengthKcal = weightSession?._computedKcal || 0
   const didLift = !!(weightSession && weightSession.sessionCount > 0)
+  const hasRun = !!(run && (run.miles > 0 || run.duration_minutes > 0))
 
-  // An explicit isTrainingDay wins; otherwise infer it from whether a session
-  // was logged. Carb targets should be visible before the session, not only
-  // after it, so callers that know the schedule should pass this in.
-  const trainingDay = typeof isTrainingDay === 'boolean' ? isTrainingDay : didLift
+  const tdee = calculateTDEE(bmr, runKcal, strengthKcal, activityFactor ?? neatFactor)
 
-  const tdee = calculateStrengthTDEE(bmr, strengthKcal, activityFactor)
-  const { target: calorieTarget, delta } = getStrengthCalorieTarget(
-    tdee,
+  const { trainingPhase } = phase || {}
+  const { target: calorieTarget, delta, deficit, surplus, phaseCapped } = getCalorieTarget(tdee, {
     bodyCompGoal,
-    calorieSurplus
-  )
+    surplusOverride: calorieSurplus,
+    trainingPhase,
+  })
 
-  const protein = getStrengthProteinTarget(weightKg, bodyCompGoal)
-  const carbs = getStrengthCarbTarget(weightKg, trainingDay, bodyCompGoal)
+  const dayType = dayTypeOf({
+    didLift,
+    isLiftScheduled: typeof isTrainingDay === 'boolean' ? isTrainingDay : false,
+    hasRun,
+  })
+  const trainingDay = dayType !== 'rest'
+
+  const protein = getProteinTarget(weightKg, bodyCompGoal)
+  const carbs = getCarbTarget(weightKg, {
+    run,
+    didLift,
+    isTrainingDay: dayType === 'lift' || dayType === 'both',
+    bodyCompGoal,
+  })
   const fat_g = getFatTarget(calorieTarget, protein.grams, carbs.grams, weightKg)
 
   return {
@@ -572,18 +591,25 @@ function strengthMacros({ bmr, weightKg, weightSession, strength }) {
     protein_g: Math.round(protein.grams),
     carbs_g: Math.round(carbs.grams),
     fat_g: Math.round(fat_g),
-    source: 'strength',
-    runKcal: 0,
+    // 'strength' is no longer a source — the source is how the run was measured,
+    // and a day with no run has none.
+    source: hasRun ? runResult.source : null,
+    runKcal: Math.round(runKcal),
+    runKcalGross: Math.round(runResult.kcal),
+    strengthKcal: Math.round(strengthKcal),
     bmr: Math.round(bmr),
     tdee: Math.round(tdee),
-    // Kept for shape compatibility: negative delta reads as a deficit, and a
-    // surplus is reported separately so the UI can label it correctly.
-    deficit: delta < 0 ? Math.abs(delta) : null,
-    surplus: delta > 0 ? delta : null,
+    neatFactor: activityFactor ?? neatFactor,
+    deficit,
+    surplus,
     kcalDelta: delta,
+    phaseCapped,
     bodyCompGoal,
+    dayType,
+    dayTypeLabel: DAY_TYPE_LABEL[dayType],
     isTrainingDay: trainingDay,
-    strengthKcal: Math.round(strengthKcal),
+    didLift,
+    hasRun,
     protein,
     carbs,
   }

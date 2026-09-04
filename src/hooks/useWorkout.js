@@ -7,7 +7,7 @@ import { getRecommendedWeight, checkForPR } from '../lib/progression'
 import { sessionTonnage } from '../lib/strength/chainBalance'
 import { useAuth } from '../contexts/AuthContext'
 import { notifyWorkoutLogged } from '../lib/coachTrigger'
-import { appendRun } from '../lib/runLog'
+import { useRunLog } from './useRunLog'
 
 /**
  * Central hook for workout state management.
@@ -18,13 +18,24 @@ export function useWorkout() {
   const { getDocument, getCollection, setDocument, addDocument } = useFirestore()
   const [loading, setLoading] = useState(true)
   const [currentMileage, setCurrentMileage] = useState(null)
-  const [todayMiles, setTodayMiles] = useState(null)
-  const [allDailyMiles, setAllDailyMiles] = useState([])
-  const [weekDailyMiles, setWeekDailyMiles] = useState([])
   const [exerciseHistory, setExerciseHistory] = useState({})
   const [todayLiftStats, setTodayLiftStats] = useState(null)
 
   const trainingDays = userProfile?.onboarding?.trainingDays || 'mon-wed-fri'
+
+  // Daily runs are no longer this hook's business — one implementation, shared
+  // with strength mode. Weekly *planned* mileage stays here: it drives load
+  // scaling and belongs to the endurance programme.
+  const {
+    allDailyMiles,
+    todayRuns,
+    todayMiles,
+    weekDailyMiles,
+    weekDailySum,
+    addRun,
+    deleteRun,
+    refreshRuns,
+  } = useRunLog()
 
   // Derive active race and periodization dates from user profile
   const activeRace = getActiveRace(userProfile?.races)
@@ -65,38 +76,7 @@ export function useWorkout() {
         }
       }
 
-      // Load today's daily mileage
       const today = formatLocalDate()
-      const todayDoc = await getDocument(`dailyMileage/${today}`)
-      // Support legacy docs (single miles field) and new format (runs array)
-      if (todayDoc?.runs) {
-        setTodayMiles(todayDoc.runs.reduce((s, r) => s + r.miles, 0))
-      } else {
-        setTodayMiles(todayDoc?.miles ?? null)
-      }
-
-      // Load all daily entries (normalized to runs format)
-      const allDaily = await getCollection('dailyMileage', 'date', 'desc')
-      const normalized = allDaily.map((d) => {
-        if (d.runs) {
-          return { ...d, miles: d.runs.reduce((s, r) => s + r.miles, 0) }
-        }
-        if (d.miles) {
-          return { ...d, runs: [{ miles: d.miles, enteredAt: d.enteredAt }] }
-        }
-        return d
-      })
-      setAllDailyMiles(normalized)
-
-      // Filter to current week for the weekly sum
-      const ws = getWeekStart()
-      const weekEnd = new Date(ws)
-      weekEnd.setDate(weekEnd.getDate() + 6)
-      weekEnd.setHours(23, 59, 59, 999)
-      setWeekDailyMiles(normalized.filter((d) => {
-        const dDate = new Date(d.date + 'T00:00:00')
-        return dDate >= ws && dDate <= weekEnd
-      }))
 
       // Aggregate today's strength session stats (supports multiple sessions per day)
       const recentSessions = await getCollection('workoutSessions', 'date', 'desc', 10)
@@ -264,59 +244,20 @@ export function useWorkout() {
     setCurrentMileage(miles)
   }
 
-  /** Add a run to a day's mileage
-   * @param {number} miles - Distance in miles
-   * @param {string|null} dateStr - Date string (YYYY-MM-DD), defaults to today
-   * @param {Object} opts - Optional fields: { duration_minutes, avg_hr_bpm }
+  /**
+   * Reload both halves.
+   *
+   * Runs live in `useRunLog` now, so a refresh has to reach both — a caller
+   * asking for fresh data after logging a run should not get stale mileage
+   * back just because the two stores were split.
    */
-  async function addRun(miles, dateStr = null, opts = {}) {
-    if (!user) return
-    const date = dateStr || formatLocalDate()
-    const existing = await getDocument(`dailyMileage/${date}`)
-    const newRun = { miles, enteredAt: new Date().toISOString() }
-    if (opts.duration_minutes) newRun.duration_minutes = opts.duration_minutes
-    if (opts.avg_hr_bpm) newRun.avg_hr_bpm = opts.avg_hr_bpm
-    // Shared with the coach's log_run tool via a parity test — see src/lib/runLog.js.
-    const { runs, miles: total } = appendRun(existing, newRun)
-    await setDocument(`dailyMileage/${date}`, { date, runs, miles: total })
-    if (!dateStr || dateStr === formatLocalDate()) {
-      setTodayMiles(total)
-    }
-    await loadWeekData()
-
-    // Fire-and-forget, and only for a run logged today — back-filling last
-    // Tuesday's run should not produce a fuelling window for a session whose
-    // window closed days ago. The id is the day plus the run's index, so each
-    // run in a day triggers once and a re-save of the same run does not.
-    if (!dateStr || dateStr === formatLocalDate()) {
-      notifyWorkoutLogged({ workoutId: `${date}#${runs.length - 1}`, kind: 'run' })
-    }
+  async function refreshData() {
+    await Promise.all([loadWeekData(), refreshRuns()])
   }
 
-  /** Delete a specific run from a day */
-  async function deleteRun(dateStr, runIndex) {
-    if (!user) return
-    const existing = await getDocument(`dailyMileage/${dateStr}`)
-    if (!existing) return
-    let runs = existing.runs || []
-    if (runs.length === 0 && existing.miles) {
-      runs = [{ miles: existing.miles, enteredAt: existing.enteredAt }]
-    }
-    runs.splice(runIndex, 1)
-    const total = runs.reduce((s, r) => s + r.miles, 0)
-    await setDocument(`dailyMileage/${dateStr}`, { date: dateStr, runs, miles: total })
-    if (dateStr === formatLocalDate()) {
-      setTodayMiles(total || null)
-    }
-    await loadWeekData()
-  }
-
-  // Derived values
+  // Derived values. `weekDailySum` and `todayRuns` are derived in useRunLog now
+  // — same arithmetic, one copy.
   const isStrengthDay = getDayTypeForDate(new Date(), trainingDays) !== null
-  const weekDailySum = weekDailyMiles.reduce((sum, d) => sum + (d.miles || 0), 0)
-
-  // Today's individual runs (with duration/HR if present) for nutrition calculations
-  const todayRuns = allDailyMiles.find((d) => d.date === formatLocalDate())?.runs || []
 
   return {
     loading,
@@ -343,6 +284,6 @@ export function useWorkout() {
     saveMileage,
     addRun,
     deleteRun,
-    refreshData: loadWeekData,
+    refreshData,
   }
 }

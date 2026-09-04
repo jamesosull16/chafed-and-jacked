@@ -13,9 +13,10 @@ import { describe, it, expect } from 'vitest'
 import {
   calculateBMR as serverBMR,
   calculateStrengthTDEE as serverStrengthTDEE,
-  calculateRunningTDEE as serverRunningTDEE,
+  calculateTDEE as serverTDEE,
+  netRunKcal as serverNetRunKcal,
   estimateStrengthCalories as serverStrengthKcal,
-  DEFAULT_STRENGTH_ACTIVITY_FACTOR as SERVER_FACTOR,
+  DEFAULT_NEAT_FACTOR as SERVER_FACTOR,
   MIN_TREND_WEEKS as SERVER_MIN_WEEKS,
   athleteFrom,
   estimateSessionCost,
@@ -26,8 +27,9 @@ import {
 import {
   calculateBMR as clientBMR,
   calculateStrengthTDEE as clientStrengthTDEE,
-  calculateTDEE as clientRunningTDEE,
-  DEFAULT_STRENGTH_ACTIVITY_FACTOR as CLIENT_FACTOR,
+  calculateTDEE as clientTDEE,
+  netRunKcal as clientNetRunKcal,
+  DEFAULT_NEAT_FACTOR as CLIENT_FACTOR,
   MIN_TREND_WEEKS as CLIENT_MIN_WEEKS,
   assessRateOfGain,
 } from '../../src/lib/macroCalculator.js'
@@ -59,7 +61,7 @@ describe('BMR parity', () => {
 })
 
 describe('TDEE parity', () => {
-  it('uses the same strength activity factor', () => {
+  it('uses the same NEAT factor', () => {
     expect(SERVER_FACTOR).toBe(CLIENT_FACTOR)
   })
 
@@ -74,12 +76,12 @@ describe('TDEE parity', () => {
     }
   })
 
-  it('agrees on running-mode TDEE', () => {
+  it('agrees on the unified TDEE across runs and lifts', () => {
     for (const bmr of [1600, 1850]) {
       for (const runKcal of [0, 450, 1400]) {
         for (const strengthKcal of [0, 300]) {
-          expect(serverRunningTDEE(bmr, runKcal, strengthKcal)).toBeCloseTo(
-            clientRunningTDEE(bmr, runKcal, strengthKcal),
+          expect(serverTDEE(bmr, runKcal, strengthKcal)).toBeCloseTo(
+            clientTDEE(bmr, runKcal, strengthKcal),
             9
           )
         }
@@ -87,9 +89,20 @@ describe('TDEE parity', () => {
     }
   })
 
-  it('keeps the two structures apart — 1.5 with no run term vs 1.2 with one', () => {
-    // The January mode switch double-counts activity if these ever converge.
-    expect(serverStrengthTDEE(1800, 0)).not.toBeCloseTo(serverRunningTDEE(1800, 0, 0), 1)
+  it('agrees on netting resting metabolism out of a run', () => {
+    for (const [gross, bmr, minutes] of [[1300, 1743, 90], [900, 1600, 0], [50, 1743, 600]]) {
+      expect(serverNetRunKcal(gross, bmr, minutes)).toBeCloseTo(
+        clientNetRunKcal(gross, bmr, minutes),
+        9
+      )
+    }
+  })
+
+  it('is one structure now — the strength wrapper is the unified call with no run', () => {
+    // These used to be required to DIVERGE, on the reasoning that mixing 1.5
+    // with a run term double-counted. The divergence was the defect: it made a
+    // logged run invisible in strength mode rather than double-counted.
+    expect(serverStrengthTDEE(1800, 300)).toBeCloseTo(serverTDEE(1800, 0, 300), 9)
   })
 })
 
@@ -201,29 +214,28 @@ describe('estimateEnergyBalance', () => {
       dateId: '2026-07-31',
     })
 
-  it('adds run calories in running mode', () => {
-    const withRun = balance('running', [RUN])
-    const without = balance('running', [])
-    expect(withRun.runInTotal).toBe(true)
-    // Within 1: expenditure and runKcal are each rounded independently.
-    expect(withRun.expenditure - without.expenditure).toBeCloseTo(withRun.runKcal, -0.5)
+  it('adds run calories to the total, whatever mode is passed', () => {
+    for (const mode of ['running', 'strength']) {
+      const withRun = balance(mode, [RUN])
+      const without = balance(mode, [])
+      expect(withRun.runInTotal, mode).toBe(true)
+      expect(withRun.runKcal, mode).toBeGreaterThan(0)
+      // Within 1: expenditure and runKcal are each rounded independently.
+      expect(withRun.expenditure - without.expenditure, mode).toBeCloseTo(withRun.runKcal, -0.5)
+    }
   })
 
-  it('excludes run calories from the strength-mode total and says so', () => {
-    // The 1.5 activity factor already carries non-lifting activity. Adding run
-    // kcal on top double-counts — but a bare runKcal beside a total that
-    // omits it invites the model to do exactly that.
+  it('gives the same answer in both modes — fuelling no longer branches', () => {
+    // The whole defect in one assertion. These used to differ by several
+    // hundred kcal on an identical day.
+    expect(balance('strength', [RUN])).toEqual(balance('running', [RUN]))
+    expect(balance('strength', [])).toEqual(balance('running', []))
+  })
+
+  it('reports the gross figure alongside the net one', () => {
     const withRun = balance('strength', [RUN])
-    const without = balance('strength', [])
-    expect(withRun.runInTotal).toBe(false)
-    expect(withRun.expenditure).toBe(without.expenditure)
-    expect(withRun.runKcal).toBeGreaterThan(0)
-    expect(withRun.note).toMatch(/NOT in the total/)
-  })
-
-  it('flags a strength-mode run too big for the activity factor to absorb', () => {
-    expect(balance('strength', [{ miles: 3, duration_minutes: 25 }]).note).toMatch(/already covers/)
-    expect(balance('strength', [{ miles: 12, duration_minutes: 105 }]).note).toMatch(/bigger than the activity factor/)
+    expect(withRun.runKcalGross).toBeGreaterThan(withRun.runKcal)
+    expect(withRun.runMinutes).toBe(52)
   })
 
   it('counts only sessions from today', () => {

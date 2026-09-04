@@ -594,17 +594,19 @@ export default function NutritionTracker() {
     () =>
       latest.weight
         ? getNutritionAdvice({
-            mode: isStrength ? 'strength' : 'running',
             weightLbs: latest.weight,
             heightInches: userProfile?.profile?.heightInches || 0,
             ageYears: calculateAge(userProfile?.profile?.birthday),
             sex: userProfile?.profile?.biologicalSex || 'male',
             currentBodyFatPct: latest.bodyFatPct,
+            // Both halves, always. Lifting stats still come from whichever hook
+            // owns the programme, but runs are read unconditionally — gating
+            // them on `isStrength` is what made a logged run invisible here.
             todayLiftStats: isStrength ? block.todayLiftStats : running.todayLiftStats,
             strength: { ...strength, isTrainingDay: block.isTrainingDay },
             dailyMiles: running.todayMiles || 0,
-            weeklyMiles: running.currentMileage || 0,
-            trainingPhase: running.weekInfo?.type || 'build',
+            weeklyMiles: isStrength ? running.weekDailySum : running.currentMileage || 0,
+            trainingPhase: isStrength ? 'build' : running.weekInfo?.type || 'build',
             todayRuns: running.todayRuns,
             vo2max: userProfile?.profile?.vo2max || null,
           })
@@ -617,9 +619,10 @@ export default function NutritionTracker() {
       block.todayLiftStats,
       block.isTrainingDay,
       running.todayLiftStats,
-      running.todayMiles,
       running.currentMileage,
       running.weekInfo,
+      running.todayMiles,
+      running.weekDailySum,
       running.todayRuns,
     ]
   )

@@ -8,9 +8,9 @@ const RING_COLORS = [CHART_COLORS[0], CHART_COLORS[4], CHART_COLORS[1], CHART_CO
 /**
  * Today's macro targets against what's been logged.
  *
- * Mode-aware: strength mode reports a surplus and a training/rest-day basis;
- * running mode keeps its run-calorie source indicator. Both render the same
- * rings so the visual language is shared.
+ * No longer mode-aware, because the fuelling model isn't. `mode` is still
+ * accepted so callers don't all have to change at once, but it only reaches
+ * the copy — every number below comes from the same engine either way.
  */
 export default function NutritionPanel({ mode = 'running', weightLbs, todayNutritionLog, ...rest }) {
   if (!weightLbs) {
@@ -44,14 +44,15 @@ export default function NutritionPanel({ mode = 'running', weightLbs, todayNutri
     { key: 'fat', label: 'Fat', consumed: consumed.fat, target: advice.fat.grams, unit: 'g' },
   ]
 
+  // One badge for both modes now. The day type is derived from what actually
+  // happened — lift, run, both or neither — rather than from which programme
+  // is active, which is how a Saturday long run used to read "Rest day".
   const badge =
-    mode === 'strength'
-      ? advice.isTrainingDay
-        ? { tone: 'brand', text: 'Training day' }
-        : { tone: 'neutral', text: 'Rest day' }
-      : advice.isRestDay
-        ? { tone: 'neutral', text: 'Rest' }
-        : { tone: 'warning', text: advice.calories.breakdown }
+    advice.dayType === 'rest'
+      ? { tone: 'neutral', text: 'Rest day' }
+      : advice.dayType === 'run'
+        ? { tone: 'warning', text: advice.dayTypeLabel }
+        : { tone: 'brand', text: advice.dayTypeLabel }
 
   return (
     <Card to="/nutrition" interactive>
@@ -115,7 +116,7 @@ export default function NutritionPanel({ mode = 'running', weightLbs, todayNutri
           <span>−{advice.deficit} kcal deficit</span>
         ) : null}
         <span>{advice.hydration.oz} oz water</span>
-        {mode === 'running' && advice.runKcal > 0 && (
+        {advice.runKcal > 0 && (
           <span>
             Run ~{advice.runKcal} kcal
             <span className="text-subtle">

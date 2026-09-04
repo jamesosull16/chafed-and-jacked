@@ -257,7 +257,6 @@ export default function CoachChat() {
   const advice = useMemo(() => {
     if (!latest.weight) return null
     return getNutritionAdvice({
-      mode: isStrength ? 'strength' : 'running',
       weightLbs: latest.weight,
       heightInches: userProfile?.profile?.heightInches || 0,
       ageYears: calculateAge(userProfile?.profile?.birthday),
@@ -265,12 +264,14 @@ export default function CoachChat() {
       currentBodyFatPct: latest.bodyFatPct,
       todayLiftStats: isStrength ? block.todayLiftStats : running.todayLiftStats,
       strength: { ...strength, isTrainingDay: block.isTrainingDay },
-      // Running mode adds an explicit run-calorie term and drops the strength
-      // activity factor, so these change the target rather than decorate it.
-      dailyMiles: isStrength ? 0 : running.todayMiles || 0,
-      weeklyMiles: isStrength ? 0 : running.currentMileage || 0,
-      trainingPhase: running.weekInfo?.type || 'build',
-      todayRuns: isStrength ? null : running.todayRuns,
+      // These used to be zeroed in strength mode, on the reasoning that the
+      // model had no run term to feed. It now has one — and zeroing them was
+      // why the coach's own `log_run` wrote a run the coach's targets then
+      // could not see.
+      dailyMiles: running.todayMiles || 0,
+      weeklyMiles: isStrength ? running.weekDailySum : running.currentMileage || 0,
+      trainingPhase: isStrength ? 'build' : running.weekInfo?.type || 'build',
+      todayRuns: running.todayRuns,
       vo2max: userProfile?.profile?.vo2max || null,
     })
   }, [
@@ -281,9 +282,10 @@ export default function CoachChat() {
     block.todayLiftStats,
     block.isTrainingDay,
     running.todayLiftStats,
-    running.todayMiles,
     running.currentMileage,
     running.weekInfo,
+    running.todayMiles,
+    running.weekDailySum,
     running.todayRuns,
   ])
 

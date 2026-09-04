@@ -4,6 +4,7 @@ import { Dumbbell, ChevronRight, Sparkles } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useAppMode } from '../../hooks/useAppMode'
 import { useStrengthBlock } from '../../hooks/useStrengthBlock'
+import { useRunLog } from '../../hooks/useRunLog'
 import { useFirestore, formatLocalDate } from '../../hooks/useFirestore'
 import { calculateAge } from '../../lib/bodyMetrics'
 import { Card, CardLabel, Badge, SkeletonPage, Button } from '../ui'
@@ -12,6 +13,7 @@ import ChainBalanceCard from '../strength/ChainBalanceCard'
 import VolumeLandmarks from '../strength/VolumeLandmarks'
 import WeekSchedule from '../strength/WeekSchedule'
 import WeightTrendCard from '../strength/WeightTrendCard'
+import RunLogCard from '../strength/RunLogCard'
 import { UpperBodyBalance, MobilityCard, GuardrailsCard } from '../strength/BalanceExtras'
 import NutritionPanel from './NutritionPanel'
 
@@ -65,6 +67,18 @@ export default function StrengthDashboard() {
     todayLiftStats,
     bodyMetrics,
   } = useStrengthBlock()
+
+  // Runs are part of a strength day now, so the dashboard reads them and the
+  // fuel panel below is fed both halves. Before this, a run logged through the
+  // coach was invisible on every screen in strength mode.
+  const {
+    todayRuns,
+    todayMiles,
+    weekDailySum,
+    weekDailyMinutes,
+    addRun,
+    deleteRun,
+  } = useRunLog()
 
   const [todayNutritionLog, setTodayNutritionLog] = useState(null)
   const [latest, setLatest] = useState({ weight: null, bodyFatPct: null })
@@ -129,6 +143,15 @@ export default function StrengthDashboard() {
 
       <MobilityCard mobility={mobility} />
 
+      <RunLogCard
+        todayRuns={todayRuns}
+        weekDailySum={weekDailySum}
+        weekDailyMinutes={weekDailyMinutes}
+        onAddRun={addRun}
+        onDeleteRun={deleteRun}
+        today={formatLocalDate()}
+      />
+
       <WeightTrendCard
         bodyMetrics={bodyMetrics}
         goal={goal}
@@ -145,6 +168,10 @@ export default function StrengthDashboard() {
         currentBodyFatPct={latest.bodyFatPct}
         todayLiftStats={todayLiftStats}
         todayNutritionLog={todayNutritionLog}
+        dailyMiles={todayMiles || 0}
+        weeklyMiles={weekDailySum}
+        todayRuns={todayRuns}
+        vo2max={userProfile?.profile?.vo2max || null}
         strength={{ ...strength, isTrainingDay }}
       />
 

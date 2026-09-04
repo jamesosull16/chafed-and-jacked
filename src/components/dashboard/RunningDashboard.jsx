@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useWorkout } from '../../hooks/useWorkout'
+import { useAppMode } from '../../hooks/useAppMode'
 import { useFirestore, getWeekStart, formatLocalDate } from '../../hooks/useFirestore'
 import { calculateAge } from '../../lib/bodyMetrics'
 import { SkeletonPage } from '../ui'
@@ -24,9 +25,13 @@ function Reminder({ to, message }) {
 }
 
 /**
- * The original endurance dashboard, extracted verbatim from the old Dashboard
- * page and re-skinned. Behaviour is unchanged — this is what James returns to
- * in January.
+ * The endurance dashboard — race countdown, mileage, load scaling.
+ *
+ * Its programme is untouched. Its *fuelling* is not: there is one macro engine
+ * now, so the targets below come from the same body-composition goal the
+ * strength block uses, rather than from an `isCutting` flag derived by
+ * comparing today's body fat against a `goals` snapshot that could be months
+ * old.
  */
 export default function RunningDashboard() {
   const { user, userProfile } = useAuth()
@@ -49,7 +54,12 @@ export default function RunningDashboard() {
     saveMileage,
     addRun,
     deleteRun,
+    isStrengthDay,
   } = useWorkout()
+  // The body-composition goal is not strength-mode-specific any more, it just
+  // still lives under that key. Without it this dashboard would silently fall
+  // back to the lean-bulk default and hand a cutting athlete a surplus.
+  const { strength } = useAppMode()
   const { getCollection, getDocument } = useFirestore()
 
   const [metricsLoggedThisWeek, setMetricsLoggedThisWeek] = useState(true)
@@ -93,9 +103,6 @@ export default function RunningDashboard() {
   }, [user, getCollection, getDocument, userProfile])
 
   if (loading) return <SkeletonPage cards={4} />
-
-  const targetBF = userProfile?.goals?.targetBodyFatPct
-  const isCutting = !!(targetBF && latestBodyFatPct && latestBodyFatPct > targetBF)
 
   return (
     <div className="space-y-4">
@@ -142,11 +149,10 @@ export default function RunningDashboard() {
         weeklyMiles={currentMileage}
         todayLiftStats={todayLiftStats}
         trainingPhase={weekInfo?.type || 'build'}
-        isCutting={isCutting}
         currentBodyFatPct={latestBodyFatPct}
-        targetBodyFatPct={targetBF}
         todayNutritionLog={todayNutritionLog}
         todayRuns={todayRuns}
+        strength={{ ...strength, isTrainingDay: isStrengthDay }}
         vo2max={userProfile?.profile?.vo2max || null}
       />
     </div>

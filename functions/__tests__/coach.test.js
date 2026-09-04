@@ -2274,12 +2274,16 @@ describe('buildSystemPrompt', () => {
     expect(running).toMatch(/talk test/)
     expect(running).toMatch(/grade-adjusted pace/)
     expect(running).toMatch(/moderate rut/)
-    expect(running).not.toMatch(/Lean bulk/)
-    expect(running).not.toMatch(/\+300 kcal/)
+    expect(running).not.toMatch(/body-composition goal's delta/)
+    expect(running).not.toMatch(/0\.25-0\.5% bodyweight per week/)
   })
 
   it('puts the hypertrophy block in strength mode and keeps race content out of it', () => {
-    expect(strength).toMatch(/Lean bulk/)
+    // Deliberately not "Lean bulk": the block's goal is a stored setting that
+    // has already been a cut, and a prompt that hard-codes a bulk teaches the
+    // coach to talk about a surplus he isn't eating.
+    expect(strength).toMatch(/body-composition goal's delta/)
+    expect(strength).not.toMatch(/Lean bulk\./)
     expect(strength).toMatch(/0\.25-0\.5% bodyweight per week/)
     // Race-specific material stays in running mode; long-run fuelling does not,
     // because he still runs long during this block. See the test below.

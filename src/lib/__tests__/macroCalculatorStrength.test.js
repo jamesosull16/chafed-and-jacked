@@ -104,18 +104,40 @@ describe('calculateDailyMacros — strength mode', () => {
     expect(r.kcal).toBe(r.tdee + 300)
   })
 
-  it('contributes zero run calories', () => {
+  it('contributes zero run calories on a day with no run', () => {
     const r = calculateDailyMacros(base)
     expect(r.runKcal).toBe(0)
-    expect(r.source).toBe('strength')
+    // No run means no measurement method to report, rather than a mode name.
+    expect(r.source).toBeNull()
+    expect(r.dayType).toBe('lift')
   })
 
-  it('ignores any run passed in — running does not fuel a strength block', () => {
+  it('fuels a run inside the block — this is the whole point of the change', () => {
+    // Previously asserted the opposite: "running does not fuel a strength
+    // block", so a run changed nothing. It cost real calories and got none
+    // back, which on a cut is a deficit on top of a deficit.
     const withRun = calculateDailyMacros({
       ...base,
       run: { miles: 8, duration_minutes: 70, avg_hr_bpm: 150 },
     })
-    expect(withRun.kcal).toBe(calculateDailyMacros(base).kcal)
+    const withoutRun = calculateDailyMacros(base)
+    expect(withRun.kcal).toBeGreaterThan(withoutRun.kcal)
+    expect(withRun.runKcal).toBeGreaterThan(400)
+    expect(withRun.dayType).toBe('both')
+  })
+
+  it('a run on a non-lifting day is a run day, not a rest day', () => {
+    // The old model read "training day" off the lifting calendar alone, so a
+    // Saturday long run was labelled Rest and fed like one.
+    const runOnly = calculateDailyMacros({
+      ...base,
+      weightSession: null,
+      run: { miles: 10, duration_minutes: 95, avg_hr_bpm: 148 },
+      strength: { ...base.strength, isTrainingDay: false },
+    })
+    expect(runOnly.dayType).toBe('run')
+    expect(runOnly.isTrainingDay).toBe(true)
+    expect(runOnly.carbs.perKg).toBeGreaterThan(4)
   })
 
   it('feeds rest days properly', () => {

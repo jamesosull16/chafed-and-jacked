@@ -3,6 +3,8 @@ import {
   calculateBMR,
   calculateRunKcal,
   calculateTDEE,
+  netRunKcal,
+  DEFAULT_NEAT_FACTOR,
   getCalorieTarget,
   getProteinTarget,
   getCarbTarget,
@@ -103,27 +105,84 @@ describe('calculateRunKcal', () => {
 // ── TDEE ──────────────────────────────────────────────────────
 
 describe('calculateTDEE', () => {
-  it('computes BMR × 1.2 + run + strength', () => {
-    const tdee = calculateTDEE(1655, 500, 250)
-    expect(tdee).toBeCloseTo(1655 * 1.2 + 500 + 250, 0)
+  it('computes BMR × neat factor + run + strength', () => {
+    expect(calculateTDEE(1655, 500, 250)).toBeCloseTo(1655 * DEFAULT_NEAT_FACTOR + 500 + 250, 0)
+  })
+
+  it('takes an explicit neat factor', () => {
+    expect(calculateTDEE(1655, 0, 0, 1.2)).toBeCloseTo(1655 * 1.2, 0)
+  })
+
+  it('counts a run and a lift on the same day, not one or the other', () => {
+    const bmr = 1743
+    const both = calculateTDEE(bmr, 1100, 500)
+    expect(both).toBeGreaterThan(calculateTDEE(bmr, 1100, 0))
+    expect(both).toBeGreaterThan(calculateTDEE(bmr, 0, 500))
+    expect(both - calculateTDEE(bmr, 0, 0)).toBeCloseTo(1600, 0)
+  })
+})
+
+describe('netRunKcal', () => {
+  it('subtracts the resting metabolism those minutes already carried', () => {
+    // 90 min at BMR 1743 ≈ 109 kcal of resting expenditure inside the gross figure.
+    expect(netRunKcal(1300, 1743, 90)).toBeCloseTo(1300 - (1743 / 1440) * 90, 0)
+  })
+
+  it('returns the gross figure when duration is unknown', () => {
+    // The distance fallback has no minutes to net out, so nothing is removed.
+    expect(netRunKcal(900, 1743, 0)).toBe(900)
+  })
+
+  it('never goes negative on a very long, very easy effort', () => {
+    expect(netRunKcal(50, 1743, 600)).toBe(0)
   })
 })
 
 // ── Calorie target ────────────────────────────────────────────
 
 describe('getCalorieTarget', () => {
-  it('returns TDEE at maintenance (not cutting)', () => {
-    const { target, deficit } = getCalorieTarget(2500, false, 'build')
-    expect(target).toBe(2500)
-    expect(deficit).toBeNull()
+  it('applies the body-composition goal delta', () => {
+    expect(getCalorieTarget(2500, { bodyCompGoal: 'leanBulk' }).target).toBe(2800)
+    expect(getCalorieTarget(2500, { bodyCompGoal: 'cut' }).target).toBe(2100)
+    expect(getCalorieTarget(2500, { bodyCompGoal: 'recomp' }).target).toBe(2500)
   })
 
-  it('applies phase-specific deficit when cutting', () => {
-    expect(getCalorieTarget(2500, true, 'build').deficit).toBe(400)
-    expect(getCalorieTarget(2500, true, 'deload').deficit).toBe(300)
-    expect(getCalorieTarget(2500, true, 'taper').deficit).toBe(250)
-    expect(getCalorieTarget(2500, true, 'peak').deficit).toBe(250)
-    expect(getCalorieTarget(2500, true, 'race').deficit).toBe(0)
+  it('reports a deficit and a surplus as separate, exclusive fields', () => {
+    const cut = getCalorieTarget(2500, { bodyCompGoal: 'cut' })
+    expect(cut.deficit).toBe(400)
+    expect(cut.surplus).toBeNull()
+
+    const bulk = getCalorieTarget(2500, { bodyCompGoal: 'leanBulk' })
+    expect(bulk.surplus).toBe(300)
+    expect(bulk.deficit).toBeNull()
+  })
+
+  it('lets a stored override beat the goal default', () => {
+    // The rate-of-gain guardrail writes this, so it has to win.
+    expect(getCalorieTarget(2500, { bodyCompGoal: 'cut', surplusOverride: -550 }).target).toBe(1950)
+    expect(getCalorieTarget(2500, { bodyCompGoal: 'leanBulk', surplusOverride: 0 }).target).toBe(2500)
+  })
+
+  it('caps the deficit into a taper and removes it on race day', () => {
+    const taper = getCalorieTarget(2500, { bodyCompGoal: 'cut', trainingPhase: 'taper' })
+    expect(taper.deficit).toBe(250)
+    expect(taper.phaseCapped).toBe(true)
+
+    const race = getCalorieTarget(2500, { bodyCompGoal: 'cut', trainingPhase: 'race' })
+    expect(race.target).toBe(2500)
+    expect(race.deficit).toBeNull()
+  })
+
+  it('leaves a deload alone — capping it would be an uncalled coaching change', () => {
+    const deload = getCalorieTarget(2500, { bodyCompGoal: 'cut', trainingPhase: 'deload' })
+    expect(deload.deficit).toBe(400)
+    expect(deload.phaseCapped).toBe(false)
+  })
+
+  it('never turns a surplus into a deficit via the phase cap', () => {
+    const race = getCalorieTarget(2500, { bodyCompGoal: 'leanBulk', trainingPhase: 'race' })
+    expect(race.target).toBe(2800)
+    expect(race.phaseCapped).toBe(false)
   })
 })
 
@@ -133,88 +192,80 @@ describe('getProteinTarget', () => {
   const weightKg = 70
 
   it('returns 2.2 g/kg when cutting', () => {
-    const result = getProteinTarget(weightKg, 'build', true, 0)
+    const result = getProteinTarget(weightKg, 'cut')
     expect(result.perKg).toBe(2.2)
     expect(result.grams).toBeCloseTo(154, 0)
   })
 
-  it('returns 1.6 g/kg during deload', () => {
-    expect(getProteinTarget(weightKg, 'deload', false, 0).perKg).toBe(1.6)
+  it('returns 2.0 g/kg otherwise', () => {
+    for (const goal of ['leanBulk', 'aggressiveBulk', 'recomp', 'maintain']) {
+      expect(getProteinTarget(weightKg, goal).perKg).toBe(2.0)
+    }
   })
 
-  it('returns 1.8 g/kg during taper', () => {
-    expect(getProteinTarget(weightKg, 'taper', false, 0).perKg).toBe(1.8)
-  })
-
-  it('returns 2.0 g/kg for long runs (≥90 min)', () => {
-    expect(getProteinTarget(weightKg, 'build', false, 90).perKg).toBe(2.0)
-    expect(getProteinTarget(weightKg, 'build', false, 120).perKg).toBe(2.0)
-  })
-
-  it('returns 1.7 g/kg baseline for build phase without long run', () => {
-    expect(getProteinTarget(weightKg, 'build', false, 45).perKg).toBe(1.7)
-    expect(getProteinTarget(weightKg, 'build', false, 0).perKg).toBe(1.7)
+  it('never drops to the old endurance baseline — a run does not lower protein', () => {
+    // The 1.7 g/kg build number and the 1.6 g/kg deload number are gone: they
+    // sat below the concurrent-training range on days that included lifting.
+    expect(getProteinTarget(weightKg).perKg).toBeGreaterThanOrEqual(2.0)
   })
 })
 
-// ── Carbs (duration thresholds) ───────────────────────────────
+// ── Carbs ─────────────────────────────────────────────────────
 
 describe('getCarbTarget', () => {
   const weightKg = 70
+  const lift = { isTrainingDay: true }
+  const rest = { isTrainingDay: false }
 
-  it('returns 5 g/kg for short runs (<45 min) with duration', () => {
-    expect(getCarbTarget(weightKg, { miles: 3, duration_minutes: 30 }, false).perKg).toBe(5)
+  it('uses the hypertrophy split when nothing was run', () => {
+    expect(getCarbTarget(weightKg, lift).perKg).toBe(6)
+    expect(getCarbTarget(weightKg, rest).perKg).toBe(4)
+    expect(getCarbTarget(weightKg, { ...lift, bodyCompGoal: 'cut' }).perKg).toBe(4.5)
+    expect(getCarbTarget(weightKg, { ...rest, bodyCompGoal: 'cut' }).perKg).toBe(3)
   })
 
-  it('returns 6 g/kg for 45-90 min runs', () => {
-    expect(getCarbTarget(weightKg, { miles: 6, duration_minutes: 45 }, false).perKg).toBe(6)
-    expect(getCarbTarget(weightKg, { miles: 8, duration_minutes: 90 }, false).perKg).toBe(6)
+  it('leaves a short easy run on the day\'s own base', () => {
+    // The old ladder floored a sub-45-minute run at 5 g/kg, which on a cut
+    // asked for MORE carbohydrate than a full lifting day. A short run needs
+    // nothing beyond normal eating and should not raise the number.
+    expect(getCarbTarget(weightKg, { ...rest, run: { miles: 3, duration_minutes: 28 } }).perKg).toBe(4)
+    expect(getCarbTarget(weightKg, { ...lift, run: { miles: 3, duration_minutes: 28 } }).perKg).toBe(6)
   })
 
-  it('returns 8 g/kg for 90-180 min runs', () => {
-    expect(getCarbTarget(weightKg, { miles: 12, duration_minutes: 91 }, false).perKg).toBe(8)
-    expect(getCarbTarget(weightKg, { miles: 20, duration_minutes: 180 }, false).perKg).toBe(8)
+  it('climbs the endurance ladder once the run is long enough to matter', () => {
+    const at = (duration) => getCarbTarget(weightKg, { ...rest, run: { miles: 10, duration_minutes: duration } }).perKg
+    expect(at(45)).toBe(6)
+    expect(at(90)).toBe(6)
+    expect(at(91)).toBe(8)
+    expect(at(180)).toBe(8)
+    expect(at(181)).toBe(10)
   })
 
-  it('returns 10 g/kg for >180 min runs', () => {
-    expect(getCarbTarget(weightKg, { miles: 26, duration_minutes: 240 }, false).perKg).toBe(10)
+  it('takes the higher of the two models rather than splitting the difference', () => {
+    // A lifting day wants 6. A two-hour run wants 8. The answer is 8 (+1 for
+    // having done both), not 7 and not 6.
+    const both = getCarbTarget(weightKg, { ...lift, didLift: true, run: { miles: 14, duration_minutes: 120 } })
+    expect(both.perKg).toBe(9)
   })
 
-  it('adds 1 g/kg when strength training same day', () => {
-    const withLift = getCarbTarget(weightKg, { miles: 6, duration_minutes: 60 }, true)
-    const withoutLift = getCarbTarget(weightKg, { miles: 6, duration_minutes: 60 }, false)
-    expect(withLift.perKg).toBe(withoutLift.perKg + 1)
+  it('adds 1 g/kg only when the day held both a run and a lift', () => {
+    const ranAndLifted = getCarbTarget(weightKg, { ...lift, run: { miles: 8, duration_minutes: 60 } })
+    const ranOnly = getCarbTarget(weightKg, { ...rest, run: { miles: 8, duration_minutes: 60 } })
+    expect(ranAndLifted.perKg).toBe(ranOnly.perKg + 1)
+    // Lifting alone must not collect the bonus — the training-day base of 6 is
+    // already the lifting allowance.
+    expect(getCarbTarget(weightKg, lift).perKg).toBe(6)
   })
 
-  it('uses mileage fallback when duration is not present', () => {
-    // rest day
-    expect(getCarbTarget(weightKg, { miles: 0 }, false).perKg).toBe(4)
-    // light run
-    expect(getCarbTarget(weightKg, { miles: 4 }, false).perKg).toBe(6)
-    // moderate
-    expect(getCarbTarget(weightKg, { miles: 8 }, false).perKg).toBe(7)
-    // heavy
-    expect(getCarbTarget(weightKg, { miles: 15 }, false).perKg).toBe(9)
+  it('falls back to distance when a run was logged without a duration', () => {
+    expect(getCarbTarget(weightKg, { ...rest, run: { miles: 4 } }).perKg).toBe(4)
+    expect(getCarbTarget(weightKg, { ...rest, run: { miles: 8 } }).perKg).toBe(7)
+    expect(getCarbTarget(weightKg, { ...rest, run: { miles: 15 } }).perKg).toBe(9)
   })
 
-  it('boundary: exactly 45 min hits 6 g/kg tier', () => {
-    expect(getCarbTarget(weightKg, { miles: 5, duration_minutes: 45 }, false).perKg).toBe(6)
-  })
-
-  it('boundary: exactly 90 min hits 6 g/kg tier (inclusive)', () => {
-    expect(getCarbTarget(weightKg, { miles: 10, duration_minutes: 90 }, false).perKg).toBe(6)
-  })
-
-  it('boundary: 91 min hits 8 g/kg tier', () => {
-    expect(getCarbTarget(weightKg, { miles: 10, duration_minutes: 91 }, false).perKg).toBe(8)
-  })
-
-  it('boundary: exactly 180 min hits 8 g/kg tier (inclusive)', () => {
-    expect(getCarbTarget(weightKg, { miles: 20, duration_minutes: 180 }, false).perKg).toBe(8)
-  })
-
-  it('boundary: 181 min hits 10 g/kg tier', () => {
-    expect(getCarbTarget(weightKg, { miles: 20, duration_minutes: 181 }, false).perKg).toBe(10)
+  it('caps at 10 g/kg however the day is stacked', () => {
+    const enormous = getCarbTarget(weightKg, { ...lift, run: { miles: 30, duration_minutes: 300 } })
+    expect(enormous.perKg).toBe(10)
   })
 })
 
@@ -311,25 +362,28 @@ describe('calculateDailyMacros — snapshot: 70kg male, 35yo, 180cm, 60min run, 
       avg_hr_bpm: 145,
     },
     weightSession: null,
-    phase: { trainingPhase: 'build', isCutting: false },
+    phase: { trainingPhase: 'build' },
+    strength: { bodyCompGoal: 'leanBulk' },
   })
 
   it('produces expected kcal within tolerance', () => {
     // Keytel male: (−55.0969 + 0.6309×145 + 0.1988×70 + 0.2017×35) / 4.184 ≈ 13.7 kcal/min
-    // Run kcal ≈ 822 (60 min)
+    // Run kcal ≈ 822 gross over 60 min, less ~69 of resting metabolism ≈ 753 net
     // BMR (Mifflin-St Jeor, ~70kg/180cm/35yo) ≈ 1655
-    // TDEE ≈ 1655×1.2 + 822 = 2808
-    expect(result.kcal).toBeGreaterThan(2600)
-    expect(result.kcal).toBeLessThan(3000)
+    // TDEE ≈ 1655×1.5 + 753 = 3236, +300 lean-bulk delta = 3536
+    expect(result.kcal).toBeGreaterThan(3350)
+    expect(result.kcal).toBeLessThan(3700)
   })
 
   it('uses keytel source', () => {
     expect(result.source).toBe('keytel')
   })
 
-  it('reports run kcal in expected range', () => {
-    expect(result.runKcal).toBeGreaterThan(700)
-    expect(result.runKcal).toBeLessThan(950)
+  it('reports run kcal net of resting metabolism', () => {
+    expect(result.runKcalGross).toBeGreaterThan(780)
+    expect(result.runKcal).toBeLessThan(result.runKcalGross)
+    // Both figures are rounded independently, so allow a kcal of slack.
+    expect(Math.abs(result.runKcalGross - result.runKcal - (result.bmr / 1440) * 60)).toBeLessThan(1.5)
   })
 
   it('has reasonable macro breakdown', () => {

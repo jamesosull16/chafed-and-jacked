@@ -10,11 +10,18 @@
  * client's model moves and this doesn't, the build fails rather than the coach
  * quoting an expenditure the dashboard disagrees with.
  *
- * The two TDEE structures are deliberately kept apart. Strength mode uses a
- * ~1.5 activity factor and no run term; running mode drops to 1.2 and adds run
- * calories explicitly. Mixing them double-counts the same activity by several
- * hundred kcal a day, which is exactly the error the nutritionist skill warns
- * about at the January mode switch.
+ * There is one TDEE structure, whatever programme planned the day:
+ *
+ *   BMR x NEAT factor + lifting kcal + net run kcal
+ *
+ * It used to be two, split on mode, and the split was the bug rather than the
+ * safeguard it was written as. Strength mode had no run term at all, so a run
+ * logged through `log_run` — which was never mode-gated — landed in Firestore
+ * and then failed to move a single number the coach quoted.
+ *
+ * Run calories are taken net of the resting metabolism those minutes already
+ * carried inside the activity factor, which is the double-count the old comment
+ * here was really pointing at.
  */
 
 import { calculateRunKcal } from './training.js'
@@ -41,14 +48,25 @@ export function calculateBMR({ weightKg, heightCm, age, sex, bodyFatPct }) {
 
 // ── TDEE ──────────────────────────────────────────────────────
 
-export const DEFAULT_STRENGTH_ACTIVITY_FACTOR = 1.5
+export const DEFAULT_NEAT_FACTOR = 1.5
 
-export function calculateStrengthTDEE(bmr, strengthKcal = 0, activityFactor = DEFAULT_STRENGTH_ACTIVITY_FACTOR) {
-  return bmr * activityFactor + strengthKcal
+/** Kept as an alias — same number, same job. Pinned by energyParity.test.js. */
+export const DEFAULT_STRENGTH_ACTIVITY_FACTOR = DEFAULT_NEAT_FACTOR
+
+/** Mirrors netRunKcal in src/lib/macroCalculator.js. */
+export function netRunKcal(grossKcal, bmr, durationMinutes) {
+  if (!grossKcal) return 0
+  if (!bmr || !durationMinutes) return grossKcal
+  return Math.max(0, grossKcal - (bmr / 1440) * durationMinutes)
 }
 
-export function calculateRunningTDEE(bmr, runKcal, strengthKcal) {
-  return bmr * 1.2 + runKcal + strengthKcal
+/** Mirrors calculateTDEE in src/lib/macroCalculator.js. */
+export function calculateTDEE(bmr, runKcal = 0, strengthKcal = 0, neatFactor = DEFAULT_NEAT_FACTOR) {
+  return bmr * neatFactor + (runKcal || 0) + (strengthKcal || 0)
+}
+
+export function calculateStrengthTDEE(bmr, strengthKcal = 0, activityFactor = DEFAULT_NEAT_FACTOR) {
+  return calculateTDEE(bmr, 0, strengthKcal, activityFactor)
 }
 
 // ── Session cost ──────────────────────────────────────────────
@@ -151,7 +169,7 @@ export function estimateSessionCost({ session, run, profile }) {
  * the coach should say "you're 900 under" and reason about it, not be handed a
  * pass/fail it would then have to justify.
  */
-export function estimateEnergyBalance({ profile, mode, lastSession, todayRuns = [], consumed, dateId }) {
+export function estimateEnergyBalance({ profile, lastSession, todayRuns = [], consumed, dateId }) {
   const athlete = athleteFrom(profile)
   if (!athlete) return null
   if (!athlete.heightCm && !athlete.bodyFatPct) return null
@@ -167,40 +185,27 @@ export function estimateEnergyBalance({ profile, mode, lastSession, todayRuns = 
       )
     : 0
 
-  const runKcal = todayRuns.reduce((sum, run) => sum + calculateRunKcal(run, athlete).kcal, 0)
-
-  const running = mode === 'running'
-  const expenditure = running
-    ? calculateRunningTDEE(bmr, runKcal, strengthKcal)
-    : calculateStrengthTDEE(bmr, strengthKcal)
-
-  // Strength mode has no run term by design — the 1.5 activity factor carries
-  // all non-lifting activity, and adding run calories on top would count the
-  // same work twice. But the factor was sized for the block's 20-30 min
-  // conditioning sessions, so a genuinely long run in strength mode is under-
-  // counted. Report the figure and say which of those is happening, rather
-  // than emitting a bare runKcal next to a total that excludes it and letting
-  // the model decide whether to add them.
+  // Gross from Keytel, then net of the resting metabolism those minutes already
+  // carried inside the activity factor.
   const runMinutes = todayRuns.reduce((s, r) => s + (Number(r.duration_minutes) || 0), 0)
-  let note = null
-  if (!running && runKcal > 0) {
-    note =
-      runMinutes > 45
-        ? `Run kcal (~${Math.round(runKcal)}) is NOT in the total: strength mode has no run term. At ${Math.round(runMinutes)} min this run is bigger than the activity factor assumes, so the real expenditure is higher than the figure above.`
-        : `Run kcal (~${Math.round(runKcal)}) is NOT in the total: in strength mode the activity factor already covers easy conditioning of this size.`
-  }
+  const runKcalGross = todayRuns.reduce((sum, run) => sum + calculateRunKcal(run, athlete).kcal, 0)
+  const runKcal = netRunKcal(runKcalGross, bmr, runMinutes)
+
+  const expenditure = calculateTDEE(bmr, runKcal, strengthKcal)
 
   const intake = Math.round(consumed?.kcal || 0)
   return {
     bmr: Math.round(bmr),
     strengthKcal: Math.round(strengthKcal),
     runKcal: Math.round(runKcal),
-    runInTotal: running,
+    runKcalGross: Math.round(runKcalGross),
+    runMinutes: Math.round(runMinutes),
+    // Always, now. The field is kept so nothing reading it has to guess.
+    runInTotal: true,
     expenditure: Math.round(expenditure),
     intake,
     balance: intake - Math.round(expenditure),
-    basis: running ? 'BMR x1.2 + run + lifting' : 'BMR x1.5 + lifting, no run term',
-    note,
+    basis: 'BMR x1.5 + lifting + run (net of resting)',
   }
 }
 

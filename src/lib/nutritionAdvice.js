@@ -35,12 +35,9 @@ export function getNutritionAdvice({
   weeklyMiles = 0,
   todayLiftStats = null,
   trainingPhase = 'build',
-  isCutting = false,
   currentBodyFatPct = null,
-  targetBodyFatPct = null,
   todayRuns = null,
   vo2max = null,
-  mode = 'running',
   strength = null,
 }) {
   if (!weightLbs) return null
@@ -48,155 +45,60 @@ export function getNutritionAdvice({
   const didLift = !!todayLiftStats
   const strengthCals = estimateStrengthCalories(todayLiftStats, weightLbs)
 
-  if (mode === 'strength') {
-    return strengthAdvice({
-      weightLbs,
-      heightInches,
-      ageYears,
-      sex,
-      currentBodyFatPct,
-      todayLiftStats,
-      strengthCals,
-      didLift,
-      strength: strength || {},
-    })
-  }
-
-  // Aggregate today's runs for the calculator
+  // Aggregate today's runs into one effort. HR is weighted by duration so a
+  // 20-minute shakeout doesn't drag the average down for a two-hour long run
+  // logged on the same day.
   const totalMiles = dailyMiles || 0
   const runsWithHR = (todayRuns || []).filter((r) => r.duration_minutes && r.avg_hr_bpm)
-  const totalDuration = runsWithHR.reduce((s, r) => s + (r.duration_minutes || 0), 0)
-  const avgHR = runsWithHR.length > 0
-    ? runsWithHR.reduce((s, r) => s + r.avg_hr_bpm * r.duration_minutes, 0) / totalDuration
-    : null
+  const hrDuration = runsWithHR.reduce((s, r) => s + (r.duration_minutes || 0), 0)
+  const totalDuration = (todayRuns || []).reduce((s, r) => s + (r.duration_minutes || 0), 0)
+  const avgHR =
+    hrDuration > 0
+      ? runsWithHR.reduce((s, r) => s + r.avg_hr_bpm * r.duration_minutes, 0) / hrDuration
+      : null
 
-  const run = totalMiles > 0 || totalDuration > 0
-    ? {
-        miles: totalMiles,
-        duration_minutes: totalDuration || null,
-        avg_hr_bpm: avgHR,
-      }
-    : null
-
-  const weightSessionForCalc = todayLiftStats
-    ? { ...todayLiftStats, _computedKcal: strengthCals }
-    : null
+  const run =
+    totalMiles > 0 || totalDuration > 0
+      ? { miles: totalMiles, duration_minutes: totalDuration || null, avg_hr_bpm: avgHR }
+      : null
 
   const macros = calculateDailyMacros({
-    profile: {
-      weightLbs,
-      heightInches,
-      ageYears,
-      sex,
-      bodyFatPct: currentBodyFatPct,
-      vo2max,
-    },
+    profile: { weightLbs, heightInches, ageYears, sex, bodyFatPct: currentBodyFatPct, vo2max },
     run,
-    weightSession: weightSessionForCalc,
-    phase: { trainingPhase, isCutting },
+    weightSession: todayLiftStats ? { ...todayLiftStats, _computedKcal: strengthCals } : null,
+    phase: { trainingPhase },
+    strength: strength || {},
   })
 
   if (!macros) return null
 
-  // Hydration + tips (not part of the pure calc module)
   const hydration = getHydrationTarget(weightLbs, totalMiles)
+
   const tip = getNutritionTip({
-    isCutting,
-    didLift,
+    bodyCompGoal: macros.bodyCompGoal,
+    dayType: macros.dayType,
     trainingPhase,
     dailyMiles: totalMiles,
     weeklyMiles,
   })
 
-  const isRestDay = totalMiles === 0 && !didLift
-
-  let breakdown
-  if (isRestDay) {
-    breakdown = 'Rest day'
-  } else {
-    const parts = []
-    if (totalMiles > 0) parts.push(`${totalMiles} mi run`)
-    if (didLift) parts.push(`strength (~${Math.round(strengthCals)} kcal)`)
-    breakdown = parts.join(' + ')
+  // What the day was, in the order it was earned. Names the run explicitly:
+  // a run that costs 1300 kcal should be visible in the breakdown that
+  // produced the target, not folded into the word "training".
+  const parts = []
+  if (totalMiles > 0 || totalDuration > 0) {
+    const label = totalMiles > 0 ? `${round(totalMiles, 1)} mi run` : `${totalDuration} min run`
+    parts.push(macros.runKcal > 0 ? `${label} (~${macros.runKcal} kcal)` : label)
   }
+  if (didLift) parts.push(`strength (~${Math.round(strengthCals)} kcal)`)
+  const breakdown = parts.length > 0 ? parts.join(' + ') : macros.dayTypeLabel
 
-  // Preserve carb range format for existing UI consumers
-  const carbMid = macros.carbs_g
-  const carbSpread = Math.round(macros.carbs.perKg * 0.5 * (weightLbs / 2.205))
-  const carbLow = Math.max(0, carbMid - carbSpread)
-  const carbHigh = carbMid + carbSpread
-
-  return {
-    calories: { target: macros.kcal, breakdown },
-    protein: {
-      grams: macros.protein_g,
-      perKg: macros.protein.perKg,
-      rationale: macros.protein.rationale,
-    },
-    carbs: {
-      lowGrams: carbLow,
-      highGrams: carbHigh,
-      guidance: macros.carbs.guidance,
-    },
-    fat: {
-      grams: macros.fat_g,
-    },
-    hydration: {
-      oz: Math.round(hydration.oz),
-      liters: round(hydration.oz * 0.0296, 1),
-    },
-    tip,
-    deficit: macros.deficit,
-    isRestDay,
-    runSource: macros.source,
-    runKcal: macros.runKcal,
-  }
-}
-
-/**
- * Strength-mode advice. Same return shape as the endurance path, with the run
- * fields dropped and a surplus reported in place of a deficit.
- */
-function strengthAdvice({
-  weightLbs,
-  heightInches,
-  ageYears,
-  sex,
-  currentBodyFatPct,
-  todayLiftStats,
-  strengthCals,
-  didLift,
-  strength,
-}) {
-  const macros = calculateDailyMacros({
-    mode: 'strength',
-    profile: { weightLbs, heightInches, ageYears, sex, bodyFatPct: currentBodyFatPct },
-    weightSession: todayLiftStats ? { ...todayLiftStats, _computedKcal: strengthCals } : null,
-    strength,
-  })
-
-  if (!macros) return null
-
-  const hydration = getHydrationTarget(weightLbs, 0)
-  const tip = pickDaily(
-    macros.bodyCompGoal === 'cut'
-      ? CUTTING_TIPS
-      : macros.isTrainingDay
-        ? STRENGTH_TRAINING_DAY_TIPS
-        : STRENGTH_REST_DAY_TIPS
-  )
-
+  // Carbs keep their low/high range for the existing UI. The spread is half a
+  // g/kg either side of the target.
   const carbSpread = Math.round(0.5 * (weightLbs / 2.205))
 
   return {
-    calories: {
-      target: macros.kcal,
-      breakdown: didLift
-        ? `Strength session (~${Math.round(strengthCals)} kcal)`
-        : macros.isTrainingDay
-          ? 'Training day'
-          : 'Rest day',
-    },
+    calories: { target: macros.kcal, breakdown },
     protein: {
       grams: macros.protein_g,
       perKg: macros.protein.perKg,
@@ -215,13 +117,18 @@ function strengthAdvice({
     tip,
     deficit: macros.deficit,
     surplus: macros.surplus,
+    phaseCapped: macros.phaseCapped,
     bodyCompGoal: macros.bodyCompGoal,
-    isRestDay: !macros.isTrainingDay,
+    dayType: macros.dayType,
+    dayTypeLabel: macros.dayTypeLabel,
+    isRestDay: macros.dayType === 'rest',
     isTrainingDay: macros.isTrainingDay,
+    hasRun: macros.hasRun,
     bmr: macros.bmr,
     tdee: macros.tdee,
-    runSource: 'strength',
-    runKcal: 0,
+    runSource: macros.source,
+    runKcal: macros.runKcal,
+    strengthKcal: macros.strengthKcal,
   }
 }
 
@@ -272,23 +179,26 @@ function getHydrationTarget(weightLbs, dailyMiles) {
  * Contextual nutrition tip — rotates daily by day-of-year.
  * Selected from the most relevant pool based on current state.
  */
-function getNutritionTip({ isCutting, didLift, trainingPhase, dailyMiles, weeklyMiles }) {
+function getNutritionTip({ bodyCompGoal, dayType, trainingPhase, dailyMiles, weeklyMiles }) {
   let pool
 
   if (trainingPhase === 'deload') {
     pool = DELOAD_TIPS
   } else if (trainingPhase === 'taper' || trainingPhase === 'race') {
     pool = TAPER_TIPS
-  } else if (isCutting) {
+  } else if (bodyCompGoal === 'cut') {
     pool = CUTTING_TIPS
   } else if (weeklyMiles >= 55) {
     pool = HIGH_MILEAGE_TIPS
-  } else if (dailyMiles === 0 && !didLift) {
-    pool = REST_DAY_TIPS
-  } else if (didLift) {
+  } else if (dayType === 'both') {
+    // Ran and lifted — the pool that actually talks about doing both.
     pool = STRENGTH_DAY_TIPS
+  } else if (dayType === 'run') {
+    pool = dailyMiles >= 10 ? HIGH_MILEAGE_TIPS : GENERAL_TIPS
+  } else if (dayType === 'lift') {
+    pool = STRENGTH_TRAINING_DAY_TIPS
   } else {
-    pool = GENERAL_TIPS
+    pool = ALL_REST_DAY_TIPS
   }
 
   return pickDaily(pool)
@@ -305,6 +215,7 @@ function round(value, decimals) {
 }
 
 // --- Tip pools ---
+
 
 const CUTTING_TIPS = [
   'Protein before bed preserves lean mass during a deficit. 40g casein or Greek yogurt is ideal.',
@@ -382,3 +293,13 @@ const GENERAL_TIPS = [
   'Your gut is trainable. If you struggle with eating during runs, practice with small amounts and gradually increase.',
   'Don\'t fear fat. Endurance athletes need 1.0-1.5 g/kg/day for hormone production and joint health.',
 ]
+
+/**
+ * Both rest-day pools, merged.
+ *
+ * There used to be one per mode and only one reachable at a time. With runs
+ * back in a lifting block both halves apply on the same day off — glycogen
+ * resynthesis still takes 24-48 hours, and muscle protein synthesis is still
+ * elevated for as long.
+ */
+const ALL_REST_DAY_TIPS = [...STRENGTH_REST_DAY_TIPS, ...REST_DAY_TIPS]
