@@ -117,33 +117,37 @@ const ESTIMATE = {
  */
 function scriptedModel(turns) {
   let i = 0
-  return {
-    messages: {
-      create: vi.fn(async () => {
-        const turn = turns[Math.min(i++, turns.length - 1)]
-        // A turn given `content` outright is the escape hatch for shapes the
-        // helper doesn't model — server tool blocks, a paused turn.
-        if (turn.content) {
-          return { stop_reason: turn.stop_reason || 'end_turn', content: turn.content }
-        }
-        if (turn.tools) {
-          return {
-            stop_reason: 'tool_use',
-            content: turn.tools.map((t, n) => ({
-              type: 'tool_use',
-              id: `tu_${i}_${n}`,
-              name: t.name,
-              input: t.input,
-            })),
-          }
-        }
-        return {
-          stop_reason: turn.stop_reason || 'end_turn',
-          content: [{ type: 'text', text: turn.text ?? '' }],
-        }
-      }),
-    },
-  }
+  const create = vi.fn(async () => {
+    const turn = turns[Math.min(i++, turns.length - 1)]
+    // A turn given `content` outright is the escape hatch for shapes the
+    // helper doesn't model — server tool blocks, a paused turn.
+    const container = turn.container ? { id: turn.container, expires_at: 'later' } : null
+    if (turn.content) {
+      return { stop_reason: turn.stop_reason || 'end_turn', content: turn.content, container }
+    }
+    if (turn.tools) {
+      return {
+        stop_reason: 'tool_use',
+        container,
+        content: turn.tools.map((t, n) => ({
+          type: 'tool_use',
+          id: `tu_${i}_${n}`,
+          name: t.name,
+          input: t.input,
+        })),
+      }
+    }
+    return {
+      stop_reason: turn.stop_reason || 'end_turn',
+      container,
+      content: [{ type: 'text', text: turn.text ?? '' }],
+    }
+  })
+
+  // The orchestrator calls the BETA namespace, because `container` is only
+  // accepted there. Both spellings point at the same spy so assertions can
+  // read either — the SDK exposes the same method on both.
+  return { messages: { create }, beta: { messages: { create } } }
 }
 
 const deps = (overrides = {}) => ({
@@ -1063,6 +1067,71 @@ describe('runCoachTurn', () => {
     const resumed = anthropic.messages.create.mock.calls[1][0].messages
     expect(resumed[resumed.length - 1].role).toBe('assistant')
     expect(result.reply).toBe('About 480 kcal, per the bakery.')
+  })
+
+  /**
+   * Reproduced live before this was written. Asking the coach to log a
+   * sandwich it did not know made it search; `web_search_20260209` filters its
+   * own results by running code server-side, which allocates a container; the
+   * loop sent the tool results back without naming that container and the API
+   * refused the whole turn:
+   *
+   *   400 container_id is required when there are pending tool uses generated
+   *       by code execution with tools.
+   *
+   * The raw error went straight into the chat thread.
+   */
+  it('carries the code-execution container through the rest of the turn', async () => {
+    const anthropic = scriptedModel([
+      {
+        container: 'container_abc',
+        tools: [{ name: 'log_meal', input: { label: 'The Kind 12"', kcal: 950 } }],
+      },
+      { text: 'Logged it.' },
+    ])
+    await runCoachTurn({ message: 'log a 12inch The Kind from Cheba Hut' }, deps({ anthropic }))
+
+    const calls = anthropic.beta.messages.create.mock.calls
+    // Nothing to carry on the first request — the container does not exist yet.
+    expect(calls[0][0].container).toBeUndefined()
+    // Every request after it, including the fabricated-log verification pass
+    // that re-enters the loop. That pass is why the container is turn-scoped
+    // rather than scoped to one run of the loop.
+    expect(calls.length).toBeGreaterThan(1)
+    for (const call of calls.slice(1)) expect(call[0].container).toBe('container_abc')
+  })
+
+  it('omits container entirely on a turn that never ran code', async () => {
+    // `container: null` is not the same as omitting it, and every ordinary
+    // turn — no search, no code execution — must send neither.
+    const anthropic = scriptedModel([
+      { tools: [{ name: 'log_meal', input: { label: 'oats', kcal: 400 } }] },
+      { text: 'Logged.' },
+    ])
+    await runCoachTurn({ message: 'log oats' }, deps({ anthropic }))
+
+    for (const call of anthropic.beta.messages.create.mock.calls) {
+      expect('container' in call[0]).toBe(false)
+    }
+  })
+
+  it('keeps the container across a paused turn, which resumes before it is read', async () => {
+    // The pause_turn branch `continue`s, so the container has to be captured
+    // above it or a resumed search loses it.
+    const anthropic = scriptedModel([
+      {
+        container: 'container_paused',
+        stop_reason: 'pause_turn',
+        content: [
+          { type: 'server_tool_use', id: 'srv_1', name: 'web_search', input: { query: 'x' } },
+        ],
+      },
+      { text: 'done' },
+    ])
+    await runCoachTurn({ message: 'look something up' }, deps({ anthropic }))
+
+    const calls = anthropic.beta.messages.create.mock.calls
+    expect(calls[1][0].container).toBe('container_paused')
   })
 
   it('sends an attached photo as an image block before the text', async () => {
