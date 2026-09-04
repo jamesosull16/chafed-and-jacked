@@ -5,9 +5,13 @@ import { ProgressBar } from '../ui/ProgressRing'
 import { rirGuidance } from '../../lib/strength/strengthPeriodization'
 
 /**
- * Where the athlete is in the 22-week block. Deliberately uses block language
- * rather than race language — there is no taper here, and calling it one would
+ * Where the athlete is in the block. Deliberately uses block language rather
+ * than race language — there is no taper here, and calling it one would
  * misrepresent what the programming is doing.
+ *
+ * The block week counts weeks *trained*, so it can sit behind the calendar. A
+ * number that quietly disagrees with the date is worse than the bug it fixes,
+ * so when the two diverge the card says so.
  */
 export default function BlockProgressCard({ blockStatus, blockProgress }) {
   const isDeload = blockStatus.phase === 'deload'
@@ -40,6 +44,14 @@ export default function BlockProgressCard({ blockStatus, blockProgress }) {
           {blockStatus.weeksRemaining} week{blockStatus.weeksRemaining === 1 ? '' : 's'} to go
         </span>
       </div>
+
+      {blockStatus.skippedWeeks > 0 && (
+        <p className="text-xs text-muted mt-2">
+          {blockStatus.calendarWeek} weeks since you started — {blockStatus.skippedWeeks} without a
+          session, so the block held rather than advancing through them.
+          {blockStatus.resumedAfterGap && ' Volume and RIR are easing back in after the break.'}
+        </p>
+      )}
 
       <div className="mt-3 pt-3 border-t border-border-default">
         <div className="flex items-baseline justify-between gap-3">

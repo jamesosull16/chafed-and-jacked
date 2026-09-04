@@ -266,10 +266,32 @@ export function resolveExerciseForMesocycle(exerciseId, mesocycle) {
   return (mesocycle - 1) % 2 === 0 ? exerciseId : alternate
 }
 
-/** Which templates run, in order, for a given number of training days. */
+/**
+ * Which templates run, in order, for a given number of training days.
+ *
+ * Two properties, and the second one used to be broken.
+ *
+ * **Order alternates lower and upper** so two lower days never land back to
+ * back. That is why the four-day split is not simply the priority order.
+ *
+ * **Each split nests inside the larger one.** Dropping a training day should
+ * remove the least important session, never reshuffle which sessions exist —
+ * and the three-day split violated that badly. It was `lowerPosterior,
+ * upperPush, lowerQuad`: **no pulling at all**, while the two-day split below
+ * it kept `upperPull`. So walking 4 → 3 → 2 lost the pull day and then got it
+ * back, and anyone sitting at three days was pressing with nothing balancing
+ * it. For an athlete whose chain-balance target is a deliberate pull bias, and
+ * whose posture is a runner's, that is the wrong session to have dropped.
+ *
+ * `lowerQuad` is the one that goes instead. Running loads quads hard —
+ * especially descending — and `lowerPosterior` carries single-leg drive as a
+ * secondary, so quads keep a stimulus. Pulling has no such backstop.
+ *
+ * `splitNestsWithinLarger` in the tests asserts this, so it cannot drift again.
+ */
 export const SPLITS = {
   2: ['lowerPosterior', 'upperPull'],
-  3: ['lowerPosterior', 'upperPush', 'lowerQuad'],
+  3: ['lowerPosterior', 'upperPush', 'upperPull'],
   4: ['lowerPosterior', 'upperPush', 'lowerQuad', 'upperPull'],
   5: ['lowerPosterior', 'upperPush', 'lowerQuad', 'upperPull', 'fullBody'],
   6: ['lowerPosterior', 'upperPush', 'lowerQuad', 'upperPull', 'lowerPosterior', 'upperPush'],
@@ -457,7 +479,11 @@ export function buildSession({
   const template = getDayTemplate(daysPerWeek, splitIndex)
   if (!template) return null
 
-  const blockWeek = blockStatus?.blockWeek ?? 1
+  // Guardrails run on the calendar. Tissue heals with time, not with sessions
+  // logged, so a block held back by skipped weeks must not also hold back the
+  // hamstring stage — that would re-forbid a movement the tendon is by now
+  // ready for. `blockWeek` drives volume and RIR; this drives what is allowed.
+  const blockWeek = blockStatus?.calendarWeek ?? blockStatus?.blockWeek ?? 1
   const volumeMultiplier = blockStatus?.volumeMultiplier ?? 1
   const loadMultiplier = blockStatus?.loadMultiplier ?? 1
   const rirTarget = blockStatus?.rirTarget ?? 2

@@ -295,7 +295,13 @@ function renderMeals({ meals }) {
 
 function renderBlock({ block }) {
   if (!block) return []
-  return [`BLOCK — week ${block.blockWeek} of ${block.totalWeeks}, mesocycle ${block.mesocycle} week ${block.weekInMesocycle}, ${block.phase}, target RIR ${block.rirTarget}`]
+  const gap =
+    block.calendarWeek > block.blockWeek
+      ? ` (calendar week ${block.calendarWeek} — the block held through ${block.calendarWeek - block.blockWeek} week(s) with no training, and volume eases back in rather than resuming at the peak)`
+      : ''
+  return [
+    `BLOCK — week ${block.blockWeek} of ${block.totalWeeks}${gap}, mesocycle ${block.mesocycle} week ${block.weekInMesocycle}, ${block.phase}, target RIR ${block.rirTarget}`,
+  ]
 }
 
 function renderPlannedSession({ session }) {

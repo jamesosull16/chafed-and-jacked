@@ -216,16 +216,16 @@ export function createAnalysisHandlers({ store }) {
         blockEnd,
         injuryFlags,
         hamstringStage: injuryFlags.includes('highHamstring')
-          ? hamstringStageFor(status.blockWeek)
+          ? hamstringStageFor(status.calendarWeek)
           : null,
-        guardrails: activeGuardrails({ injuryFlags, blockWeek: status.blockWeek }),
+        guardrails: activeGuardrails({ injuryFlags, blockWeek: status.calendarWeek }),
       }
     },
 
     async get_chain_balance({ weeks = 1 } = {}) {
       const profile = normalizeProfile(await store.getProfile())
       const { injuryFlags, blockStart, blockEnd } = profile.strength
-      const blockWeek = getBlockStatus(blockStart, blockEnd).blockWeek
+      const blockWeek = getBlockStatus(blockStart, blockEnd).calendarWeek
       const opts = { weeks, injuryFlags, hamstringStage: hamstringStageFor(blockWeek).stage }
 
       const sessions = await recentSessions()

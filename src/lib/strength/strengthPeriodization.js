@@ -56,6 +56,34 @@ function daysBetween(from, to) {
   return Math.floor((b - a) / 86400000)
 }
 
+/**
+ * Week indices (1-based from `blockStart`) in which at least one session was
+ * completed, plus the earliest week the supplied data can speak to.
+ *
+ * The second half matters as much as the first. Callers pass a bounded window
+ * of recent sessions, so weeks older than that window are *unknown*, not
+ * untrained — counting them as skipped would extend the block by however long
+ * the query limit happens to be.
+ */
+function trainedWeekIndices(sessions, blockStart) {
+  const start = parseDate(blockStart)
+  const weeks = new Set()
+  let earliest = null
+  if (!start || !Array.isArray(sessions)) return { weeks, earliest }
+
+  for (const session of sessions) {
+    if (!session?.date || session.completed === false) continue
+    const day = parseDate(String(session.date).slice(0, 10))
+    if (!day) continue
+    const index = Math.floor(daysBetween(start, day) / 7) + 1
+    // Sessions from before the block began belong to whatever came before it.
+    if (index < 1) continue
+    weeks.add(index)
+    if (earliest === null || index < earliest) earliest = index
+  }
+  return { weeks, earliest }
+}
+
 /** 1-indexed block week containing `date`. Returns <1 before the block starts. */
 export function getBlockWeek(blockStart, date = new Date()) {
   const start = parseDate(blockStart)
@@ -82,24 +110,69 @@ export function getTotalBlockWeeks(blockStart, blockEnd) {
  *   weekStart: Date, weekEnd: Date
  * }}
  */
-export function getBlockStatus(blockStart, blockEnd, date = new Date()) {
+export function getBlockStatus(blockStart, blockEnd, date = new Date(), { sessions } = {}) {
   const start = parseDate(blockStart)
   const totalWeeks = getTotalBlockWeeks(blockStart, blockEnd)
   const rawWeek = getBlockWeek(blockStart, date)
 
   const isBeforeStart = rawWeek < 1
-  const isComplete = totalWeeks > 0 && rawWeek > totalWeeks
+  const calendarWeek = Math.max(rawWeek, 1)
+
+  // A week in which nothing was trained did not advance the block.
+  //
+  // The prescription ramps RIR 3 → 2 → 2 → 1 and volume +0/+0/+15%/+30% across
+  // a mesocycle, then deloads. That ramp is a fatigue argument, and fatigue
+  // does not accumulate on a week off. Left on the calendar, a fortnight away
+  // came back to "week 4, RIR 1, +30% sets" — a peak week prescribed on top of
+  // a layoff, which is the most reliable way to get hurt in a block.
+  //
+  // The current week always counts: it is in progress, not skipped.
+  let skippedWeeks = 0
+  // Consecutive trained weeks up to and including now. The current week counts:
+  // it is in progress. Unbounded when no session data was supplied.
+  let weeksSinceGap = Infinity
+  if (Array.isArray(sessions)) {
+    const { weeks: trained, earliest } = trainedWeekIndices(sessions, blockStart)
+    // Only weeks the supplied data can actually speak to.
+    const from = earliest ?? calendarWeek
+    for (let w = from; w < calendarWeek; w++) if (!trained.has(w)) skippedWeeks++
+
+    weeksSinceGap = 1
+    for (let w = calendarWeek - 1; w >= from && trained.has(w); w--) weeksSinceGap++
+  }
+
+  const progressedWeek = Math.max(1, calendarWeek - skippedWeeks)
+  const isComplete = totalWeeks > 0 && progressedWeek > totalWeeks
 
   // Clamp so the prescription stays sane outside the block window.
-  const blockWeek = Math.min(Math.max(rawWeek, 1), totalWeeks || rawWeek)
+  const blockWeek = Math.min(progressedWeek, totalWeeks || progressedWeek)
 
-  const idx = (blockWeek - 1) % MESOCYCLE_WEEKS
+  // Where in the mesocycle the block *is*, and where it may safely resume.
+  //
+  // Not advancing through a missed week is only half the fix. Resuming at the
+  // position the block had reached is the other half of the problem: three
+  // weeks trained, two weeks off, and the block week is 4 — which is RIR 1 at
+  // +30% sets, the hardest week of the mesocycle, prescribed on the first day
+  // back. The calendar version got this right only by luck, when the layoff
+  // happened to straddle a mesocycle boundary.
+  //
+  // So the ramp restarts after a gap and climbs back to meet the nominal
+  // position: first week back is week 1 of the ramp, the next is week 2, and
+  // once `weeksSinceGap` catches up the two agree again and this does nothing.
+  // A clean run of weeks never touches it, because `weeksSinceGap` is Infinity
+  // when no session data was supplied and larger than `idx` when none was
+  // missed.
+  const nominalIdx = (blockWeek - 1) % MESOCYCLE_WEEKS
+  const idx = Math.min(nominalIdx, weeksSinceGap - 1)
   const prescription = WEEK_PRESCRIPTION[idx]
   const mesocycle = Math.floor((blockWeek - 1) / MESOCYCLE_WEEKS) + 1
   const weekInMesocycle = idx + 1
+  const resumedAfterGap = idx < nominalIdx
 
+  // Calendar, not block: this is the week `date` actually falls in, and once
+  // the two diverge the block week no longer names a range of dates.
   const weekStart = start ? new Date(start) : startOfDay(date)
-  if (start) weekStart.setDate(weekStart.getDate() + (blockWeek - 1) * 7)
+  if (start) weekStart.setDate(weekStart.getDate() + (calendarWeek - 1) * 7)
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekEnd.getDate() + 6)
   weekEnd.setHours(23, 59, 59, 999)
@@ -111,6 +184,14 @@ export function getBlockStatus(blockStart, blockEnd, date = new Date()) {
 
   return {
     blockWeek,
+    // The week the calendar is on, which is what tissue healing runs on —
+    // a proximal hamstring does not care how many sessions were logged. Every
+    // injury guardrail reads this, never `blockWeek`.
+    calendarWeek,
+    skippedWeeks,
+    // True while the ramp is climbing back after a layoff, so the UI can say
+    // why this week is easier than the block week implies.
+    resumedAfterGap,
     totalWeeks,
     weeksRemaining: Math.max(0, totalWeeks - blockWeek),
     mesocycle,
@@ -125,8 +206,8 @@ export function getBlockStatus(blockStart, blockEnd, date = new Date()) {
 }
 
 /** Percentage of the block completed, for progress bars. */
-export function getBlockProgress(blockStart, blockEnd, date = new Date()) {
-  const { blockWeek, totalWeeks } = getBlockStatus(blockStart, blockEnd, date)
+export function getBlockProgress(blockStart, blockEnd, date = new Date(), opts) {
+  const { blockWeek, totalWeeks } = getBlockStatus(blockStart, blockEnd, date, opts)
   if (!totalWeeks) return 0
   return Math.min(100, Math.max(0, Math.round((blockWeek / totalWeeks) * 100)))
 }

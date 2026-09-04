@@ -149,3 +149,118 @@ describe('training day mapping', () => {
     expect(week.map((d) => d.splitIndex)).toEqual([0, 1, 2, 3])
   })
 })
+
+describe('the block advances on weeks trained, not weeks elapsed', () => {
+  const START = '2026-08-03' // a Monday
+  const END = '2027-01-24'
+  const day = (weekIndex, offset = 0) => {
+    const d = new Date(`${START}T00:00:00`)
+    d.setDate(d.getDate() + (weekIndex - 1) * 7 + offset)
+    return d
+  }
+  const session = (weekIndex, offset = 0) => ({ date: day(weekIndex, offset).toISOString(), completed: true })
+  const at = (weekIndex, sessions) =>
+    getBlockStatus(START, END, day(weekIndex, 3), sessions ? { sessions } : undefined)
+
+  it('behaves exactly as before when no sessions are supplied', () => {
+    // Every existing caller passes nothing, and must not move.
+    expect(at(6).blockWeek).toBe(6)
+    expect(at(6).skippedWeeks).toBe(0)
+  })
+
+  it('counts a fully trained run of weeks straight through', () => {
+    const sessions = [1, 2, 3, 4, 5].map((w) => session(w))
+    expect(at(5, sessions).blockWeek).toBe(5)
+    expect(at(5, sessions).skippedWeeks).toBe(0)
+  })
+
+  it('does not advance through a week in which nothing was trained', () => {
+    // Weeks 2 and 4 missed. Five calendar weeks in, three weeks of training.
+    const sessions = [1, 3, 5].map((w) => session(w))
+    const status = at(5, sessions)
+    expect(status.calendarWeek).toBe(5)
+    expect(status.skippedWeeks).toBe(2)
+    expect(status.blockWeek).toBe(3)
+  })
+
+  it('never returns from a layoff onto the hardest week of the mesocycle', () => {
+    // The case that caught the first version of this fix. Trained weeks 1-3,
+    // two weeks off, back in week 6. Block week 4 is RIR 1 at +30% sets — the
+    // peak — prescribed on the first day back. Not advancing through the gap
+    // was only half the problem; resuming where the block had got to was the
+    // other half.
+    const back = at(6, [1, 2, 3, 6].map((w) => session(w)))
+    expect(back.blockWeek).toBe(4)
+    expect(back.rirTarget).toBe(3)
+    expect(back.volumeMultiplier).toBe(1)
+    expect(back.resumedAfterGap).toBe(true)
+  })
+
+  it('climbs the ramp back over the following weeks and then rejoins it', () => {
+    const w7 = at(7, [1, 2, 3, 6, 7].map((w) => session(w)))
+    expect(w7.rirTarget).toBe(2)
+    expect(w7.resumedAfterGap).toBe(true)
+
+    const w8 = at(8, [1, 2, 3, 6, 7, 8].map((w) => session(w)))
+    expect(w8.resumedAfterGap).toBe(false)
+  })
+
+  it('leaves a clean run of weeks completely alone', () => {
+    // The ramp reset must be invisible when nothing was missed: week 4 is still
+    // the peak and week 5 is still the deload.
+    const straight = [1, 2, 3, 4, 5].map((w) => session(w))
+    expect(at(4, straight).rirTarget).toBe(1)
+    expect(at(4, straight).volumeMultiplier).toBe(1.3)
+    expect(at(5, straight).phase).toBe('deload')
+    expect(at(5, straight).resumedAfterGap).toBe(false)
+  })
+
+  it('does not deload a mesocycle the athlete never finished', () => {
+    // Calendar week 5 is the deload. With weeks 2 and 4 missed he has trained
+    // three weeks, so there is no accumulated fatigue to deload from.
+    expect(at(5).phase).toBe('deload')
+    expect(at(5, [1, 3, 5].map((w) => session(w))).phase).toBe('accumulation')
+  })
+
+  it('always counts the current week — it is in progress, not skipped', () => {
+    // Nothing logged this week yet, at 9am on a Monday. That is not a skip.
+    const sessions = [1, 2, 3].map((w) => session(w))
+    expect(at(4, sessions).blockWeek).toBe(4)
+  })
+
+  it('keeps the calendar week for tissue healing', () => {
+    // The hamstring stage runs on this, never on blockWeek: collagen turnover
+    // is time-based and does not pause because a week was missed.
+    const status = at(14, [1, 3, 14].map((w) => session(w)))
+    expect(status.calendarWeek).toBe(14)
+    expect(status.blockWeek).toBeLessThan(14)
+  })
+
+  it('will not judge weeks older than the sessions it was given', () => {
+    // Callers pass a bounded window. Weeks before the oldest session are
+    // unknown, not untrained — treating them as skipped would extend the block
+    // by however large the query limit happens to be.
+    const status = at(20, [18, 19, 20].map((w) => session(w)))
+    expect(status.skippedWeeks).toBe(0)
+    expect(status.blockWeek).toBe(20)
+  })
+
+  it('ignores incomplete sessions and anything logged before the block began', () => {
+    const sessions = [
+      { date: new Date('2026-07-01T10:00:00').toISOString(), completed: true },
+      { date: day(2, 1).toISOString(), completed: false },
+      session(1),
+      session(3),
+    ]
+    // Week 2 held only an abandoned session, so it did not advance the block.
+    expect(at(3, sessions).skippedWeeks).toBe(1)
+  })
+
+  it('extends past the end date rather than completing a block that was not trained', () => {
+    const total = getBlockStatus(START, END).totalWeeks
+    const trained = [1, 2].map((w) => session(w))
+    const late = getBlockStatus(START, END, day(total + 1, 0), { sessions: trained })
+    expect(late.isComplete).toBe(false)
+    expect(getBlockStatus(START, END, day(total + 1, 0)).isComplete).toBe(true)
+  })
+})

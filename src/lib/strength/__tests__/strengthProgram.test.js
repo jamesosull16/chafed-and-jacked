@@ -6,6 +6,7 @@ import {
   plannedWeeklySets,
   buildWeekSchedule,
   CORE_BLOCK_SIZE,
+  SPLITS,
 } from '../strengthProgram'
 import { VOLUME_LANDMARKS } from '../chainBalance'
 import { getBlockStatus } from '../strengthPeriodization'
@@ -684,5 +685,52 @@ describe('buildWeekSchedule', () => {
 
   it('nothing in a future week is complete', () => {
     expect(week(2).days.some((d) => d.completed)).toBe(false)
+  })
+})
+
+describe('splits nest as training days come off', () => {
+  // Written after the three-day split was found to contain no pulling at all:
+  // `lowerPosterior, upperPush, lowerQuad`, while the TWO-day split below it
+  // kept `upperPull`. Walking 4 → 3 → 2 lost the pull day and then got it back.
+  it('each split from 2 to 5 days is a subset of the next one up', () => {
+    for (const days of [2, 3, 4]) {
+      const smaller = SPLITS[days]
+      const larger = new Set(SPLITS[days + 1])
+      for (const template of smaller) {
+        expect(larger.has(template), `${template} missing from the ${days + 1}-day split`).toBe(true)
+      }
+    }
+  })
+
+  it('the six-day split repeats the four-day one rather than extending it', () => {
+    // Six is a different shape — 4 plus two repeats — so the nesting rule above
+    // deliberately stops at five. Every day still has to come from the core set.
+    const four = new Set(SPLITS[4])
+    for (const template of SPLITS[6]) expect(four.has(template)).toBe(true)
+  })
+
+  it('every split trains something that pulls', () => {
+    // The one that actually bit. Pressing with no pulling, for an athlete whose
+    // chain-balance target is a deliberate pull bias and whose posture is a
+    // runner's, is the wrong session to have dropped.
+    for (const days of [2, 3, 4, 5, 6]) {
+      const pulls = SPLITS[days].some((id) => id === 'upperPull' || id === 'fullBody')
+      expect(pulls, `${days}-day split has no pulling day`).toBe(true)
+    }
+  })
+
+  it('drops the quad day before the pull day, not the other way round', () => {
+    expect(SPLITS[3]).toContain('upperPull')
+    expect(SPLITS[3]).not.toContain('lowerQuad')
+  })
+
+  it('never puts two lower-body days back to back', () => {
+    const isLower = (id) => id === 'lowerPosterior' || id === 'lowerQuad'
+    for (const days of [2, 3, 4, 5]) {
+      const split = SPLITS[days]
+      for (let i = 1; i < split.length; i++) {
+        expect(isLower(split[i]) && isLower(split[i - 1]), `${days}-day split, index ${i}`).toBe(false)
+      }
+    }
   })
 })

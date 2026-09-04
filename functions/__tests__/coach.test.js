@@ -895,13 +895,35 @@ describe('tool handlers', () => {
       expect(tooling.cards).toHaveLength(1)
     })
 
+    it('screens on the server-derived week, not the one the client sent', async () => {
+      // The advisory `blockWeek` counts weeks TRAINED and comes from the
+      // client, so it must not be able to unlock a movement. Only
+      // `calendarWeek` — re-derived in buildTurnContext — gates the stage.
+      const tooling = createHandlers({
+        store: fakeStore(),
+        estimate: vi.fn(),
+        photo: null,
+        dateId: '2026-07-22',
+        context: { ...CONTEXT, block: { ...CONTEXT.block, blockWeek: 99, calendarWeek: 1 } },
+      })
+      await expect(
+        tooling.handlers.propose_adjustment({
+          title: 'x',
+          changes: [{ label: 'Reintroduce Romanian Deadlift', detail: 'full range' }],
+        })
+      ).rejects.toThrow(/RDL|Romanian/i)
+      expect(tooling.cards).toHaveLength(0)
+    })
+
     it('permits the same movement once the block reaches a stage that allows it', async () => {
       const tooling = createHandlers({
         store: fakeStore(),
         estimate: vi.fn(),
         photo: null,
         dateId: '2026-07-22',
-        context: { ...CONTEXT, block: { ...CONTEXT.block, blockWeek: 13 } },
+        // `calendarWeek`, because that is what gates the hamstring stage now —
+        // tissue heals on the calendar, not on sessions logged.
+        context: { ...CONTEXT, block: { ...CONTEXT.block, blockWeek: 13, calendarWeek: 13 } },
       })
       await tooling.handlers.propose_adjustment({
         title: 'x',
@@ -2116,14 +2138,30 @@ describe('buildTurnContext', () => {
     expect(ctx.hamstringStage.stage).toBe(1)
   })
 
-  it('overrides a client-claimed block week with the server derivation', async () => {
+  it('never lets a client-claimed week reach the guardrails', async () => {
+    // `calendarWeek` is what gates movement selection and the hamstring stage,
+    // so it is re-derived from stored data whatever the client says.
+    // `blockWeek` counts weeks *trained* and is display-only — it lags the
+    // calendar after a layoff, which the server has no cheap way to know.
     const ctx = await buildTurnContext({
       store: store(),
       dateId: '2026-07-22',
       clientContext: { block: { blockWeek: 99, totalWeeks: 22 } },
       now: new Date('2026-07-22T12:00:00'),
     })
+    expect(ctx.block.calendarWeek).toBe(1)
+    expect(ctx.hamstringStage.stage).toBe(1)
+  })
+
+  it('falls back to the server week when the client sends no block at all', async () => {
+    const ctx = await buildTurnContext({
+      store: store(),
+      dateId: '2026-07-22',
+      clientContext: {},
+      now: new Date('2026-07-22T12:00:00'),
+    })
     expect(ctx.block.blockWeek).toBe(1)
+    expect(ctx.block.calendarWeek).toBe(1)
   })
 
   it('drops a malformed session rather than passing it through', async () => {

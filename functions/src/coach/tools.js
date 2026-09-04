@@ -1029,7 +1029,15 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
       // same rules the session generator uses before the card can exist. This
       // comes back to the model as a tool error, so it re-proposes rather than
       // the turn dying.
-      const guardrails = { injuryFlags: context?.injuryFlags || [], blockWeek: context?.block?.blockWeek || 1 }
+      // `calendarWeek`, never `blockWeek`. The block week is advisory and comes
+      // from the client — it counts weeks *trained*, so it lags the calendar
+      // after a layoff and a client could claim any value for it. The calendar
+      // week is re-derived server-side, and it is also the right input on the
+      // merits: tissue heals with time, not with sessions logged.
+      const guardrails = {
+        injuryFlags: context?.injuryFlags || [],
+        blockWeek: context?.block?.calendarWeek || 1,
+      }
       const blocked = changes.flatMap((c) => findBlockedMovements(`${c?.label || ''} ${c?.detail || ''}`, guardrails))
       if (blocked.length) {
         const unique = [...new Map(blocked.map((b) => [b.id, b])).values()]

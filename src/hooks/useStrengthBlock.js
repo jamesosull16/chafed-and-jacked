@@ -41,14 +41,19 @@ export function useStrengthBlock() {
   const [exerciseHistory, setExerciseHistory] = useState({})
   const [bodyMetrics, setBodyMetrics] = useState([])
 
+  // `sessions` is what lets the block week skip a week nothing was trained in.
+  // It is loaded below, so this recomputes once the data arrives — before then
+  // it falls back to the calendar, which is the old behaviour.
   const blockStatus = useMemo(
-    () => getBlockStatus(strength.blockStart, strength.blockEnd),
-    [strength.blockStart, strength.blockEnd]
+    () => getBlockStatus(strength.blockStart, strength.blockEnd, new Date(), { sessions }),
+    [strength.blockStart, strength.blockEnd, sessions]
   )
 
+  // Same sessions as the status above, or the progress bar would report a
+  // percentage the week number beside it disagrees with.
   const blockProgress = useMemo(
-    () => getBlockProgress(strength.blockStart, strength.blockEnd),
-    [strength.blockStart, strength.blockEnd]
+    () => getBlockProgress(strength.blockStart, strength.blockEnd, new Date(), { sessions }),
+    [strength.blockStart, strength.blockEnd, sessions]
   )
 
   const loadData = useCallback(async () => {
@@ -84,9 +89,10 @@ export function useStrengthBlock() {
   const analysisOpts = useMemo(
     () => ({
       injuryFlags,
-      hamstringStage: hamstringStageFor(blockStatus.blockWeek).stage,
+      // Calendar week, not block week — see getBlockStatus.
+      hamstringStage: hamstringStageFor(blockStatus.calendarWeek).stage,
     }),
-    [injuryFlags, blockStatus.blockWeek]
+    [injuryFlags, blockStatus.calendarWeek]
   )
 
   const balance = useMemo(
@@ -102,8 +108,8 @@ export function useStrengthBlock() {
   const mobility = useMemo(() => mobilityAdherence(sessions, { weeks: 4 }), [sessions])
 
   const guardrails = useMemo(
-    () => activeGuardrails({ injuryFlags, blockWeek: blockStatus.blockWeek }),
-    [injuryFlags, blockStatus.blockWeek]
+    () => activeGuardrails({ injuryFlags, blockWeek: blockStatus.calendarWeek }),
+    [injuryFlags, blockStatus.calendarWeek]
   )
 
   /**
@@ -149,10 +155,10 @@ export function useStrengthBlock() {
       return buildSession({
         ...sessionParams,
         splitIndex,
-        blockStatus: getBlockStatus(strength.blockStart, strength.blockEnd, date),
+        blockStatus: getBlockStatus(strength.blockStart, strength.blockEnd, date, { sessions }),
       })
     },
-    [sessionParams, strength.blockStart, strength.blockEnd]
+    [sessionParams, strength.blockStart, strength.blockEnd, sessions]
   )
 
   /** Any week of the block, by offset from this one. 0 is now, 1 is next. */

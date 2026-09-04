@@ -233,14 +233,22 @@ export async function buildTurnContext({ store, dateId, clientContext = {}, now 
     upcoming: sanitizeUpcoming(clientContext.upcoming),
     block: clientContext.block
       ? {
-          blockWeek: guardrails.blockWeek,
+          // Server-derived and authoritative: this is the CALENDAR week, and
+          // it is what the hamstring stage runs on. A client cannot talk its
+          // way into a later stage by claiming a bigger number.
+          calendarWeek: guardrails.blockWeek,
+          // Advisory and display-only: the block advances on weeks *trained*,
+          // so it sits behind the calendar after a layoff. Nothing safety-
+          // critical reads it — but the coach saying "week 7" while the
+          // dashboard says "week 5" is its own kind of wrong.
+          blockWeek: num(clientContext.block.blockWeek, guardrails.blockWeek),
           totalWeeks: num(clientContext.block.totalWeeks, 22),
           mesocycle: num(clientContext.block.mesocycle, 1),
           weekInMesocycle: num(clientContext.block.weekInMesocycle, 1),
           phase: clientContext.block.phase === 'deload' ? 'deload' : 'accumulation',
           rirTarget: num(clientContext.block.rirTarget, 2),
         }
-      : { blockWeek: guardrails.blockWeek },
+      : { blockWeek: guardrails.blockWeek, calendarWeek: guardrails.blockWeek },
     balance: sanitizeBalance(clientContext.balance),
     metrics: clientContext.metrics || null,
     // Always server-derived — never taken from the client.
