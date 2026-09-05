@@ -1,4 +1,4 @@
-import { setDoc, arrayUnion, arrayRemove } from 'firebase/firestore'
+import { setDoc, writeBatch, arrayUnion, arrayRemove } from 'firebase/firestore'
 import { formatLocalDate } from './localDate'
 
 /**
@@ -53,4 +53,70 @@ export async function replaceLogEntry(ref, { previous, next, dateId, targets }) 
 export function findEntryById(entries = [], id) {
   if (!id) return null
   return entries.find((entry) => entry?.id === id) || null
+}
+
+/**
+ * Re-date an entry onto another day, keeping the time of day it was eaten.
+ *
+ * `loggedAt` is not decoration — `logDateIdFor` derives an entry's day from it,
+ * which is how a coach card from Tuesday knows to open Tuesday's document. Move
+ * an entry to another day without re-dating it and the meal sits on one day
+ * while every lookup goes to another: the sheet opens read-only, and a
+ * correction saves onto a document the meal is not on.
+ *
+ * The clock time survives the move because it is the part still known to be
+ * true. A meal eaten at 7pm on the 4th, logged by mistake on the 5th, was still
+ * eaten at 7pm. When there is no original time — an entry from before the field
+ * existed — noon is used rather than the current moment, because midnight-
+ * adjacent times are the ones that land on the wrong day under a timezone or
+ * DST shift.
+ */
+export function retimeEntryTo(entry, toDateId) {
+  const [y, m, d] = String(toDateId).split('-').map(Number)
+  if (!y || !m || !d) return entry
+
+  const original = entry?.loggedAt ? new Date(entry.loggedAt) : null
+  const next = original && !Number.isNaN(original.getTime()) ? new Date(original) : null
+  if (next) {
+    next.setFullYear(y, m - 1, d)
+  }
+
+  return {
+    ...entry,
+    loggedAt: (next || new Date(y, m - 1, d, 12, 0, 0)).toISOString(),
+    movedAt: new Date().toISOString(),
+  }
+}
+
+/**
+ * Move one logged entry from one day to another.
+ *
+ * Two documents, so unlike `replaceLogEntry` this is a batch. A batch is atomic
+ * — the meal cannot end up on both days or on neither — and it still queues
+ * offline like any other write, which is the property that made array
+ * transforms the right call here in the first place. Sequencing the two writes
+ * by hand would leave a phone that lost signal between them holding a
+ * duplicate, and across two days a duplicate is much harder to notice than the
+ * same-document case `replaceLogEntry` accepts.
+ *
+ * `entry` must deep-equal what is stored, because `arrayRemove` matches whole
+ * objects. Callers pass the entry as they last read it.
+ *
+ * The destination is written with `merge`, so a day that has no document yet
+ * gets one. It deliberately carries no `targets`: the targets for a past day
+ * depend on that day's weight and training, and stamping today's onto it would
+ * invent a number the day was never judged against.
+ */
+export async function moveLogEntry({ fromRef, toRef, entry, toDateId }) {
+  if (!fromRef || !toRef || !entry || !toDateId) return null
+  if (fromRef.path === toRef.path) return null
+
+  const moved = retimeEntryTo(entry, toDateId)
+
+  const batch = writeBatch(fromRef.firestore)
+  batch.set(toRef, { date: toDateId, entries: arrayUnion(moved) }, { merge: true })
+  batch.set(fromRef, { entries: arrayRemove(entry) }, { merge: true })
+  await batch.commit()
+
+  return moved
 }

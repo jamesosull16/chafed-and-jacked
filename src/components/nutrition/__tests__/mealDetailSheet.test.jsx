@@ -342,3 +342,151 @@ describe('MealDetailSheet', () => {
     expect(document.body.textContent).toBe('')
   })
 })
+
+describe('MealDetailSheet — moving a meal to another day', () => {
+  // The case: a sandwich eaten on the 4th looked like it had failed to log, so
+  // it was logged again and landed on the 5th. Correcting that is a move
+  // between two days, not an edit within one.
+  const dayOf = (entry) =>
+    sheet().querySelector(`input[aria-label="Day ${entry.label} was eaten"]`)
+
+  it('shows nothing at all without an onMoveDay handler', async () => {
+    // Every caller that cannot write to that day must not offer the control.
+    await render(<MealDetailSheet open entry={ENTRY} onClose={() => {}} onSave={() => {}} />)
+    expect(sheet().textContent).not.toMatch(/Day eaten/)
+  })
+
+  it('opens on the day the entry is actually on', async () => {
+    await render(
+      <MealDetailSheet open entry={ENTRY} onClose={() => {}} onMoveDay={vi.fn()} />
+    )
+    // Derived from loggedAt, not from today — the same rule every other lookup
+    // in the app uses.
+    expect(dayOf(ENTRY).value).toBe('2026-08-17')
+  })
+
+  it('offers no Move button until the day actually changes', async () => {
+    await render(
+      <MealDetailSheet open entry={ENTRY} onClose={() => {}} onMoveDay={vi.fn()} />
+    )
+    expect(buttonWith('Move')).toBeUndefined()
+    await type(dayOf(ENTRY), '2026-08-16')
+    expect(buttonWith('Move')).toBeTruthy()
+  })
+
+  it('will not offer to move a meal into the future', async () => {
+    // A fat-fingered year is the easiest way to send a meal somewhere it will
+    // never be found again.
+    await render(
+      <MealDetailSheet open entry={ENTRY} onClose={() => {}} onMoveDay={vi.fn()} />
+    )
+    const today = new Date()
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    expect(dayOf(ENTRY).max).toBe(iso)
+  })
+
+  it('reports the chosen day, and says what the move will do', async () => {
+    const onMoveDay = vi.fn().mockResolvedValue(undefined)
+    await render(<MealDetailSheet open entry={ENTRY} onClose={() => {}} onMoveDay={onMoveDay} />)
+    await type(dayOf(ENTRY), '2026-08-16')
+    expect(sheet().textContent).toMatch(/Both days.*totals change/)
+    await click(buttonWith('Move'))
+    expect(onMoveDay).toHaveBeenCalledWith('2026-08-16')
+  })
+
+  it('keeps the move out of reach while portions are being edited', async () => {
+    // Editing is staged behind "Save changes"; moving writes immediately. A
+    // date changed in a staged form that then silently does not save is worse
+    // than one extra tap — but the sheet has to say where it went, because the
+    // coach thread opens it already editing.
+    await render(
+      <MealDetailSheet
+        open
+        entry={ENTRY}
+        startInEdit
+        onClose={() => {}}
+        onSave={vi.fn()}
+        onMoveDay={vi.fn()}
+      />
+    )
+    expect(sheet().textContent).not.toMatch(/Day eaten/)
+    expect(sheet().textContent).toMatch(/Cancel this edit to move it/)
+
+    await click(buttonWith('Cancel'))
+    expect(sheet().textContent).toMatch(/Day eaten/)
+  })
+
+  it('warns when the destination day already holds the same meal', async () => {
+    // The scenario that produces a move is the scenario that produces a
+    // duplicate: a meal looks like it failed to log, so it gets logged again.
+    // Moving without this turns a duplicate on the wrong day into a duplicate
+    // on the right day, and doubles that day's total.
+    const onPeekDay = vi.fn(async () => [
+      { id: 'other', label: 'Chicken and rice', kcal: 610 },
+    ])
+    await render(
+      <MealDetailSheet
+        open
+        entry={ENTRY}
+        onClose={() => {}}
+        onMoveDay={vi.fn()}
+        onPeekDay={onPeekDay}
+      />
+    )
+    await type(dayOf(ENTRY), '2026-08-16')
+    expect(onPeekDay).toHaveBeenCalledWith('2026-08-16')
+    expect(sheet().textContent).toMatch(/already has/)
+    expect(sheet().textContent).toMatch(/delete this one instead/)
+    // Warned, not blocked — two of the same meal in a day is a real thing.
+    expect(buttonWith('Move')).toBeTruthy()
+  })
+
+  it('warns even when the match is this very entry, already on both days', async () => {
+    // If a meal has somehow ended up on both days, the destination genuinely
+    // does hold it. Skipping the warning because the ids match would suppress
+    // the one case where it is most needed.
+    const onPeekDay = vi.fn(async () => [ENTRY])
+    await render(
+      <MealDetailSheet open entry={ENTRY} onClose={() => {}} onMoveDay={vi.fn()} onPeekDay={onPeekDay} />
+    )
+    await type(dayOf(ENTRY), '2026-08-16')
+    expect(sheet().textContent).toMatch(/already has/)
+  })
+
+  it('does not mistake a different meal for a duplicate', async () => {
+    const onPeekDay = vi.fn(async () => [{ id: 'other', label: 'Porridge', kcal: 300 }])
+    await render(
+      <MealDetailSheet open entry={ENTRY} onClose={() => {}} onMoveDay={vi.fn()} onPeekDay={onPeekDay} />
+    )
+    await type(dayOf(ENTRY), '2026-08-16')
+    expect(sheet().textContent).not.toMatch(/already has/)
+  })
+
+  it('lets the move proceed when the day cannot be read', async () => {
+    // A warning, not a gate. A failed peek must not strand the correction.
+    const onMoveDay = vi.fn().mockResolvedValue(undefined)
+    const onPeekDay = vi.fn(async () => {
+      throw new Error('offline')
+    })
+    await render(
+      <MealDetailSheet open entry={ENTRY} onClose={() => {}} onMoveDay={onMoveDay} onPeekDay={onPeekDay} />
+    )
+    await type(dayOf(ENTRY), '2026-08-16')
+    await click(buttonWith('Move'))
+    expect(onMoveDay).toHaveBeenCalledWith('2026-08-16')
+  })
+
+  it('does not carry a half-typed day across to the next meal', async () => {
+    const onMoveDay = vi.fn()
+    await render(<MealDetailSheet open entry={ENTRY} onClose={() => {}} onMoveDay={onMoveDay} />)
+    await type(dayOf(ENTRY), '2026-08-16')
+    expect(buttonWith('Move')).toBeTruthy()
+
+    // Reopened on a different meal — the sheet is reused, not remounted.
+    await render(
+      <MealDetailSheet open entry={TRAYBAKE} onClose={() => {}} onMoveDay={onMoveDay} />
+    )
+    expect(dayOf(TRAYBAKE).value).toBe('2026-08-31')
+    expect(buttonWith('Move')).toBeUndefined()
+  })
+})

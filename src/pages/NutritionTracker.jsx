@@ -51,7 +51,7 @@ import SaveMealSheet from '../components/nutrition/SaveMealSheet'
 import MealDetailSheet from '../components/nutrition/MealDetailSheet'
 import IngredientEditor from '../components/nutrition/IngredientEditor'
 import { blankRow, resolvedItems, buildRecipeMeal, recipeToSavedMeal } from '../lib/recipe'
-import { replaceLogEntry, findEntryById } from '../lib/nutritionLog'
+import { replaceLogEntry, moveLogEntry, findEntryById } from '../lib/nutritionLog'
 import { cn } from '../components/ui/cn'
 
 const MACROS = [
@@ -741,6 +741,32 @@ export default function NutritionTracker() {
     })
   }
 
+  /**
+   * Put a meal on the day it was actually eaten.
+   *
+   * The stored copy is passed, not the one captured when the sheet opened —
+   * `arrayRemove` matches whole objects, and the Coach may have corrected this
+   * entry while the sheet was sitting open. Removing a stale copy would leave
+   * the meal on both days.
+   *
+   * Today's list needs no refresh: it is a live subscription, so the entry
+   * disappears on its own the moment the batch lands.
+   */
+  async function moveEntryToDay(entry, toDateId) {
+    const stored = findEntryById(entries, entry.id)
+    if (!stored) return
+    await moveLogEntry({
+      fromRef: userRef(`nutritionLogs/${todayId}`),
+      toRef: userRef(`nutritionLogs/${toDateId}`),
+      entry: stored,
+      toDateId,
+    })
+    setOpenEntry(null)
+    // The week strip and the coverage summary both read the fetched history,
+    // which now has a meal on a day it did not have one on.
+    await load()
+  }
+
   /** Log a saved meal at the confirmed quantity, and count the use. */
   async function logSavedMeal(meal, { quantity, macros }) {
     const entry = savedMealToEntry(meal, { quantity, macros, id: crypto.randomUUID() })
@@ -817,6 +843,22 @@ export default function NutritionTracker() {
               dateId: viewDate,
             })
             setViewingDay(await getDocument(`nutritionLogs/${viewDate}`))
+          }}
+          onPeekDay={async (d) => (await getDocument(`nutritionLogs/${d}`))?.entries || []}
+          onMoveDay={async (toDateId) => {
+            const stored = findEntryById(pastEntries, openEntry.id)
+            if (!stored) return
+            await moveLogEntry({
+              fromRef: userRef(`nutritionLogs/${viewDate}`),
+              toRef: userRef(`nutritionLogs/${toDateId}`),
+              entry: stored,
+              toDateId,
+            })
+            setOpenEntry(null)
+            // No live subscription on a past day — the re-read is what takes
+            // the meal off the screen it was just moved from.
+            setViewingDay(await getDocument(`nutritionLogs/${viewDate}`))
+            await load()
           }}
         />
       </div>
@@ -1042,6 +1084,8 @@ export default function NutritionTracker() {
         entry={(openEntry && findEntryById(entries, openEntry.id)) || openEntry}
         onClose={() => setOpenEntry(null)}
         onSave={saveEntryEdit}
+        onMoveDay={(toDateId) => moveEntryToDay(openEntry, toDateId)}
+        onPeekDay={async (d) => (await getDocument(`nutritionLogs/${d}`))?.entries || []}
         onDelete={async () => {
           await removeEntry(findEntryById(entries, openEntry.id) || openEntry)
           setOpenEntry(null)

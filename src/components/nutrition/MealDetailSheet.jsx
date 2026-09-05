@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Pencil, Check, Trash2, Bookmark, BookmarkCheck, Camera, ListPlus } from 'lucide-react'
+import { Pencil, Check, Trash2, Bookmark, BookmarkCheck, Camera, ListPlus, CalendarDays } from 'lucide-react'
 import { Sheet, Button, Badge, Field, Input, CardLabel } from '../ui'
 import { cn } from '../ui/cn'
 import { CONFIDENCE_COPY } from '../../lib/mealEstimation'
+import { logDateIdFor } from '../../lib/nutritionLog'
+import { formatLocalDate } from '../../lib/localDate'
 import IngredientEditor from './IngredientEditor'
 import {
   blankRow,
@@ -89,7 +91,27 @@ function ItemRow({ item }) {
  *
  * Read-only when no `onSave` is given — a meal on a past day reached through
  * the coach thread is history, and that write path only reaches today's log.
+ *
+ * `onMoveDay` adds the other correction the log could not make: putting a meal
+ * on the day it was actually eaten. A meal that looks like it failed to log
+ * gets logged again, and the second attempt lands on today — so the fix is a
+ * move between two days, not an edit within one.
  */
+/** "today", "yesterday", or a plain date — whichever reads fastest. */
+function dayLabel(dateId) {
+  if (!dateId) return 'that day'
+  const today = formatLocalDate()
+  if (dateId === today) return 'today'
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (dateId === formatLocalDate(yesterday)) return 'yesterday'
+  return new Date(`${dateId}T12:00:00`).toLocaleDateString([], {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  })
+}
+
 export default function MealDetailSheet({
   open,
   onClose,
@@ -97,6 +119,8 @@ export default function MealDetailSheet({
   onSave,
   onDelete,
   onSaveToLibrary,
+  onMoveDay,
+  onPeekDay,
   saved,
   startInEdit = false,
   note,
@@ -108,11 +132,17 @@ export default function MealDetailSheet({
   const [macros, setMacros] = useState(null)
   const [busy, setBusy] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [movingTo, setMovingTo] = useState(null)
+  const [dupe, setDupe] = useState(null)
 
   useEffect(() => {
     if (!open || !entry) return
     const recipe = recipeFromEntry(entry)
     setEditing(startInEdit && !!onSave)
+    // Reset on every open, or the sheet reopens on a different meal still
+    // offering to move it to the day the last one was being moved to.
+    setMovingTo(null)
+    setDupe(null)
     setRows(recipe.items.length ? rowsFromItems(recipe.items) : [])
     setServings(recipe.servings)
     setEaten(recipe.eaten)
@@ -161,6 +191,51 @@ export default function MealDetailSheet({
   const confidence = entry.confidence ? CONFIDENCE_COPY[entry.confidence] : null
   const loggedAt = entry.loggedAt ? new Date(entry.loggedAt) : null
   const recipeServings = entry.recipe?.servings
+
+  const currentDay = logDateIdFor(entry)
+  const today = formatLocalDate()
+
+  /**
+   * Look for the same meal already sitting on the destination day.
+   *
+   * The scenario that produces a move is exactly the scenario that produces a
+   * duplicate: a meal looks like it failed to log, so it gets logged again.
+   * Without this, moving turns "a duplicate on the wrong day" into "a
+   * duplicate on the right day", which is harder to spot and quietly doubles
+   * that day's total. Matched on label and calories rather than id, because
+   * the second attempt is a different entry, not the same one.
+   */
+  async function pickDay(dateId) {
+    setMovingTo(dateId || null)
+    setDupe(null)
+    if (!dateId || dateId === currentDay || !onPeekDay) return
+    try {
+      const onDay = (await onPeekDay(dateId)) || []
+      // Deliberately not excluding this entry's own id. If a meal has somehow
+      // ended up on both days, the destination genuinely does already hold it
+      // and the warning is the correct answer, not a false positive.
+      const match = onDay.find(
+        (e) =>
+          String(e?.label || '').trim().toLowerCase() ===
+            String(entry.label || '').trim().toLowerCase() &&
+          Math.abs((e?.kcal || 0) - (entry.kcal || 0)) <= 25
+      )
+      if (match) setDupe(match)
+    } catch {
+      // A failed peek must not block the move — it is a warning, not a gate.
+    }
+  }
+
+  async function handleMove() {
+    if (!movingTo || movingTo === currentDay || busy) return
+    setBusy(true)
+    try {
+      await onMoveDay(movingTo)
+      setMovingTo(null)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function handleSave() {
     setBusy(true)
@@ -250,6 +325,63 @@ export default function MealDetailSheet({
     >
       <div className="space-y-4">
         {note && <p className="text-xs text-muted">{note}</p>}
+
+        {/* Moving a meal between days is a different operation from correcting
+            its portions — a different write, over two documents — so it gets
+            its own row rather than a field buried in the portions editor,
+            where a stray tap would silently re-date a meal. Hidden while
+            editing portions, so the sheet only ever offers one correction. */}
+        {/* While portions are being edited the move is deliberately out of
+            reach: editing is staged behind "Save changes" and moving writes
+            immediately, and a date changed in a staged form that then silently
+            does not save is worse than one extra tap. The line says where it
+            went, because the coach thread opens this sheet already editing and
+            nobody would think to press Cancel to find it. */}
+        {onMoveDay && editing && (
+          <p className="text-xs text-subtle">
+            Eaten on a different day? Cancel this edit to move it.
+          </p>
+        )}
+
+        {onMoveDay && !editing && (
+          <div className="rounded-2xl border border-border-default p-3">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-subtle shrink-0" aria-hidden="true" />
+              <CardLabel>Day eaten</CardLabel>
+            </div>
+            <div className="flex gap-2 mt-2">
+              <Input
+                type="date"
+                aria-label={`Day ${entry.label} was eaten`}
+                value={movingTo ?? currentDay}
+                // Food cannot be eaten in the future, and a fat-fingered year
+                // is the easiest way to send a meal somewhere it will never be
+                // found again.
+                max={today}
+                disabled={busy}
+                onChange={(e) => pickDay(e.target.value)}
+              />
+              {movingTo && movingTo !== currentDay && (
+                <Button onClick={handleMove} disabled={busy} className="shrink-0">
+                  {busy ? 'Moving…' : 'Move'}
+                </Button>
+              )}
+            </div>
+            {movingTo && movingTo !== currentDay && (
+              <p className="text-xs text-muted mt-2 leading-relaxed">
+                Moves the meal and its macros off {dayLabel(currentDay)} and onto{' '}
+                {dayLabel(movingTo)}, keeping the time of day. Both days&apos; totals change.
+              </p>
+            )}
+            {dupe && (
+              <p className="text-xs text-warning-strong mt-2 leading-relaxed">
+                {dayLabel(movingTo)} already has &ldquo;{dupe.label}&rdquo; at{' '}
+                {Math.round(dupe.kcal || 0)} kcal. If that is the same meal, delete this one
+                instead of moving it — moving would count it twice.
+              </p>
+            )}
+          </div>
+        )}
 
         {(confidence || entry.source === 'photo' || entry.editedAt) && (
           <div className="flex flex-wrap gap-1.5">

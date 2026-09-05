@@ -17,7 +17,7 @@ Recharts · installable PWA.
 ```bash
 npm install
 npm run dev      # local dev
-npm test         # vitest — 818 tests
+npm test         # vitest — 861 tests
 npm run build    # production build
 npm run lint
 ```
@@ -270,6 +270,25 @@ supplies **macro density**. Vision models judge "how much food is on this plate"
 far better than they recall "how many grams of protein are in 100g of this", so
 each half does what it's good at. A database match that disagrees with the model
 by more than 3× is discarded as a bad search rather than trusted.
+
+**Correcting the day.** A meal that looks like it failed to log gets logged
+again, and the second attempt lands on today — so the correction is a move
+between two days rather than an edit within one. The detail sheet carries a
+"Day eaten" control that re-dates an entry, keeping the time of day, because a
+meal eaten at 7pm on the 4th was still eaten at 7pm.
+
+Three things make that safe. It is one Firestore **batch**, so the meal cannot
+end up on both days or neither — unlike an in-place correction, where a
+half-completed write duplicating is the acceptable failure. `loggedAt` moves
+with it, because `logDateIdFor` derives an entry's day from that field and a
+meal left behind by it would sit on one day while every lookup went to another.
+And the destination is checked first: the scenario that produces a move is the
+same scenario that produces a duplicate, so if that day already holds the same
+meal the sheet says to delete rather than move.
+
+The control is hidden while portions are being edited — editing is staged behind
+a save button, moving writes immediately, and a date changed in a staged form
+that then silently doesn't save is worse than one extra tap.
 
 Estimates are always shown for confirmation before saving, with the itemised
 breakdown and the assumptions the model made. Portion estimation is genuinely

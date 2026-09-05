@@ -20,7 +20,7 @@ import { entryToSavedMeal } from '../lib/savedMeals'
 import { SkeletonPage } from '../components/ui'
 import SaveMealSheet from '../components/nutrition/SaveMealSheet'
 import MealDetailSheet from '../components/nutrition/MealDetailSheet'
-import { replaceLogEntry, findEntryById, logDateIdFor } from '../lib/nutritionLog'
+import { replaceLogEntry, moveLogEntry, findEntryById, logDateIdFor } from '../lib/nutritionLog'
 import { cn } from '../components/ui/cn'
 import ContextStrip from '../components/chat/ContextStrip'
 import Composer from '../components/chat/Composer'
@@ -219,6 +219,30 @@ export default function CoachChat() {
     await replaceLogEntry(userRef(`nutritionLogs/${dateId}`), { previous, next, dateId })
     // Only today's numbers are on screen behind the sheet.
     if (dateId === todayId) await refreshTotals()
+  }
+
+  /**
+   * Move a meal from a coach card onto the day it was actually eaten.
+   *
+   * This is the entry point that matters most: a meal that looked like it
+   * failed to log gets logged again from the thread, and the second attempt
+   * lands on today. The card is right there when he notices.
+   */
+  async function moveEntryToDay(toDateId) {
+    const fromDateId = editing?.dateId || logDateIdFor(editing?.entry, todayId)
+    const log = await getDocument(`nutritionLogs/${fromDateId}`)
+    const stored = findEntryById(log?.entries, editing?.entry?.id)
+    if (!stored) return
+    await moveLogEntry({
+      fromRef: userRef(`nutritionLogs/${fromDateId}`),
+      toRef: userRef(`nutritionLogs/${toDateId}`),
+      entry: stored,
+      toDateId,
+    })
+    setEditing(null)
+    // The macro strip above the thread only shows today, so it needs a refresh
+    // when either end of the move is today.
+    if (fromDateId === todayId || toDateId === todayId) await refreshTotals()
   }
 
   const refreshTotals = useCallback(async () => {
@@ -590,6 +614,8 @@ export default function CoachChat() {
         startInEdit
         onClose={() => setEditing(null)}
         onSave={editing?.editable ? saveEntryEdit : undefined}
+        onMoveDay={editing?.editable ? moveEntryToDay : undefined}
+        onPeekDay={async (d) => (await getDocument(`nutritionLogs/${d}`))?.entries || []}
         note={editing ? editNote(editing, todayId) : undefined}
       />
 
