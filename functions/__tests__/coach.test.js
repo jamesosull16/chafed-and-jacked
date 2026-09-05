@@ -662,14 +662,38 @@ describe('tool handlers', () => {
   })
 
   describe('read tools', () => {
-    const NOW_DAY = '2026-07-22'
+    /**
+     * Dates relative to now, not fixed points.
+     *
+     * `get_training_history` and `get_body_metrics` window backwards from the
+     * real clock, so a fixture pinned to a calendar date drifts out of that
+     * window as time passes and the tests start failing on a day nobody
+     * touched them. These two did exactly that, and sat red across three
+     * sessions being mistaken for background noise.
+     *
+     * Anything asserting a shape rather than a window keeps a stable offset;
+     * anything inside a rolling window is placed by how long ago it happened.
+     */
+    const daysAgo = (n, time = '15:00:00') => {
+      const d = new Date()
+      d.setDate(d.getDate() - n)
+      const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      return { day, iso: `${day}T${time}Z` }
+    }
+
+    const TODAY = daysAgo(0)
+    const LAST_WEEK = daysAgo(7)
+    const SIX_DAYS = daysAgo(6)
+    const FOUR_WEEKS = daysAgo(28)
+    const NOW_DAY = TODAY.day
+
     const seeded = () =>
       fakeStore({
         profile: { weightLbs: 172, heightInches: 71, ageYears: 38, sex: 'male', currentBodyFatPct: 13 },
         collections: {
           workoutSessions: {
             s1: {
-              date: '2026-07-22T15:00:00Z',
+              date: TODAY.iso,
               dayType: 'Lower — Posterior',
               duration: 62,
               totalVolume: 12400,
@@ -684,27 +708,31 @@ describe('tool handlers', () => {
                 },
               ],
             },
-            s0: { date: '2026-07-15T15:00:00Z', dayType: 'Upper — Push', totalVolume: 9000, completed: true },
+            // Exactly a week back, so the two always land in different
+            // Monday-anchored buckets whatever weekday the suite runs on.
+            s0: { date: LAST_WEEK.iso, dayType: 'Upper — Push', totalVolume: 9000, completed: true },
           },
           dailyMileage: {
-            '2026-07-22': { date: '2026-07-22', runs: [{ miles: 6.2, duration_minutes: 52, avg_hr_bpm: 148 }] },
-            '2026-07-16': { date: '2026-07-16', runs: [{ miles: 10 }] },
+            [TODAY.day]: { date: TODAY.day, runs: [{ miles: 6.2, duration_minutes: 52, avg_hr_bpm: 148 }] },
+            [SIX_DAYS.day]: { date: SIX_DAYS.day, runs: [{ miles: 10 }] },
           },
           exerciseProgress: {
             barbellHipThrust: {
               currentWeight: 100,
               lastReps: [8, 8, 7],
               isBodyweight: false,
-              lastSessionDate: '2026-07-22T15:00:00Z',
+              lastSessionDate: TODAY.iso,
               history: [
-                { date: '2026-07-08T00:00:00Z', weight: 90, reps: [8], pr: null },
-                { date: '2026-07-22T00:00:00Z', weight: 100, reps: [8], pr: 'weight' },
+                { date: daysAgo(14, '00:00:00').iso, weight: 90, reps: [8], pr: null },
+                { date: daysAgo(0, '00:00:00').iso, weight: 100, reps: [8], pr: 'weight' },
               ],
             },
           },
+          // Four weeks apart, which clears the three-week floor the trend
+          // needs, and 2 lb apart at 0.5 lb/week.
           bodyMetrics: {
-            b1: { date: '2026-06-24', weight: 170, bodyFatPct: 13.0 },
-            b2: { date: '2026-07-22', weight: 172, bodyFatPct: 13.1 },
+            b1: { date: FOUR_WEEKS.day, weight: 170, bodyFatPct: 13.0 },
+            b2: { date: TODAY.day, weight: 172, bodyFatPct: 13.1 },
           },
         },
       })
@@ -767,7 +795,7 @@ describe('tool handlers', () => {
       expect(r.changeLbs).toBe(2)
 
       const thin = fakeStore({
-        collections: { bodyMetrics: { b1: { date: '2026-07-20', weight: 172 } } },
+        collections: { bodyMetrics: { b1: { date: TODAY.day, weight: 172 } } },
       })
       const t = await tooling(thin).handlers.get_body_metrics({})
       expect(t.available).toBe(false)
