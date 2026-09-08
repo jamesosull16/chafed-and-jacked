@@ -345,7 +345,9 @@ export const TOOL_DEFINITIONS = [
       'meal prep, a shopping list, "what should I cook this week", how to spread food ' +
       'across the next few days, or planning around a day he says he will be busy. Every ' +
       'other training read looks backwards, so answer a planning question from this ' +
-      'rather than from what he has already done.',
+      'rather than from what he has already done. The week reflows around what was ' +
+      'actually trained rather than around the weekday, so a day may come back already ' +
+      'done, or flagged catch_up because a missed day pushed a session onto it.',
     input_schema: {
       type: 'object',
       properties: {
@@ -810,6 +812,12 @@ export function createHandlers({ store, estimate, photo, dateId, context }) {
           focus: d.training ? d.focus : null,
           rest: !d.training,
           phase: d.phase,
+          // Already logged. Nothing to plan for, and it is why a day earlier in
+          // the week can be a session he has trained rather than one he owes.
+          done: !!d.completed,
+          // A session the week has moved onto a day the plan does not have,
+          // because an earlier day was missed. Expected, not committed.
+          catch_up: !!d.unscheduled,
         })),
       }
     },

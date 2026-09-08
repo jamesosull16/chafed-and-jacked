@@ -5,10 +5,13 @@ import {
   getSplit,
   plannedWeeklySets,
   buildWeekSchedule,
+  mergeLoggedExercises,
   CORE_BLOCK_SIZE,
   SPLITS,
 } from '../strengthProgram'
+import { STRENGTH_EXERCISES } from '../exercises'
 import { VOLUME_LANDMARKS } from '../chainBalance'
+import { formatLocalDate } from '../../localDate'
 import { getBlockStatus } from '../strengthPeriodization'
 import { isExerciseAllowed } from '../injuryGuardrails'
 
@@ -630,25 +633,48 @@ describe('buildWeekSchedule', () => {
       ...extra,
     })
 
+  const SPLIT_NAMES = [
+    'Lower — Posterior',
+    'Upper — Push',
+    'Lower — Quad & Glute',
+    'Upper — Pull',
+  ]
+  const DAY_IDS = ['lowerPosterior', 'upperPush', 'lowerQuad', 'upperPull']
+
+  /** A logged strength session, shaped the way saveSession stores one. */
+  const logged = (date, splitIndex, id = 'sess1') => ({
+    id,
+    mode: 'strength',
+    completed: true,
+    date,
+    splitIndex,
+    dayId: DAY_IDS[splitIndex],
+    name: SPLIT_NAMES[splitIndex],
+  })
+
+  const named = (days) => days.map((d) => d.name)
+
   it('gives one entry per training day, named from the split', () => {
-    const { days } = week(0)
+    // A future week has nothing logged and nothing missed, so it is the plan
+    // exactly as written.
+    const { days } = week(1)
     expect(days).toHaveLength(4)
     expect(days.map((d) => d.splitIndex)).toEqual([0, 1, 2, 3])
-    expect(days[0].name).toBe('Lower — Posterior')
+    expect(named(days)).toEqual(SPLIT_NAMES)
     expect(days.every((d) => d.focus)).toBe(true)
+    expect(days.every((d) => d.status === 'upcoming')).toBe(true)
   })
 
   it('moves a whole week forward, keeping the same split order', () => {
-    const now = week(0)
     const next = week(1)
+    const after = week(2)
 
-    expect(next.weekOffset).toBe(1)
-    expect(next.isCurrent).toBe(false)
-    expect(next.blockWeek).toBe(now.blockWeek + 1)
-    expect(next.days.map((d) => d.name)).toEqual(now.days.map((d) => d.name))
+    expect(after.weekOffset).toBe(2)
+    expect(after.isCurrent).toBe(false)
+    expect(after.blockWeek).toBe(next.blockWeek + 1)
+    expect(named(after.days)).toEqual(named(next.days))
     for (let i = 0; i < 4; i++) {
-      const delta = (next.days[i].date - now.days[i].date) / 86400000
-      expect(delta).toBe(7)
+      expect((after.days[i].date - next.days[i].date) / 86400000).toBe(7)
     }
   })
 
@@ -664,27 +690,206 @@ describe('buildWeekSchedule', () => {
   })
 
   it('marks today, and only today', () => {
-    const { days } = week(0)
-    expect(days.filter((d) => d.isToday)).toHaveLength(0) // Wednesday is a rest day
-    const monday = days.find((d) => d.splitIndex === 0)
-    expect(monday.isPast).toBe(true)
-    expect(days.find((d) => d.splitIndex === 2).isPast).toBe(false)
+    const today = week(0).days.filter((d) => d.isToday)
+    expect(today).toHaveLength(1)
+    expect(today[0].dateId).toBe('2026-07-22')
+    expect(week(1).days.some((d) => d.isToday)).toBe(false)
   })
 
-  it('pairs a logged session with its day, and never with a future one', () => {
-    const monday = week(0).days[0]
-    const logged = [{ id: 'sess1', date: `${monday.dateId}T18:00:00.000Z`, splitIndex: 0 }]
+  it('pairs a logged session with the day it was trained on', () => {
+    const monday = '2026-07-20'
+    const { days } = week(0, { sessions: [logged(`${monday}T18:00:00.000Z`, 0)] })
 
-    expect(week(0, { sessions: logged }).days[0]).toMatchObject({
-      completed: true,
-      sessionId: 'sess1',
-    })
+    expect(days[0]).toMatchObject({ dateId: monday, completed: true, sessionId: 'sess1' })
     // Same split index, different week — must not inherit the completion.
-    expect(week(1, { sessions: logged }).days[0].completed).toBe(false)
+    expect(week(1, { sessions: [logged(`${monday}T18:00:00.000Z`, 0)] }).days[0].completed).toBe(
+      false
+    )
   })
 
   it('nothing in a future week is complete', () => {
     expect(week(2).days.some((d) => d.completed)).toBe(false)
+  })
+
+  describe('the week reflows around what was actually trained', () => {
+    it('keeps a session on the day it happened, under its own name', () => {
+      // The bug this exists for: Monday's session trained on Tuesday. The old
+      // schedule labelled Tuesday "Upper — Push", refused to mark it done, and
+      // left Monday waiting for a session that had already happened.
+      const { days } = week(0, { sessions: [logged('2026-07-21T12:00:00.000Z', 0)] })
+      const tuesday = days.find((d) => d.dateId === '2026-07-21')
+
+      expect(tuesday).toMatchObject({
+        status: 'done',
+        completed: true,
+        name: 'Lower — Posterior',
+        sessionId: 'sess1',
+      })
+    })
+
+    it('slides what is left onto the days that are left', () => {
+      const { days } = week(0, { sessions: [logged('2026-07-21T12:00:00.000Z', 0)] })
+      const ahead = days.filter((d) => d.status === 'upcoming')
+
+      // Push, Quad, Pull — in order, on the three days the week has left.
+      expect(named(ahead)).toEqual(SPLIT_NAMES.slice(1))
+      expect(ahead.map((d) => d.dateId)).toEqual(['2026-07-22', '2026-07-23', '2026-07-24'])
+    })
+
+    it('offers today a slot even when the plan does not have one', () => {
+      // Wednesday is a rest day in the rota. If the week still owes sessions
+      // and he is training now, now is where the next one goes — otherwise a
+      // makeup session has no row to start from.
+      const today = week(0).days.find((d) => d.dateId === '2026-07-22')
+      expect(today).toMatchObject({ status: 'upcoming', unscheduled: true })
+      expect(today.splitIndex).toBe(0)
+    })
+
+    it('spills onto the weekend once the weekdays run out', () => {
+      // Nothing trained by Wednesday: four sessions owed, three weekdays left.
+      const { days } = week(0)
+      const saturday = days.find((d) => d.dateId === '2026-07-25')
+
+      expect(saturday).toMatchObject({ status: 'upcoming', unscheduled: true })
+      expect(saturday.name).toBe('Upper — Pull')
+    })
+
+    it('reports a training day that went untrained as missed, carrying no split', () => {
+      const { days } = week(0, { sessions: [logged('2026-07-21T12:00:00.000Z', 0)] })
+      const monday = days.find((d) => d.dateId === '2026-07-20')
+
+      expect(monday).toMatchObject({ status: 'missed', completed: false, splitIndex: null })
+    })
+
+    it('runs out of week rather than inventing a day', () => {
+      // Asked on the Sunday, with nothing trained: seven days of rota gone and
+      // no date left to put anything on.
+      const sunday = buildWeekSchedule({
+        trainingDayIndices: [1, 2, 4, 5],
+        trainingDaysPerWeek: 4,
+        blockStart: BLOCK_START,
+        blockEnd: BLOCK_END,
+        now: new Date('2026-07-26T09:00:00'),
+      })
+      const unplaced = sunday.days.filter((d) => d.status === 'unplaced')
+
+      expect(unplaced.length).toBeGreaterThan(0)
+      expect(unplaced.every((d) => d.date === null)).toBe(true)
+      // Still named, so they can be reported rather than quietly dropped.
+      expect(unplaced.every((d) => d.name)).toBe(true)
+    })
+
+    it('reassigns the remaining week when a session is relabelled', () => {
+      // Same session, same sets, relabelled from posterior to pull. The slot it
+      // now pays for is the pull slot, so posterior comes back to the front of
+      // what the week still owes.
+      const { days } = week(0, { sessions: [logged('2026-07-21T12:00:00.000Z', 3)] })
+
+      expect(days.find((d) => d.dateId === '2026-07-21').name).toBe('Upper — Pull')
+      expect(named(days.filter((d) => d.status === 'upcoming'))).toEqual([
+        'Lower — Posterior',
+        'Upper — Push',
+        'Lower — Quad & Glute',
+      ])
+    })
+
+    it('gives an off-plan session a row without discharging a slot', () => {
+      // A sixth session in a four-day split pays for nothing: the week still
+      // owes everything it owed.
+      const sessions = [
+        logged('2026-07-20T12:00:00.000Z', 0, 'a'),
+        logged('2026-07-21T12:00:00.000Z', 0, 'b'),
+      ]
+      const { days } = week(0, { sessions })
+
+      expect(days.filter((d) => d.status === 'done')).toHaveLength(2)
+      expect(named(days.filter((d) => d.status !== 'done'))).toEqual(SPLIT_NAMES.slice(1))
+    })
+  })
+
+  describe('which records the week is willing to read', () => {
+    it('files a session on the local day it was trained, not the UTC one', () => {
+      // 01:30 UTC. West of Greenwich that is the previous evening, and reading
+      // the day off the UTC prefix filed it on a day he was asleep for.
+      const iso = '2026-07-23T01:30:00.000Z'
+      const done = week(0, { sessions: [logged(iso, 1)] }).days.find((d) => d.status === 'done')
+
+      expect(done.dateId).toBe(formatLocalDate(new Date(iso)))
+    })
+
+    it('never lets a running session consume a strength slot', () => {
+      // The running block predates this one and its sessions carry no split at
+      // all. Letting them in would cancel slots at random.
+      const running = [{ id: 'old', date: '2026-07-21T12:00:00.000Z', dayType: 'A' }]
+      const { days } = week(0, { sessions: running })
+
+      expect(days.some((d) => d.status === 'done')).toBe(false)
+      expect(named(days.filter((d) => d.status === 'upcoming'))).toEqual(SPLIT_NAMES)
+    })
+
+    it('ignores a session that was abandoned rather than completed', () => {
+      const abandoned = [{ ...logged('2026-07-21T12:00:00.000Z', 0), completed: false }]
+      expect(week(0, { sessions: abandoned }).days.some((d) => d.status === 'done')).toBe(false)
+    })
+  })
+})
+
+describe('mergeLoggedExercises', () => {
+  // Review renders the prescription and fills it with the logged sets. That
+  // works only while the two describe the same session — and relabelling one
+  // points it at a different template entirely, at which point sets logged
+  // against a movement the new template never prescribes have nowhere to go.
+  const prescription = () =>
+    buildSession({ ...ATHLETE, splitIndex: 3, blockStatus: statusForWeek(1) })
+
+  it('leaves a session whose prescription still covers it alone', () => {
+    const session = prescription()
+    const asLogged = { exercises: session.exercises.slice(0, 3).map((e) => ({ id: e.id, sets: [] })) }
+
+    expect(mergeLoggedExercises(session, asLogged)).toBe(session)
+  })
+
+  it('appends logged work the prescription no longer contains', () => {
+    const session = prescription()
+    // A hip thrust is posterior-day work: relabel a posterior session as a pull
+    // session and the prescription stops mentioning it entirely.
+    const orphan = { id: 'barbellHipThrust', sets: [{ weight: 155, reps: 10, completed: true }] }
+    expect(session.exercises.some((e) => e.id === orphan.id)).toBe(false)
+
+    const merged = mergeLoggedExercises(session, { exercises: [orphan] })
+    const added = merged.exercises.find((e) => e.id === orphan.id)
+
+    expect(added).toBeTruthy()
+    expect(merged.exercises).toHaveLength(session.exercises.length + 1)
+    // Sized by what was performed, not by a prescription that no longer applies.
+    expect(added.sets).toBe(1)
+    // Nothing to suggest about a session that has already happened.
+    expect(added.recommendedWeight).toBe(0)
+    expect(added.rirTarget).toBe(session.rirTarget)
+  })
+
+  it('counts a per-side movement in prescribed sets, not logged rows', () => {
+    const session = prescription()
+    const perSide = Object.values(STRENGTH_EXERCISES).find(
+      (e) => e.perSide && !session.exercises.some((x) => x.id === e.id)
+    )
+    const rows = Array.from({ length: 6 }, () => ({ reps: 10, completed: true }))
+
+    const merged = mergeLoggedExercises(session, { exercises: [{ id: perSide.id, sets: rows }] })
+    // Six rows is three sets a side, which is what the card has to draw.
+    expect(merged.exercises.at(-1).sets).toBe(3)
+  })
+
+  it('ignores an id the catalogue has never heard of', () => {
+    const session = prescription()
+    const merged = mergeLoggedExercises(session, { exercises: [{ id: 'nope', sets: [{}] }] })
+    expect(merged.exercises).toHaveLength(session.exercises.length)
+  })
+
+  it('is a no-op when there is nothing logged to merge', () => {
+    const session = prescription()
+    expect(mergeLoggedExercises(session, null)).toBe(session)
+    expect(mergeLoggedExercises(null, { exercises: [] })).toBeNull()
   })
 })
 

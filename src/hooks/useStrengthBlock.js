@@ -1,9 +1,16 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useFirestore, formatLocalDate } from './useFirestore'
+import { sessionDayId } from '../lib/localDate'
 import { useAuth } from '../contexts/AuthContext'
 import { useAppMode } from './useAppMode'
-import { getBlockStatus, getBlockProgress, getNextTrainingDay, getSplitIndexForDate } from '../lib/strength/strengthPeriodization'
-import { buildSession, buildWeekSchedule, plannedWeeklySets } from '../lib/strength/strengthProgram'
+import { getBlockStatus, getBlockProgress } from '../lib/strength/strengthPeriodization'
+import {
+  buildSession,
+  buildWeekSchedule,
+  getDayTemplate,
+  getSplitLabels,
+  plannedWeeklySets,
+} from '../lib/strength/strengthProgram'
 import { analyzeBalance, laggingMuscles, sessionTonnage } from '../lib/strength/chainBalance'
 import { activeGuardrails, hamstringStageFor } from '../lib/strength/injuryGuardrails'
 import { mobilityAdherence } from '../lib/strength/mobility'
@@ -175,28 +182,66 @@ export function useStrengthBlock() {
     [strength.trainingDayIndices, strength.trainingDaysPerWeek, strength.blockStart, strength.blockEnd, sessions]
   )
 
-  /** Today's session, or the next one if today is a rest day. */
-  const todaysSession = useMemo(() => {
-    const next = getNextTrainingDay(strength.trainingDayIndices)
-    if (!next) return null
-    const session = buildSession({ ...sessionParams, splitIndex: next.splitIndex })
-    return session ? { ...session, date: next.date, isToday: next.isToday } : null
-  }, [sessionParams, strength.trainingDayIndices])
-
-  const isTrainingDay = useMemo(
-    () => getSplitIndexForDate(new Date(), strength.trainingDayIndices) !== null,
-    [strength.trainingDayIndices]
-  )
-
   /** This week's schedule with completion state. The dashboard's default. */
   const weekSchedule = useMemo(() => getWeekSchedule(0).days, [getWeekSchedule])
 
+  /** The row the week has put on today, if it has put one there at all. */
+  const todayRow = useMemo(() => weekSchedule.find((d) => d.isToday) || null, [weekSchedule])
+
+  /**
+   * Today's session, or the next one the week still owes.
+   *
+   * Read off the reflowed week rather than from the weekday, which is the whole
+   * point of the reflow: the split that belongs to today is whatever the week
+   * has left to give, not whichever position Tuesday happens to occupy in the
+   * rota. A `missed` row carries no split and falls through to the next day
+   * that does.
+   */
+  const todaysSession = useMemo(() => {
+    const target =
+      todayRow?.splitIndex != null
+        ? todayRow
+        : weekSchedule.find((d) => d.status === 'upcoming' && d.date)
+    if (!target || target.splitIndex == null) return null
+    const session = buildSession({ ...sessionParams, splitIndex: target.splitIndex })
+    if (!session) return null
+    return {
+      ...session,
+      date: target.date,
+      isToday: !!target.isToday,
+      completed: !!target.completed,
+      sessionId: target.sessionId,
+    }
+  }, [sessionParams, todayRow, weekSchedule])
+
+  /**
+   * Whether today is a lifting day, for the fuelling model.
+   *
+   * The reflowed week decides, not the calendar — but only where it is stating
+   * a fact rather than making an offer. A session logged today counts, and so
+   * does a planned training day still to come. A catch-up slot the reflow has
+   * put on an unplanned day does *not*, until it is actually trained: that row
+   * exists so he has somewhere to start from, and treating it as settled would
+   * feed him for a session he may well not do. A planned day that went
+   * untrained does not count either, however firmly the rota says otherwise.
+   */
+  const isTrainingDay = useMemo(
+    () => !!todayRow && (todayRow.completed || (todayRow.status === 'upcoming' && !todayRow.unscheduled)),
+    [todayRow]
+  )
+
   const plannedSets = useMemo(() => plannedWeeklySets(sessionParams), [sessionParams])
+
+  /** Every session the split runs, in order. What the relabel control offers. */
+  const splitLabels = useMemo(
+    () => getSplitLabels(strength.trainingDaysPerWeek),
+    [strength.trainingDaysPerWeek]
+  )
 
   /** Today's logged strength work, for the nutrition engine. */
   const todayLiftStats = useMemo(() => {
     const today = formatLocalDate()
-    const todaySessions = sessions.filter((s) => s.date?.slice(0, 10) === today)
+    const todaySessions = sessions.filter((s) => sessionDayId(s.date) === today)
     if (todaySessions.length === 0) return null
     return {
       totalVolume: todaySessions.reduce((sum, s) => sum + (s.totalVolume || 0), 0),
@@ -279,6 +324,37 @@ export function useStrengthBlock() {
     await loadData()
 
     return { id: sessionId, ...doc }
+  }
+
+  /**
+   * Change what a logged session counts as, without touching what was lifted.
+   *
+   * The reflow handles the ordinary case on its own — train Monday's session on
+   * Tuesday and the week works it out. This is for the case it cannot see: the
+   * wrong day was opened and the wrong session performed, or a day was
+   * improvised and belongs against a different slot. Only the classification
+   * moves. The sets, the volume, the duration and the exercise history stay
+   * exactly as they were logged, because they are a record of what happened and
+   * relabelling is a statement about the plan, not about the barbell.
+   *
+   * Renaming a session changes which slot the week considers paid, so the split
+   * it vacates reflows onto the next open day by itself.
+   */
+  async function relabelSession(sessionId, splitIndex) {
+    if (!user || !sessionId) return null
+
+    const existing = sessions.find((s) => s.id === sessionId)
+    if (!existing) return null
+
+    const template = getDayTemplate(strength.trainingDaysPerWeek, splitIndex)
+    if (!template) return null
+    if (existing.dayId === template.id && existing.splitIndex === splitIndex) return existing
+
+    const relabelled = { splitIndex, dayId: template.id, name: template.name }
+    await setDocument(`workoutSessions/${sessionId}`, relabelled)
+    await loadData()
+
+    return { ...existing, ...relabelled }
   }
 
   /**
@@ -371,6 +447,7 @@ export function useStrengthBlock() {
     lagging,
     mobility,
     plannedSets,
+    splitLabels,
     weekSchedule,
     getWeekSchedule,
     todaysSession,
@@ -379,6 +456,7 @@ export function useStrengthBlock() {
     getSession,
     saveSession,
     updateSession,
+    relabelSession,
     refresh: loadData,
   }
 }

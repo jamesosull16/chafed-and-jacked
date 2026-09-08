@@ -27,6 +27,31 @@ const STRENGTH = {
   ...BLOCK,
 }
 
+const DAY_IDS = ['lowerPosterior', 'upperPush', 'lowerQuad', 'upperPull']
+const logged = (date, splitIndex) => ({
+  id: `s${splitIndex}`,
+  mode: 'strength',
+  completed: true,
+  date: `${date}T12:00:00.000Z`,
+  splitIndex,
+  dayId: DAY_IDS[splitIndex],
+  name: DAY_IDS[splitIndex],
+})
+
+/**
+ * The week up to Friday, trained as written.
+ *
+ * The projection reflows around what was actually logged, so it needs the log.
+ * Handed an empty one it correctly concludes nothing has been trained and
+ * pushes the whole week onto the days that are left — a true answer to a
+ * question no real caller asks, and a confusing fixture.
+ */
+const TRAINED_WEEK = [
+  logged('2026-07-27', 0),
+  logged('2026-07-28', 1),
+  logged('2026-07-30', 2),
+]
+
 /** A store with nothing in it — this path must not depend on stored data. */
 const emptyStore = () => ({
   uid: 'test-uid',
@@ -56,6 +81,7 @@ async function throughTheWire(overrides = {}) {
     isStrength: true,
     now: NOW,
     strength: STRENGTH,
+    sessions: TRAINED_WEEK,
     ...BLOCK,
     ...overrides,
   })
@@ -104,6 +130,22 @@ describe('upcoming schedule parity', () => {
     expect(typeof first.training).toBe('boolean')
     expect(first.phase).toBeTruthy()
     expect(first.blockWeek).toBeGreaterThan(0)
+    // Added with the reflow. A day in the window can already be trained, or be
+    // carrying a session a missed day pushed onto it, and both change the
+    // fuelling answer — so both have to survive the clamp.
+    expect(typeof first.completed).toBe('boolean')
+    expect(typeof first.unscheduled).toBe('boolean')
+  })
+
+  it('tells the tool which days are already in the bank', async () => {
+    // Asked on the Friday of a week trained Mon/Tue/Thu, looking backwards is
+    // not this tool's job — but a session already done must not come back as
+    // work still to plan food around.
+    const { handlers } = await throughTheWire()
+    const result = await handlers.get_upcoming_sessions({ days: 7 })
+
+    expect(result.days.every((d) => d.done === false)).toBe(true)
+    expect(result.days.every((d) => d.catch_up === false)).toBe(true)
   })
 
   it('reaches the tool as real days rather than the empty-week answer', async () => {
@@ -114,6 +156,9 @@ describe('upcoming schedule parity', () => {
     expect(result.days).toHaveLength(7)
     expect(result.training_days).toBe(4)
     expect(result.rest_days).toBe(3)
+    // Friday still owes the pull day; the three before it are already done and
+    // reach the tool saying so, rather than as work still to be planned for.
+    expect(result.days[0]).toMatchObject({ days_from_now: 0, rest: false, done: false })
     // Named sessions, not bare "Training" placeholders — the point is planning
     // food against what the day actually is.
     expect(result.days.find((d) => !d.rest).session).toBeTruthy()
