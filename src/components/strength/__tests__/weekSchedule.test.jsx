@@ -113,6 +113,24 @@ describe('WeekSchedule', () => {
     expect(container.textContent).toMatch(/Catch-up/)
   })
 
+  it('finishes the week inside the working week when it can', () => {
+    // James's week: Monday missed, trained Tuesday, three sessions owed and
+    // Wednesday free. Nothing should land on the weekend — the earlier build
+    // put Upper — Pull on Saturday with Wednesday empty.
+    render(
+      <WeekSchedule
+        getWeek={getWeek([logged('2026-07-21', 0)], new Date('2026-07-21T18:00:00'))}
+      />
+    )
+
+    const rows = rowText()
+    expect(rows).toHaveLength(5)
+    expect(rows.at(-1)).toMatch(/Upper — Pull/)
+    // One borrowed weekday, and no Saturday or Sunday row at all.
+    expect(container.textContent.match(/Catch-up/g)).toHaveLength(1)
+    expect(container.textContent).not.toMatch(/Sa|Su/)
+  })
+
   it('survives a session the week has run out of days for', () => {
     // Asked on the Sunday having trained nothing: rows with no date at all,
     // which is the shape most likely to throw on `date.toLocaleDateString`.

@@ -217,16 +217,20 @@ export function useStrengthBlock() {
   /**
    * Whether today is a lifting day, for the fuelling model.
    *
-   * The reflowed week decides, not the calendar — but only where it is stating
-   * a fact rather than making an offer. A session logged today counts, and so
-   * does a planned training day still to come. A catch-up slot the reflow has
-   * put on an unplanned day does *not*, until it is actually trained: that row
-   * exists so he has somewhere to start from, and treating it as settled would
-   * feed him for a session he may well not do. A planned day that went
-   * untrained does not count either, however firmly the rota says otherwise.
+   * The reflowed week decides, not the calendar: if the schedule puts a session
+   * on today, today is fuelled as a training day. A day the rota calls a rest
+   * day but the week has moved a session onto is a training day — he trains it
+   * — and a planned day that went untrained is not, however firmly the rota
+   * says otherwise.
+   *
+   * This deliberately follows what the dashboard is showing him rather than
+   * second-guessing it. An earlier version excluded catch-up days as merely
+   * offered rather than committed, which fuelled a hard session as a rest day
+   * on exactly the days he was catching up — and under-fuelling a session he
+   * does train is a worse error, on a cut, than over-fuelling one he skips.
    */
   const isTrainingDay = useMemo(
-    () => !!todayRow && (todayRow.completed || (todayRow.status === 'upcoming' && !todayRow.unscheduled)),
+    () => !!todayRow && (todayRow.completed || todayRow.status === 'upcoming'),
     [todayRow]
   )
 

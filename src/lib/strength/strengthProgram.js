@@ -332,13 +332,15 @@ function startOfWeek(date) {
   return d
 }
 
-/** Saturday then Sunday of the week beginning `monday`. */
-function weekendOf(monday) {
-  return [5, 6].map((offset) => {
-    const d = new Date(monday)
-    d.setDate(d.getDate() + offset)
-    return d
-  })
+/** Every day from `from` to `to` inclusive, in order. */
+function daysInRange(from, to) {
+  const out = []
+  const d = new Date(from)
+  while (d <= to) {
+    out.push(new Date(d))
+    d.setDate(d.getDate() + 1)
+  }
+  return out
 }
 
 /**
@@ -398,12 +400,13 @@ function assignPositions(plan, logged) {
  *   the remaining training dates in rotation order, so missing Monday slides
  *   the week down rather than deleting a session and stranding a row.
  *
- * A day he actually trains on is always offered a slot, planned or not, and any
- * remaining weekday shortfall spills onto Saturday and Sunday. Both are flagged
- * `unscheduled`, so a catch-up day reads as catching up rather than as a
- * training day he forgot he had. Past that the week is out of room and the
- * remainder is reported as `unplaced`, which is honest: it is work the week no
- * longer has anywhere to put.
+ * A week short of days borrows from the rest of the week in date order, so a
+ * spare Wednesday is used before Saturday is: the weekend is where work goes
+ * when the working week could not absorb it, not the first place to look.
+ * Borrowed days are flagged `unscheduled`, so a catch-up day reads as catching
+ * up rather than as a training day he forgot he had. Past that the week is out
+ * of room and the remainder is reported as `unplaced`, which is honest: it is
+ * work the week no longer has anywhere to put.
  */
 export function buildWeekSchedule({
   trainingDayIndices = [1, 2, 4, 5],
@@ -474,37 +477,31 @@ export function buildWeekSchedule({
     const id = isoDay(d)
     return id >= todayId && !spokenFor.has(id)
   })
-  // Today counts, whatever the calendar says — but only to cover a shortfall.
+  // Not enough of the plan's own days left. Fill from the rest of the week, in
+  // date order, whether or not the rota uses those days.
   //
-  // Miss Monday and the week owes four sessions with three days to put them on,
-  // and today is the obvious place for the extra one: without it, moving
-  // Tuesday's session to Wednesday leaves Wednesday with no row to start from,
-  // and he is back to opening some other day's link and having the week
-  // misreport what happened — the exact failure the reflow exists to end.
+  // The order is the whole point, and getting it wrong was the first version's
+  // real mistake: it offered today and then jumped straight to the weekend, so
+  // missing Monday pushed a session onto Saturday while Wednesday sat empty.
+  // A spare weekday is a spare day. The weekend comes last because it is last
+  // in the week, not because it is a different kind of day, and it is reached
+  // only once the weekdays genuinely run out — which is the only time a session
+  // has not been trained by the end of the working week.
   //
-  // The guard matters as much as the rule. A week still holding enough of its
-  // own days needs no help, and adding today anyway would drag sessions
-  // *forward* off the days he means to train them on. That is not a reflow, it
-  // is a different plan.
-  const todayInWeek = todayId >= weekStartId && todayId <= weekEndId
-  if (
-    remaining.length > openDates.length &&
-    todayInWeek &&
-    !spokenFor.has(todayId) &&
-    !openDates.some((d) => isoDay(d) === todayId)
-  ) {
-    openDates.push(new Date(`${todayId}T00:00:00`))
-  }
-
-  // Still short on days: the weekend takes the spill.
+  // The shortfall guard matters as much as the order. A week still holding
+  // enough of its own days needs no help, and adding days anyway would drag
+  // sessions *forward* off the days he means to train them on. That is not a
+  // reflow, it is a different plan.
   if (remaining.length > openDates.length) {
-    for (const d of weekendOf(monday)) {
+    for (const date of daysInRange(monday, sunday)) {
       if (openDates.length >= remaining.length) break
-      const id = isoDay(d)
-      if (id < todayId || spokenFor.has(id) || openDates.some((o) => isoDay(o) === id)) continue
-      openDates.push(d)
+      const id = isoDay(date)
+      if (id < todayId || spokenFor.has(id)) continue
+      if (openDates.some((d) => isoDay(d) === id)) continue
+      openDates.push(date)
     }
   }
+
   openDates.sort((a, b) => a - b)
 
   const upcomingRows = remaining.map((position, i) => {

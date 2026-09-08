@@ -745,6 +745,49 @@ describe('buildWeekSchedule', () => {
       expect(today.splitIndex).toBe(0)
     })
 
+    it('uses a spare weekday before it touches the weekend', () => {
+      // James's actual week, and the case the first version got wrong. Asked on
+      // the Tuesday, with Monday missed and Tuesday trained: the week owes
+      // three sessions and has Wednesday, Thursday and Friday to put them on.
+      // Wednesday is not a training day in the rota and is not today, so a pool
+      // built from "today, then the weekend" could not see it at all — and the
+      // week pushed a session onto Saturday while Wednesday sat empty.
+      const tuesday = buildWeekSchedule({
+        trainingDayIndices: [1, 2, 4, 5],
+        trainingDaysPerWeek: 4,
+        sessions: [logged('2026-07-21T12:00:00.000Z', 0)],
+        now: new Date('2026-07-21T18:00:00'),
+        blockStart: BLOCK_START,
+        blockEnd: BLOCK_END,
+      })
+      const ahead = tuesday.days.filter((d) => d.status === 'upcoming')
+
+      expect(ahead.map((d) => d.dateId)).toEqual(['2026-07-22', '2026-07-23', '2026-07-24'])
+      expect(named(ahead)).toEqual(SPLIT_NAMES.slice(1))
+      // The week finishes inside the working week, so nothing lands on it.
+      expect(tuesday.days.some((d) => d.dateId > '2026-07-24')).toBe(false)
+      // Only the borrowed day is a catch-up; Thursday and Friday are back on
+      // the sessions the rota gives them.
+      expect(ahead.filter((d) => d.unscheduled).map((d) => d.dateId)).toEqual(['2026-07-22'])
+    })
+
+    it('reaches the weekend only once the weekdays are genuinely gone', () => {
+      // Same week, but Wednesday went by untrained too. Now there is no spare
+      // weekday left and Saturday is the honest answer.
+      const thursday = buildWeekSchedule({
+        trainingDayIndices: [1, 2, 4, 5],
+        trainingDaysPerWeek: 4,
+        sessions: [logged('2026-07-21T12:00:00.000Z', 0)],
+        now: new Date('2026-07-23T09:00:00'),
+        blockStart: BLOCK_START,
+        blockEnd: BLOCK_END,
+      })
+      const ahead = thursday.days.filter((d) => d.status === 'upcoming')
+
+      expect(ahead.map((d) => d.dateId)).toEqual(['2026-07-23', '2026-07-24', '2026-07-25'])
+      expect(ahead.at(-1)).toMatchObject({ unscheduled: true, name: 'Upper — Pull' })
+    })
+
     it('spills onto the weekend once the weekdays run out', () => {
       // Nothing trained by Wednesday: four sessions owed, three weekdays left.
       const { days } = week(0)
