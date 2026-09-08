@@ -11,8 +11,10 @@ import {
   StretchHorizontal,
   Shield,
   CalendarDays,
+  Tag,
 } from 'lucide-react'
 import { useStrengthBlock } from '../../hooks/useStrengthBlock'
+import { mergeLoggedExercises } from '../../lib/strength/strengthProgram'
 import { Card, CardHeader, Button, Badge, SkeletonPage, ProgressBar, EmptyState } from '../ui'
 import { cn } from '../ui/cn'
 import SetRow from './SetRow'
@@ -423,6 +425,8 @@ export default function StrengthSession({ searchParams }) {
     getSession,
     saveSession,
     updateSession,
+    relabelSession,
+    splitLabels,
     weekSchedule,
     getWeekSchedule,
     sessions,
@@ -435,6 +439,8 @@ export default function StrengthSession({ searchParams }) {
   const bodyweight = bodyMetrics?.[0]?.weight || null
 
   const requestedDay = searchParams.get('day')
+  // The logged document to review, addressed directly. See `loggedSession`.
+  const requestedSessionId = searchParams.get('session')
   const isReview = searchParams.get('review') === '1'
   // Looking at a week that hasn't happened. Read-only by definition: there is
   // nothing to log on a future day, and the loads are a projection off work he
@@ -458,14 +464,7 @@ export default function StrengthSession({ searchParams }) {
   const [sessionRpe, setSessionRpe] = useState(null)
   const [rating, setRating] = useState(false)
   const [restored, setRestored] = useState(false)
-
-  // The session is derived, not stored — it is a pure function of the block
-  // state and which day was requested.
-  const session = useMemo(() => {
-    if (loading) return null
-    if (requestedDay == null) return todaysSession
-    return getSession(Number.parseInt(requestedDay, 10), { weekOffset })
-  }, [loading, requestedDay, weekOffset, getSession, todaysSession])
+  const [relabelling, setRelabelling] = useState(false)
 
   /** The calendar date the previewed session falls on. */
   const previewDate = useMemo(() => {
@@ -477,30 +476,52 @@ export default function StrengthSession({ searchParams }) {
       : null
   }, [isPreview, requestedDay, weekOffset, getWeekSchedule])
 
-  const firstExerciseId = session?.exercises[0]?.id ?? null
-  const dayId = session?.dayId ?? null
-  const expanded = expandedOverride === undefined ? firstExerciseId : expandedOverride
-
   /**
    * The document behind a completed day, when one is being reviewed.
    *
-   * `session` above is the *prescription* — what the block says to do on this
-   * split index, rebuilt from scratch every time. It carries no record of what
-   * was actually lifted. Review mode was rendering that prescription with
+   * `session` below is the *prescription* — what the block says to do on this
+   * split, rebuilt from scratch every time. It carries no record of what was
+   * actually lifted. Review mode was rendering that prescription with
    * `readOnly` set and nothing else, which is why a completed session opened as
    * an empty form: there were no logged sets on screen to edit, because none
    * had been loaded.
    *
-   * Matched through weekSchedule, which already pairs each training day with
-   * the session logged against it, so the definition of "this day is done"
-   * stays in one place instead of being re-derived here and drifting.
+   * Addressed by document id. It used to be found by split index through the
+   * week schedule, and that handle has stopped being stable: the week reflows
+   * around missed days, and a session can be relabelled to a different split
+   * outright, so the index a session answers to is no longer fixed. Links
+   * without an id still resolve the old way rather than breaking.
    */
   const loggedSession = useMemo(() => {
-    if (!isReview || isPreview || requestedDay == null) return null
+    if (!isReview || isPreview) return null
+    if (requestedSessionId) return sessions.find((s) => s.id === requestedSessionId) || null
+    if (requestedDay == null) return null
     const splitIndex = Number.parseInt(requestedDay, 10)
     const day = weekSchedule.find((d) => d.splitIndex === splitIndex && d.sessionId)
     return day ? sessions.find((s) => s.id === day.sessionId) || null : null
-  }, [isReview, isPreview, requestedDay, weekSchedule, sessions])
+  }, [isReview, isPreview, requestedSessionId, requestedDay, weekSchedule, sessions])
+
+  /**
+   * The session on screen: a prescription, derived rather than stored.
+   *
+   * Under review it follows the *logged* session's split, not the one in the
+   * URL — those part company the moment a session is relabelled — and carries
+   * any exercise the logged document has that the prescription does not, so no
+   * logged set can end up with nowhere to render.
+   */
+  const session = useMemo(() => {
+    if (loading) return null
+    if (loggedSession) {
+      const splitIndex = loggedSession.splitIndex ?? Number.parseInt(requestedDay, 10)
+      return mergeLoggedExercises(getSession(splitIndex), loggedSession)
+    }
+    if (requestedDay == null) return todaysSession
+    return getSession(Number.parseInt(requestedDay, 10), { weekOffset })
+  }, [loading, loggedSession, requestedDay, weekOffset, getSession, todaysSession])
+
+  const firstExerciseId = session?.exercises[0]?.id ?? null
+  const dayId = session?.dayId ?? null
+  const expanded = expandedOverride === undefined ? firstExerciseId : expandedOverride
 
   // Put the logged sets on screen. Every set is marked completed, which is what
   // SetRow reads to render itself locked with the pencil affordance — the edit
@@ -625,6 +646,25 @@ export default function StrengthSession({ searchParams }) {
     }
   }
 
+  /**
+   * Point a logged session at a different split.
+   *
+   * The reflow already covers the ordinary case — train Monday's session on
+   * Tuesday and the week works it out — so this is for the case it cannot see:
+   * the wrong day was opened and the wrong session performed. Nothing that was
+   * lifted changes. What changes is which slot the week considers paid, so the
+   * split this session vacates reflows onto the next open day by itself.
+   */
+  async function changeLabel(splitIndex) {
+    if (!loggedSession || relabelling || splitIndex === loggedSession.splitIndex) return
+    setRelabelling(true)
+    try {
+      await relabelSession(loggedSession.id, splitIndex)
+    } finally {
+      setRelabelling(false)
+    }
+  }
+
   async function handleFinish() {
     if (!session || saving) return
     setSaving(true)
@@ -699,7 +739,7 @@ export default function StrengthSession({ searchParams }) {
   }
 
   if (!session) {
-    const nextDay = weekSchedule.find((d) => !d.completed && !d.isPast)
+    const nextDay = weekSchedule.find((d) => d.status === 'upcoming' && d.date)
     return (
       <EmptyState
         icon={Timer}
@@ -788,15 +828,52 @@ export default function StrengthSession({ searchParams }) {
         )}
 
         {loggedSession && (
-          <p className="text-xs text-muted mt-2">
-            Logged{' '}
-            {new Date(loggedSession.date).toLocaleDateString('en-US', {
-              weekday: 'long',
-              month: 'short',
-              day: 'numeric',
-            })}
-            . Tap the pencil on any set to correct it.
-          </p>
+          <div className="mt-2 space-y-2.5">
+            <p className="text-xs text-muted">
+              Logged{' '}
+              {new Date(loggedSession.date).toLocaleDateString('en-US', {
+                weekday: 'long',
+                month: 'short',
+                day: 'numeric',
+              })}
+              . Tap the pencil on any set to correct it.
+            </p>
+
+            <div>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Tag className="w-3 h-3 text-subtle shrink-0" aria-hidden="true" />
+                <p className="text-xs text-subtle">Counts as</p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {splitLabels.map((label, i) => {
+                  const active = i === loggedSession.splitIndex
+                  return (
+                    <button
+                      // Position, not template id: the six-day split runs
+                      // lowerPosterior twice and the ids collide.
+                      key={`${label.id}-${i}`}
+                      type="button"
+                      onClick={() => changeLabel(i)}
+                      disabled={relabelling || active}
+                      aria-pressed={active}
+                      className={cn(
+                        'text-xs font-medium px-2.5 py-1.5 min-h-8 rounded-lg border transition-colors',
+                        active
+                          ? 'bg-brand text-inverse border-brand'
+                          : 'bg-surface text-muted border-border-default hover:text-text hover:bg-surface-2',
+                        relabelling && !active && 'opacity-50'
+                      )}
+                    >
+                      {label.name}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-subtle mt-1.5">
+                Changes what this session counts as in the week. The sets stay as logged.
+              </p>
+            </div>
+          </div>
         )}
       </div>
 

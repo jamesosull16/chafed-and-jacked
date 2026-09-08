@@ -74,6 +74,11 @@ function sanitizeUpcoming(upcoming) {
     focus: d.focus ? String(d.focus).slice(0, 120) : null,
     blockWeek: d.blockWeek == null ? null : num(d.blockWeek, 1),
     phase: d.phase === 'deload' ? 'deload' : d.phase ? 'accumulation' : null,
+    // The week reflows around what was actually trained, so a day in the
+    // window can already be done, and a day the plan does not have can be
+    // carrying a catch-up. Both change the fuelling answer.
+    completed: !!d.completed,
+    unscheduled: !!d.unscheduled,
   }))
   if (!days.length) return null
   return { days, weeklyMiles: upcoming.weeklyMiles == null ? null : num(upcoming.weeklyMiles, 0) }

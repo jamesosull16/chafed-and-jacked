@@ -22,14 +22,19 @@ import { UpperBodyBalance, MobilityCard, GuardrailsCard } from '../strength/Bala
 import NutritionPanel from './NutritionPanel'
 
 /** Today's session, or the next one when today is a rest day. */
-function TodaySessionCard({ session, isTrainingDay, completed }) {
+function TodaySessionCard({ session, isTrainingDay }) {
   if (!session) return null
 
   const label = session.isToday ? 'Today' : session.date.toLocaleDateString('en-US', { weekday: 'long' })
+  // Addressed by document id, not by split index: the reflow and the relabel
+  // control both move which index a logged session answers to.
+  const to = session.completed
+    ? `/workout?day=${session.splitIndex}&review=1&session=${session.sessionId}`
+    : `/workout?day=${session.splitIndex}`
 
   return (
     <Card
-      to={`/workout?day=${session.splitIndex}${completed ? '&review=1' : ''}`}
+      to={to}
       elevated
       className="!bg-brand !border-brand"
     >
@@ -64,7 +69,6 @@ export default function StrengthDashboard() {
     guardrails,
     balance,
     mobility,
-    weekSchedule,
     getWeekSchedule,
     todaysSession,
     isTrainingDay,
@@ -161,15 +165,9 @@ export default function StrengthDashboard() {
 
   if (loading) return <SkeletonPage cards={4} />
 
-  const todayCompleted = weekSchedule.some((d) => d.isToday && d.completed)
-
   return (
     <div className="space-y-4">
-      <TodaySessionCard
-        session={todaysSession}
-        isTrainingDay={isTrainingDay}
-        completed={todayCompleted}
-      />
+      <TodaySessionCard session={todaysSession} isTrainingDay={isTrainingDay} />
 
       {blockStatus.isComplete && (
         <Card className="bg-success-subtle border-success-border">

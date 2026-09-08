@@ -363,12 +363,15 @@ export default function CoachChat() {
       buildUpcomingSessions({
         isStrength,
         strength,
+        // Without these the projection assumes an untrained week and reflows
+        // sessions the athlete has already done onto days still ahead of him.
+        sessions: block.sessions,
         blockStart: strength.blockStart,
         blockEnd: strength.blockEnd,
         runningTrainingDays: userProfile?.onboarding?.trainingDays,
         runningWeeklyMiles: isStrength ? null : running.currentMileage || 0,
       }),
-    [isStrength, strength, userProfile, running.currentMileage]
+    [isStrength, strength, block.sessions, userProfile, running.currentMileage]
   )
 
   /**

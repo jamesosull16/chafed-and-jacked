@@ -15,7 +15,7 @@
  */
 
 import { DAY_LABELS, TRAINING_SCHEDULES, DAY_TYPE_ORDER } from './program'
-import { getSplitLabels } from './strength/strengthProgram'
+import { buildWeekSchedule } from './strength/strengthProgram'
 import { getBlockStatus } from './strength/strengthPeriodization'
 
 /** How far ahead the coach can see. Two weeks covers any shopping trip. */
@@ -53,6 +53,7 @@ export function buildUpcomingSessions({
   days = UPCOMING_DAYS,
   now = new Date(),
   strength = {},
+  sessions = [],
   blockStart,
   blockEnd,
   runningTrainingDays = 'mon-wed-fri',
@@ -62,30 +63,65 @@ export function buildUpcomingSessions({
   const start = new Date(now)
   start.setHours(0, 0, 0, 0)
 
-  const liftDays = isStrength
-    ? [...(strength.trainingDayIndices || [1, 2, 4, 5])].sort((a, b) => a - b)
-    : TRAINING_SCHEDULES[runningTrainingDays]?.days || TRAINING_SCHEDULES['mon-wed-fri'].days
+  const runDays =
+    TRAINING_SCHEDULES[runningTrainingDays]?.days || TRAINING_SCHEDULES['mon-wed-fri'].days
 
-  const labels = isStrength ? getSplitLabels(strength.trainingDaysPerWeek || 4) : null
+  // Strength mode reads the same reflowed week the dashboard draws, rather than
+  // deriving the split from the weekday a second time. Two implementations of
+  // "what is Tuesday" is how the coach ends up describing a plan the athlete
+  // can see is not the one on his screen — and once the week can shift, they
+  // disagree constantly rather than never. Three Monday-weeks cover any
+  // fortnight window starting today.
+  const byDate = new Map()
+  if (isStrength) {
+    for (const weekOffset of [0, 1, 2]) {
+      const week = buildWeekSchedule({
+        trainingDayIndices: strength.trainingDayIndices,
+        trainingDaysPerWeek: strength.trainingDaysPerWeek || 4,
+        sessions,
+        blockStart,
+        blockEnd,
+        weekOffset,
+        now,
+      })
+      for (const day of week.days) {
+        // A missed day carries no session and an unplaced one has no date.
+        if (!day.dateId || day.status === 'missed') continue
+        if (!byDate.has(day.dateId)) byDate.set(day.dateId, day)
+      }
+    }
+  }
 
   for (let i = 0; i < days; i++) {
     const date = new Date(start)
     date.setDate(date.getDate() + i)
-    const splitIndex = liftDays.indexOf(date.getDay())
+    const dateId = isoDay(date)
 
     const day = {
-      date: isoDay(date),
+      date: dateId,
       weekday: WEEKDAY[date.getDay()],
       daysFromNow: i,
-      training: splitIndex !== -1,
+      training: false,
     }
 
-    if (splitIndex !== -1) {
-      if (isStrength) {
-        const label = labels[splitIndex % labels.length]
-        day.name = label?.name || null
-        day.focus = label?.focus || null
-      } else {
+    if (isStrength) {
+      const row = byDate.get(dateId)
+      if (row) {
+        day.training = true
+        day.name = row.name || null
+        day.focus = row.focus || null
+        // Already trained, so the coach is fuelling recovery rather than a
+        // session still to come.
+        day.completed = !!row.completed
+        // A catch-up the week has offered on a day the plan does not have.
+        // Expected work, but not a commitment — worth the coach knowing the
+        // difference before it plans a day's food around it.
+        day.unscheduled = !!row.unscheduled
+      }
+    } else {
+      const splitIndex = runDays.indexOf(date.getDay())
+      day.training = splitIndex !== -1
+      if (splitIndex !== -1) {
         const dayType = DAY_TYPE_ORDER[splitIndex % DAY_TYPE_ORDER.length]
         day.name = `Day ${dayType} — ${DAY_LABELS[dayType] || 'support lift'}`
         day.focus = DAY_LABELS[dayType] || null

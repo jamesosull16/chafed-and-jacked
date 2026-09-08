@@ -167,12 +167,30 @@ describe('buildUpcomingSessions', () => {
     blockEnd: '2026-12-20',
   }
 
-  const strengthWeek = (days = 14) =>
+  const DAY_IDS = ['lowerPosterior', 'upperPush', 'lowerQuad', 'upperPull']
+  const DAY_NAMES = ['Lower — Posterior', 'Upper — Push', 'Lower — Quad & Glute', 'Upper — Pull']
+  const logged = (date, splitIndex) => ({
+    id: `s${splitIndex}`,
+    mode: 'strength',
+    completed: true,
+    date: `${date}T12:00:00.000Z`,
+    splitIndex,
+    dayId: DAY_IDS[splitIndex],
+    name: DAY_NAMES[splitIndex],
+  })
+
+  // Monday and Tuesday trained as written, so the week is on plan and the
+  // projection has no catching up to do. Passing no log at all is a different
+  // scenario, covered on its own below.
+  const ON_PLAN = [logged('2026-07-20', 0), logged('2026-07-21', 1)]
+
+  const strengthWeek = (days = 14, sessions = ON_PLAN) =>
     buildUpcomingSessions({
       isStrength: true,
       days,
       now: NOW,
       strength: STRENGTH,
+      sessions,
       blockStart: STRENGTH.blockStart,
       blockEnd: STRENGTH.blockEnd,
     })
@@ -187,17 +205,43 @@ describe('buildUpcomingSessions', () => {
   })
 
   it('marks training days and rest days from the athlete\'s own schedule', () => {
+    // A window starting Wednesday, on a week trained to plan: Thursday and
+    // Friday are what is left of it, and the weekend is rest.
     const { days } = strengthWeek(7)
     const byWeekday = Object.fromEntries(days.map((d) => [d.weekday, d.training]))
-    expect(byWeekday.Monday).toBe(true)
-    expect(byWeekday.Tuesday).toBe(true)
     expect(byWeekday.Wednesday).toBe(false)
+    expect(byWeekday.Thursday).toBe(true)
+    expect(byWeekday.Friday).toBe(true)
     expect(byWeekday.Saturday).toBe(false)
     expect(byWeekday.Sunday).toBe(false)
+    // Next Monday and Tuesday, which nothing has been logged against yet.
+    expect(byWeekday.Monday).toBe(true)
+    expect(byWeekday.Tuesday).toBe(true)
+  })
+
+  it('describes the week the athlete is actually on, not the rota', () => {
+    // Monday's session trained on Tuesday. The coach used to read the split
+    // straight off the weekday and describe a plan the dashboard disagreed
+    // with — which is worse than describing nothing.
+    const { days } = strengthWeek(7, [logged('2026-07-21', 0)])
+    const byWeekday = Object.fromEntries(days.filter((d) => d.training).map((d) => [d.weekday, d]))
+
+    expect(byWeekday.Wednesday).toBeTruthy()
+    expect(byWeekday.Wednesday.name).toBe('Upper — Push')
+    expect(byWeekday.Wednesday.unscheduled).toBe(true)
+    expect(byWeekday.Thursday.name).toBe('Lower — Quad & Glute')
+    expect(byWeekday.Friday.name).toBe('Upper — Pull')
+  })
+
+  it('reports a day already trained as trained', () => {
+    // The window starts today, so a session logged today is in it — and the
+    // coach fuelling it as work still to come is the wrong answer.
+    const { days } = strengthWeek(7, [logged('2026-07-22', 0)])
+    expect(days[0]).toMatchObject({ training: true, completed: true, name: 'Lower — Posterior' })
   })
 
   it('names each session so food can be planned against the work', () => {
-    const training = strengthWeek(7).days.filter((d) => d.training)
+    const training = strengthWeek(7).days.filter((d) => d.training && !d.completed)
     expect(training.every((d) => typeof d.name === 'string' && d.name.length > 0)).toBe(true)
   })
 

@@ -21,6 +21,7 @@ import { isExerciseAllowed, substituteFor } from './injuryGuardrails.js'
 import { getMobilityBlock } from './mobility.js'
 import { landmarksFor, cappedMuscles, consumesAllowance } from './chainBalance.js'
 import { getBlockStatus, trainingDaysInWeek } from './strengthPeriodization.js'
+import { sessionDayId } from '../localDate.js'
 
 /** Average seconds of actual work per set, for time estimates. */
 const SECONDS_PER_SET_WORK = 45
@@ -322,6 +323,51 @@ function isoDay(date) {
   ).padStart(2, '0')}`
 }
 
+/** Monday of the week containing `date`, at local midnight. */
+function startOfWeek(date) {
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+  const weekday = d.getDay()
+  d.setDate(d.getDate() - weekday + (weekday === 0 ? -6 : 1))
+  return d
+}
+
+/** Saturday then Sunday of the week beginning `monday`. */
+function weekendOf(monday) {
+  return [5, 6].map((offset) => {
+    const d = new Date(monday)
+    d.setDate(d.getDate() + offset)
+    return d
+  })
+}
+
+/**
+ * Pair each logged session with the split position it satisfies.
+ *
+ * Positions, not template ids: the six-day split runs `lowerPosterior` twice,
+ * and cancelling "the lowerPosterior slot" would let one session pay for both.
+ *
+ * The stored `splitIndex` is trusted first, then the template id, and a session
+ * matching neither still gets a row but consumes nothing — an extra session, or
+ * one relabelled to a template this split does not run, is real work that does
+ * not discharge a slot the week still owes.
+ */
+function assignPositions(plan, logged) {
+  const open = plan.map((id, position) => ({ id, position }))
+  const placed = []
+
+  for (const session of logged) {
+    const dayId = session.dayId || plan[session.splitIndex] || null
+    let at = open.findIndex((s) => s.position === session.splitIndex && s.id === dayId)
+    if (at === -1) at = open.findIndex((s) => s.id === dayId)
+
+    placed.push({ session, position: at === -1 ? null : open[at].position })
+    if (at !== -1) open.splice(at, 1)
+  }
+
+  return { placed, remaining: open.map((s) => s.position) }
+}
+
 /**
  * One week of the block: which days are training days, what each one is, and
  * where the week sits in the periodisation.
@@ -333,6 +379,31 @@ function isoDay(date) {
  * A future week reports the phase and RIR target it will actually carry, which
  * is the whole point of looking ahead: week 7 being a deload changes how the
  * week before it should be trained, and the schedule is where he sees that.
+ *
+ * ## The week reflows around what was actually trained
+ *
+ * The split used to be a pure function of the weekday — Tuesday *was* the
+ * second session, by definition. That is only true of a week that goes to plan,
+ * and it fell apart the moment one didn't: train Monday's session on Tuesday
+ * and the schedule labelled the day Upper — Push, refused to mark it done
+ * (completion needed the date *and* the split index to agree), and left
+ * Monday's row waiting forever for a session that had already happened.
+ *
+ * So the plan is no longer the calendar. Two rules:
+ *
+ *   **The log owns its own date.** A row for a day something was logged on
+ *   shows that session, under its own name, marked done. Nothing is derived.
+ *
+ *   **What is left reflows onto what is left.** The splits not yet trained fill
+ *   the remaining training dates in rotation order, so missing Monday slides
+ *   the week down rather than deleting a session and stranding a row.
+ *
+ * A day he actually trains on is always offered a slot, planned or not, and any
+ * remaining weekday shortfall spills onto Saturday and Sunday. Both are flagged
+ * `unscheduled`, so a catch-up day reads as catching up rather than as a
+ * training day he forgot he had. Past that the week is out of room and the
+ * remainder is reported as `unplaced`, which is honest: it is work the week no
+ * longer has anywhere to put.
  */
 export function buildWeekSchedule({
   trainingDayIndices = [1, 2, 4, 5],
@@ -347,24 +418,137 @@ export function buildWeekSchedule({
   anchor.setDate(anchor.getDate() + weekOffset * 7)
 
   const labels = getSplitLabels(trainingDaysPerWeek)
+  const plan = getSplit(trainingDaysPerWeek)
   const status = getBlockStatus(blockStart, blockEnd, anchor)
   const todayId = isoDay(now)
 
-  const days = trainingDaysInWeek(trainingDayIndices, anchor).map(({ date, splitIndex }) => {
-    const dateId = isoDay(date)
-    const logged = sessions.find(
-      (s) => s.date?.slice(0, 10) === dateId && s.splitIndex === splitIndex
-    )
+  const monday = startOfWeek(anchor)
+  const sunday = new Date(monday)
+  sunday.setDate(sunday.getDate() + 6)
+  const [weekStartId, weekEndId] = [isoDay(monday), isoDay(sunday)]
+
+  const plannedDates = trainingDaysInWeek(trainingDayIndices, anchor).map((d) => d.date)
+
+  // Every strength session logged inside this week, oldest first, keyed to the
+  // local day it was trained on. Running-mode sessions predate the block and
+  // carry no split at all; letting them in would consume slots at random.
+  const logged = sessions
+    .filter((s) => s?.mode === 'strength' && s.completed !== false)
+    .map((s) => ({ session: s, dateId: sessionDayId(s.date) }))
+    .filter(({ dateId }) => dateId && dateId >= weekStartId && dateId <= weekEndId)
+    .sort((a, b) => a.dateId.localeCompare(b.dateId))
+
+  const { placed, remaining } = assignPositions(
+    plan,
+    logged.map((l) => l.session)
+  )
+
+  const doneRow = ({ session, dateId }, position) => {
+    const template = DAY_TEMPLATES[session.dayId] || null
+    const date = new Date(`${dateId}T00:00:00`)
     return {
-      ...labels[splitIndex],
-      splitIndex,
+      id: session.dayId || labels[position]?.id || null,
+      // The logged session's own name, so a relabel shows through here rather
+      // than being overwritten by whatever the rotation expected.
+      name: session.name || template?.name || labels[position]?.name || 'Session',
+      focus: template?.focus || labels[position]?.focus || null,
+      splitIndex: session.splitIndex ?? position ?? null,
       date,
       dateId,
       isToday: dateId === todayId,
       isPast: dateId < todayId,
-      completed: !!logged,
-      sessionId: logged?.id || null,
+      status: 'done',
+      completed: true,
+      unscheduled: !plannedDates.some((d) => isoDay(d) === dateId),
+      sessionId: session.id || null,
     }
+  }
+
+  const doneRows = logged.map((entry, i) => doneRow(entry, placed[i]?.position))
+  const spokenFor = new Set(doneRows.map((d) => d.dateId))
+
+  // Dates the rest of the week can still be trained on: planned days from today
+  // forward that nothing is already logged against, plus weekend overflow only
+  // once the weekdays run out.
+  const openDates = plannedDates.filter((d) => {
+    const id = isoDay(d)
+    return id >= todayId && !spokenFor.has(id)
+  })
+  // Today counts, whatever the calendar says — but only to cover a shortfall.
+  //
+  // Miss Monday and the week owes four sessions with three days to put them on,
+  // and today is the obvious place for the extra one: without it, moving
+  // Tuesday's session to Wednesday leaves Wednesday with no row to start from,
+  // and he is back to opening some other day's link and having the week
+  // misreport what happened — the exact failure the reflow exists to end.
+  //
+  // The guard matters as much as the rule. A week still holding enough of its
+  // own days needs no help, and adding today anyway would drag sessions
+  // *forward* off the days he means to train them on. That is not a reflow, it
+  // is a different plan.
+  const todayInWeek = todayId >= weekStartId && todayId <= weekEndId
+  if (
+    remaining.length > openDates.length &&
+    todayInWeek &&
+    !spokenFor.has(todayId) &&
+    !openDates.some((d) => isoDay(d) === todayId)
+  ) {
+    openDates.push(new Date(`${todayId}T00:00:00`))
+  }
+
+  // Still short on days: the weekend takes the spill.
+  if (remaining.length > openDates.length) {
+    for (const d of weekendOf(monday)) {
+      if (openDates.length >= remaining.length) break
+      const id = isoDay(d)
+      if (id < todayId || spokenFor.has(id) || openDates.some((o) => isoDay(o) === id)) continue
+      openDates.push(d)
+    }
+  }
+  openDates.sort((a, b) => a - b)
+
+  const upcomingRows = remaining.map((position, i) => {
+    const date = openDates[i] || null
+    const dateId = date ? isoDay(date) : null
+    return {
+      ...labels[position],
+      splitIndex: position,
+      date,
+      dateId,
+      isToday: dateId === todayId,
+      isPast: false,
+      // No date left in the week to put it on. Shown, not silently dropped.
+      status: date ? 'upcoming' : 'unplaced',
+      completed: false,
+      unscheduled: !!date && !plannedDates.some((d) => isoDay(d) === dateId),
+      sessionId: null,
+    }
+  })
+
+  // A training date already behind us with nothing logged on it. It carries no
+  // split — the split it would have held has reflowed onto a later day.
+  const missedRows = plannedDates
+    .filter((d) => isoDay(d) < todayId && !spokenFor.has(isoDay(d)))
+    .map((date) => ({
+      id: null,
+      name: 'Missed',
+      focus: 'The session moved down the week',
+      splitIndex: null,
+      date,
+      dateId: isoDay(date),
+      isToday: false,
+      isPast: true,
+      status: 'missed',
+      completed: false,
+      unscheduled: false,
+      sessionId: null,
+    }))
+
+  const days = [...doneRows, ...missedRows, ...upcomingRows].sort((a, b) => {
+    // Unplaced sessions have no date and belong at the end, after the week.
+    if (!a.dateId) return 1
+    if (!b.dateId) return -1
+    return a.dateId.localeCompare(b.dateId)
   })
 
   return {
@@ -653,6 +837,54 @@ export function buildSession({
     mesocycle: blockStatus?.mesocycle ?? null,
     estimatedMinutes: estimateSessionMinutes(kept, mobility.totalMinutes),
   }
+}
+
+/**
+ * The prescription, plus any logged exercise it no longer accounts for.
+ *
+ * Review renders the prescription for a day and fills it with the sets that
+ * were logged against it, which works only while the two still describe the
+ * same session. They can now part company: relabelling a session points it at a
+ * different template entirely, and sets logged against a movement the new
+ * template never prescribes would simply not appear on screen.
+ *
+ * Silently hiding logged work is the one thing a review screen must not do, so
+ * anything unaccounted for is appended — rebuilt from the catalogue, with its
+ * set count taken from what was actually performed rather than from a
+ * prescription that no longer applies. It carries no recommended weight: there
+ * is nothing to suggest about a session that has already happened.
+ */
+export function mergeLoggedExercises(session, loggedSession) {
+  if (!session || !loggedSession) return session
+
+  const prescribed = new Set(session.exercises.map((ex) => ex.id))
+  const extra = []
+
+  for (const logged of loggedSession.exercises || []) {
+    if (prescribed.has(logged.id)) continue
+    const exercise = STRENGTH_EXERCISES[logged.id]
+    if (!exercise) continue
+
+    const rows = (logged.sets || []).length
+    const [repMin, repMax] = repRangeFor(exercise)
+    extra.push({
+      ...exercise,
+      slotRole: 'As logged',
+      group: 'main',
+      optional: false,
+      // A per-side movement logs two rows per prescribed set.
+      sets: Math.max(1, exercise.perSide ? Math.ceil(rows / 2) : rows),
+      repRange: [repMin, repMax],
+      restSeconds: restFor(exercise),
+      endurance: false,
+      rirTarget: session.rirTarget,
+      recommendedWeight: 0,
+      recommendedAddedWeight: 0,
+    })
+  }
+
+  if (extra.length === 0) return session
+  return { ...session, exercises: [...session.exercises, ...extra] }
 }
 
 /** The full week, for schedule views. */
