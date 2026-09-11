@@ -837,40 +837,73 @@ export function buildSession({
 }
 
 /**
- * The prescription, plus any logged exercise it no longer accounts for.
+ * How many prescribed sets a count of logged rows amounts to.
+ *
+ * A per-side movement logs two rows per set, so six rows is three sets a side.
+ */
+function setsFromRows(exercise, rows) {
+  return Math.max(1, exercise.perSide ? Math.ceil(rows / 2) : rows)
+}
+
+/**
+ * The prescription, widened to hold everything that was logged against it.
  *
  * Review renders the prescription for a day and fills it with the sets that
  * were logged against it, which works only while the two still describe the
- * same session. They can now part company: relabelling a session points it at a
- * different template entirely, and sets logged against a movement the new
- * template never prescribes would simply not appear on screen.
+ * same session. They part company in two ways, and both used to end with work
+ * that was performed having nowhere on screen to appear.
  *
- * Silently hiding logged work is the one thing a review screen must not do, so
- * anything unaccounted for is appended — rebuilt from the catalogue, with its
- * set count taken from what was actually performed rather than from a
- * prescription that no longer applies. It carries no recommended weight: there
- * is nothing to suggest about a session that has already happened.
+ * The prescription can stop mentioning a movement at all — relabelling a
+ * session points it at a different template entirely — so anything unaccounted
+ * for is appended, rebuilt from the catalogue. It carries no recommended
+ * weight: there is nothing to suggest about a session that has already
+ * happened.
+ *
+ * And the prescription is *derived, not stored*, so it can come back smaller
+ * than the one that was actually trained. The lagging-muscle bonus is the
+ * common case: a pull session is prescribed an extra set on every back and
+ * biceps movement precisely because those muscles are behind, then logging that
+ * session is what clears the deficit — so reopening it rebuilds without the
+ * bonus, one row short on every exercise that earned one. A card draws one row
+ * per prescribed set, so the last set of each simply vanished. The sets were
+ * never lost (they are in the document, and the volume the dashboard reports
+ * counts them), but a review screen that hides logged work is telling the
+ * athlete it forgot a set he remembers doing.
+ *
+ * So the set count is raised to cover the rows on file. Only ever raised: a
+ * session that was cut short should still show the sets it owes, which is what
+ * makes them loggable after the fact.
  */
 export function mergeLoggedExercises(session, loggedSession) {
   if (!session || !loggedSession) return session
 
-  const prescribed = new Set(session.exercises.map((ex) => ex.id))
-  const extra = []
+  const logged = new Map((loggedSession.exercises || []).map((ex) => [ex.id, ex]))
 
-  for (const logged of loggedSession.exercises || []) {
-    if (prescribed.has(logged.id)) continue
-    const exercise = STRENGTH_EXERCISES[logged.id]
+  let widened = false
+  const covered = session.exercises.map((ex) => {
+    const rows = logged.get(ex.id)?.sets?.length
+    if (!rows) return ex
+    const sets = setsFromRows(ex, rows)
+    if (sets <= ex.sets) return ex
+    widened = true
+    return { ...ex, sets }
+  })
+
+  const extra = []
+  const prescribed = new Set(session.exercises.map((ex) => ex.id))
+
+  for (const [id, ex] of logged) {
+    if (prescribed.has(id)) continue
+    const exercise = STRENGTH_EXERCISES[id]
     if (!exercise) continue
 
-    const rows = (logged.sets || []).length
     const [repMin, repMax] = repRangeFor(exercise)
     extra.push({
       ...exercise,
       slotRole: 'As logged',
       group: 'main',
       optional: false,
-      // A per-side movement logs two rows per prescribed set.
-      sets: Math.max(1, exercise.perSide ? Math.ceil(rows / 2) : rows),
+      sets: setsFromRows(exercise, (ex.sets || []).length),
       repRange: [repMin, repMax],
       restSeconds: restFor(exercise),
       endurance: false,
@@ -880,8 +913,8 @@ export function mergeLoggedExercises(session, loggedSession) {
     })
   }
 
-  if (extra.length === 0) return session
-  return { ...session, exercises: [...session.exercises, ...extra] }
+  if (!widened && extra.length === 0) return session
+  return { ...session, exercises: [...covered, ...extra] }
 }
 
 /** The full week, for schedule views. */
