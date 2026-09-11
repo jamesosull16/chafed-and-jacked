@@ -923,6 +923,47 @@ describe('mergeLoggedExercises', () => {
     expect(merged.exercises.at(-1).sets).toBe(3)
   })
 
+  it('widens a prescribed exercise to hold every logged set', () => {
+    const session = prescription()
+    // The lagging-muscle bonus in reverse: the session was trained at five sets
+    // because back was behind, and logging it is what cleared the deficit, so
+    // the rebuild comes back at four. The fifth set must still have a row.
+    const target = session.exercises.find((e) => !e.perSide && e.group !== 'core')
+    const rows = Array.from({ length: target.sets + 1 }, () => ({ reps: 10, completed: true }))
+
+    const merged = mergeLoggedExercises(session, { exercises: [{ id: target.id, sets: rows }] })
+    const widened = merged.exercises.find((e) => e.id === target.id)
+
+    expect(widened.sets).toBe(target.sets + 1)
+    // Widened in place, not appended as a second copy of the same movement.
+    expect(merged.exercises).toHaveLength(session.exercises.length)
+    expect(merged.exercises.filter((e) => e.id === target.id)).toHaveLength(1)
+  })
+
+  it('widens a per-side movement by the set, not by the row', () => {
+    const session = prescription()
+    const target = session.exercises.find((e) => e.perSide)
+    // Four sets a side against a three-set prescription: eight rows, four sets.
+    const rows = Array.from({ length: (target.sets + 1) * 2 }, () => ({ reps: 10, completed: true }))
+
+    const merged = mergeLoggedExercises(session, { exercises: [{ id: target.id, sets: rows }] })
+
+    expect(merged.exercises.find((e) => e.id === target.id).sets).toBe(target.sets + 1)
+  })
+
+  it('never shrinks a prescription to fit a session that was cut short', () => {
+    const session = prescription()
+    // The sets he still owes stay on screen — that is what makes them loggable
+    // after the fact.
+    const target = session.exercises.find((e) => !e.perSide && e.sets > 1)
+    const partial = { id: target.id, sets: [{ reps: 10, completed: true }] }
+
+    const merged = mergeLoggedExercises(session, { exercises: [partial] })
+
+    expect(merged).toBe(session)
+    expect(merged.exercises.find((e) => e.id === target.id).sets).toBe(target.sets)
+  })
+
   it('ignores an id the catalogue has never heard of', () => {
     const session = prescription()
     const merged = mergeLoggedExercises(session, { exercises: [{ id: 'nope', sets: [{}] }] })
